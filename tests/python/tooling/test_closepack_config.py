@@ -141,6 +141,23 @@ def test_render_closepack_toml_roundtrips_with_toml_loader(tmp_path: Path) -> No
     assert schema_errors(tomllib.loads(path.read_text()), schema) == []
 
 
+def test_closepack_icosphere_templates_replace_uv_counts_and_pass_the_schema() -> None:
+    spec = ClosePackSpec(layers=1, radius=0.15, cells_x=1, cells_y=1, sphere_subdivisions=2)
+    config = build_closepack_config(spec)
+    spheres = [part for part in config["mesh"]["parts"] if part["kind"] == "sphere"]
+    schema, _ = load_schema()
+
+    assert spheres
+    assert all(
+        part["tessellation"] == "icosphere"
+        and part["subdivisions"] == 2
+        and "n_lon" not in part
+        and "n_lat" not in part
+        for part in spheres
+    )
+    assert schema_errors(tomllib.loads(render_closepack_toml(config, spec=spec)), schema) == []
+
+
 @pytest.mark.parametrize("field", ["radius", "floor_z", "box_height", "top_clearance"])
 @pytest.mark.parametrize("value", [math.nan, math.inf])
 def test_closepack_spec_rejects_non_finite_geometry(field: str, value: float) -> None:

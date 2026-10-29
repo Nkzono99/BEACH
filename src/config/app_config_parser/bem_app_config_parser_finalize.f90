@@ -178,6 +178,14 @@ contains
         error stop path//'.kind is unknown.'
       end select
       if (.not. cfg%mesh_parts(i)%enabled) cycle
+      if (trim(cfg%mesh_parts(i)%kind) == 'sphere') then
+        select case (trim(cfg%mesh_parts(i)%tessellation))
+        case ('uv', 'icosphere')
+          continue
+        case default
+          error stop path//'.tessellation must be uv or icosphere.'
+        end select
+      end if
       select case (trim(cfg%mesh_parts(i)%surface_side_policy))
       case ('normal_plus', 'normal_minus', 'outward_closed')
         continue

@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `kind = "sphere"` に `tessellation = "icosphere"` と `subdivisions` を追加した。正二十面体を再帰分割した
+  `20 * 4**subdivisions` 要素の球面で、要素面積の最大/最小比は約 1.3 に収まる。既定の `"uv"` は従来どおり
+  `n_lon`, `n_lat` を使う。`beachx model close-pack` は `--sphere-subdivisions` で icosphere の球を生成する。
+
 ### Changed
 
 - 通常の開発テストから周期検証 workflow の全ケースを分離し、代表 3 ケースを残した。

@@ -2,7 +2,8 @@
 program test_templates_importers_runtime
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, surface_model_conductor, surface_model_insulator
-  use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
+  use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere, &
+                           make_icosphere
   use bem_importers, only: load_obj_mesh
   use bem_app_config, only: app_config, default_app_config, build_mesh_from_config
   use test_support, only: test_init, test_begin, test_end, test_summary, &
@@ -80,6 +81,16 @@ program test_templates_importers_runtime
                        'sphere vertices must lie on the requested radius')
   ! With 8 longitudes and 4 latitude bands the equator ring has vertices on both horizontal axes.
   call assert_template_bounds(mesh, shift - 0.4_dp, shift + 0.4_dp, 'sphere')
+
+  ! subdivisions=0 is the icosahedron inscribed in the sphere: edge a = 4 r / sqrt(10 + 2 sqrt 5).
+  call make_icosphere(mesh, radius=0.4_dp, subdivisions=0_i32, center=shift)
+  call assert_template_mesh(mesh, 20_i32, 'icosphere(0)')
+  call assert_close_dp(sum(mesh%panel_area), 5.0_dp*sqrt(3.0_dp)*(1.6_dp/sqrt(10.0_dp + 2.0_dp*sqrt(5.0_dp)))**2, &
+                       1.0e-12_dp, 'icosphere(0) must be the inscribed icosahedron')
+  call assert_icosphere(mesh, 0.4_dp, 'icosphere(0)')
+  call make_icosphere(mesh, radius=0.4_dp, subdivisions=2_i32, center=shift)
+  call assert_template_mesh(mesh, 320_i32, 'icosphere(2)')
+  call assert_icosphere(mesh, 0.4_dp, 'icosphere(2)')
   call test_end()
 
   call test_begin('obj_import')
@@ -267,6 +278,15 @@ program test_templates_importers_runtime
   cfg%mesh_parts(1)%has_cap_bottom = .true.
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32(mesh%nelem, 24_i32, 'template parts cylinder cap_top/cap_bottom mismatch')
+
+  call default_app_config(cfg)
+
+  cfg%mesh_parts(1)%enabled = .true.
+  cfg%mesh_parts(1)%kind = 'sphere'
+  cfg%mesh_parts(1)%tessellation = 'icosphere'
+  cfg%mesh_parts(1)%subdivisions = 1_i32
+  call build_mesh_from_config(cfg, mesh)
+  call assert_equal_i32(mesh%nelem, 80_i32, 'template parts icosphere element count mismatch')
   call test_end()
 
   call delete_file_if_exists(obj_path)
@@ -293,6 +313,39 @@ contains
       trim(label)//' triangles must be finite and non-degenerate' &
       )
   end subroutine assert_template_mesh
+
+  !> 半径 r、中心 shift の icosphere が球面上の頂点・外向き法線・隙間のない閉曲面・ほぼ一様な要素面積を持つことを確かめる。
+  subroutine assert_icosphere(candidate, r, label)
+    type(mesh_type), intent(in) :: candidate
+    real(dp), intent(in) :: r
+    character(len=*), intent(in) :: label
+    real(dp), allocatable :: edge_from(:, :), edge_to(:, :)
+    integer :: i, j, n_edge, n_twin
+    logical :: closed
+
+    call assert_close_dp(maxval(abs(vertex_distance(candidate, shift) - r)), 0.0_dp, 1.0e-12_dp, &
+                         trim(label)//' vertices must lie on the requested radius')
+    call assert_true(all(sum(candidate%normals*(candidate%centers - spread(shift, 2, candidate%nelem)), dim=1) > 0.0_dp), &
+                     trim(label)//' normals must point outward')
+    ! A UV sphere with 24x12 cells already has a 3.9x area spread; the icosphere stays below 1.3.
+    call assert_true(maxval(candidate%panel_area)/minval(candidate%panel_area) < 1.3_dp, &
+                     trim(label)//' element areas must be nearly uniform')
+
+    ! Every directed edge must meet exactly one reversed twin with bitwise-identical vertices.
+    n_edge = 3*candidate%nelem
+    allocate (edge_from(3, n_edge), edge_to(3, n_edge))
+    edge_from = reshape([candidate%v0, candidate%v1, candidate%v2], [3, n_edge])
+    edge_to = reshape([candidate%v1, candidate%v2, candidate%v0], [3, n_edge])
+    closed = .true.
+    do i = 1, n_edge
+      n_twin = 0
+      do j = 1, n_edge
+        if (all(edge_from(:, j) == edge_to(:, i)) .and. all(edge_to(:, j) == edge_from(:, i))) n_twin = n_twin + 1
+      end do
+      closed = closed .and. n_twin == 1
+    end do
+    call assert_true(closed, trim(label)//' must be a closed surface without cracks')
+  end subroutine assert_icosphere
 
   !> 全頂点の軸ごとの最小・最大が期待する箱に一致することを確かめる。
   subroutine assert_template_bounds(candidate, lower, upper, label)

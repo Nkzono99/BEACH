@@ -4377,6 +4377,22 @@
           "default": 12,
           "description": "Latitudinal subdivision count for sphere."
         },
+        "tessellation": {
+          "type": "string",
+          "enum": [
+            "uv",
+            "icosphere"
+          ],
+          "default": "uv",
+          "description": "Sphere tessellation: \"uv\" uses n_lon/n_lat, \"icosphere\" uses subdivisions."
+        },
+        "subdivisions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 2,
+          "description": "Recursive subdivision count for tessellation=\"icosphere\" (20*4**subdivisions elements)."
+        },
         "placement_mode": {
           "$ref": "#/$defs/placementMode",
           "default": "absolute",

@@ -1,10 +1,10 @@
-!> 平面/穴あき平面/円板/リング/箱/円柱/球テンプレートから三角形メッシュを生成するユーティリティ。
+!> 平面/穴あき平面/円板/リング/箱/円柱/球（UV・icosphere）テンプレートから三角形メッシュを生成するユーティリティ。
 module bem_templates
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
   implicit none
-  private :: build_unit_circle
+  private :: build_unit_circle, unit_midpoint
 contains
 
   !> XY平面を `nx*ny` 分割し、各セルを2三角形へ分割したメッシュを生成する。
@@ -458,6 +458,80 @@ contains
 
     call init_mesh(mesh, v0, v1, v2)
   end subroutine make_sphere
+
+  !> 正二十面体の各面を再帰的に 4 分割し、辺中点を球面へ射影した球面三角形メッシュを生成する。
+  !! UV 球と異なり極の特異点がなく、要素面積の最大/最小比は分割数によらず 1.3 程度に収まる。
+  !! 隣接面の共有辺の中点は同じ和 `a+b` から作るため、頂点はビット一致し隙間を生じない。
+  !! @param[out] mesh 生成した球面三角形メッシュ（要素数 `20*4**subdivisions`、法線は外向き）。
+  !! @param[in] radius 球半径 [m]（省略時 0.5）。
+  !! @param[in] subdivisions 再帰分割回数（省略時 2、`0..10`）。
+  !! @param[in] center 球中心座標 `(x,y,z)` [m]（省略時原点）。
+  subroutine make_icosphere(mesh, radius, subdivisions, center)
+    type(mesh_type), intent(out) :: mesh
+    real(dp), intent(in), optional :: radius, center(3)
+    integer(i32), intent(in), optional :: subdivisions
+    real(dp) :: r, c(3), t, ab(3), bc(3), ca(3)
+    integer(i32) :: nsub, level, i, nface, k
+    integer(i32), parameter :: faces(3, 20) = reshape([ &
+                                                      1, 12, 6, 1, 6, 2, 1, 2, 8, 1, 8, 11, 1, 11, 12, &
+                                                      2, 6, 10, 6, 12, 5, 12, 11, 3, 11, 8, 7, 8, 2, 9, &
+                                                      4, 10, 5, 4, 5, 3, 4, 3, 7, 4, 7, 9, 4, 9, 10, &
+                                                      5, 10, 6, 3, 5, 12, 7, 3, 11, 9, 7, 8, 10, 9, 2], [3, 20])
+    real(dp) :: verts(3, 12)
+    real(dp), allocatable :: tri(:, :, :), next(:, :, :)
+
+    r = 0.5d0; nsub = 2; c = 0.0d0
+    if (present(radius)) r = radius
+    if (present(subdivisions)) nsub = subdivisions
+    if (present(center)) c = center
+    if (nsub < 0 .or. nsub > 10) error stop "subdivisions must be in [0, 10]"
+
+    t = 0.5d0*(1.0d0 + sqrt(5.0d0))
+    verts = reshape([ &
+                    -1.0d0, t, 0.0d0, 1.0d0, t, 0.0d0, -1.0d0, -t, 0.0d0, 1.0d0, -t, 0.0d0, &
+                    0.0d0, -1.0d0, t, 0.0d0, 1.0d0, t, 0.0d0, -1.0d0, -t, 0.0d0, 1.0d0, -t, &
+                    t, 0.0d0, -1.0d0, t, 0.0d0, 1.0d0, -t, 0.0d0, -1.0d0, -t, 0.0d0, 1.0d0], [3, 12])
+    verts = verts/sqrt(1.0d0 + t*t)
+
+    nface = 20
+    allocate (tri(3, 3, nface))
+    do i = 1, nface
+      do k = 1, 3
+        tri(:, k, i) = verts(:, faces(k, i))
+      end do
+    end do
+
+    do level = 1, nsub
+      allocate (next(3, 3, 4*nface))
+      do i = 1, nface
+        ab = unit_midpoint(tri(:, 1, i), tri(:, 2, i))
+        bc = unit_midpoint(tri(:, 2, i), tri(:, 3, i))
+        ca = unit_midpoint(tri(:, 3, i), tri(:, 1, i))
+        next(:, :, 4*i - 3) = reshape([tri(:, 1, i), ab, ca], [3, 3])
+        next(:, :, 4*i - 2) = reshape([ab, tri(:, 2, i), bc], [3, 3])
+        next(:, :, 4*i - 1) = reshape([ca, bc, tri(:, 3, i)], [3, 3])
+        next(:, :, 4*i) = reshape([ab, bc, ca], [3, 3])
+      end do
+      call move_alloc(next, tri)
+      nface = 4*nface
+    end do
+
+    do i = 1, nface
+      do k = 1, 3
+        tri(:, k, i) = c + r*tri(:, k, i)
+      end do
+    end do
+    call init_mesh(mesh, tri(:, 1, :), tri(:, 2, :), tri(:, 3, :))
+  end subroutine make_icosphere
+
+  !> 単位球面上の 2 点を結ぶ弦の中点を単位球面へ射影する。
+  !! `a+b` は加算の可換性により引数順に依らずビット一致する。
+  pure function unit_midpoint(a, b) result(p)
+    real(dp), intent(in) :: a(3), b(3)
+    real(dp) :: p(3)
+    p = a + b
+    p = p/norm2(p)
+  end function unit_midpoint
 
   !> XY平面上で、中心からのレイと長方形境界の最短交点を返す。
   subroutine ray_to_rectangle(hx, hy, dx, dy, x_min, x_max, y_min, y_max, z_plane, p, edge_id)

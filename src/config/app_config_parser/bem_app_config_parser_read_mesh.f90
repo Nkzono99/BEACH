@@ -211,6 +211,11 @@ contains
       call get_toml_int(table, keys(ikey), spec%n_lon, mesh_part_config_path(part_idx)//'.n_lon')
     case ('n_lat')
       call get_toml_int(table, keys(ikey), spec%n_lat, mesh_part_config_path(part_idx)//'.n_lat')
+    case ('tessellation')
+      call get_toml_string(table, keys(ikey), spec%tessellation, mesh_part_config_path(part_idx)//'.tessellation')
+      spec%tessellation = lower_ascii(trim(spec%tessellation))
+    case ('subdivisions')
+      call get_toml_int(table, keys(ikey), spec%subdivisions, mesh_part_config_path(part_idx)//'.subdivisions')
     case ('group')
       call get_toml_string(table, keys(ikey), auth%group, mesh_part_config_path(part_idx)//'.group')
       auth%has_group = .true.

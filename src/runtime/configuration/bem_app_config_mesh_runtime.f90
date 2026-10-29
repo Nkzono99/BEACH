@@ -3,7 +3,8 @@ module bem_app_config_mesh_runtime
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type
   use bem_types, only: surface_model_insulator, surface_model_conductor, surface_model_dielectric
-  use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
+  use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere, &
+                           make_icosphere
   use bem_mesh, only: init_mesh
   use bem_panel_surface_sides, only: resolve_panel_surface_sides_by_mesh_id, panel_surface_side_ok
   use bem_importers, only: load_obj_mesh
@@ -201,7 +202,11 @@ contains
         cap=spec%cap, center=spec%center, cap_top=cap_top, cap_bottom=cap_bottom &
         )
     case ('sphere')
-      call make_sphere(mesh, radius=spec%radius, n_lon=spec%n_lon, n_lat=spec%n_lat, center=spec%center)
+      if (trim(spec%tessellation) == 'icosphere') then
+        call make_icosphere(mesh, radius=spec%radius, subdivisions=spec%subdivisions, center=spec%center)
+      else
+        call make_sphere(mesh, radius=spec%radius, n_lon=spec%n_lon, n_lat=spec%n_lat, center=spec%center)
+      end if
     case default
       error stop 'Unknown template kind in config.'
     end select

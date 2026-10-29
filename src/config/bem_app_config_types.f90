@@ -125,6 +125,8 @@ module bem_app_config_types
     logical :: has_cap_bottom = .false.
     integer(i32) :: n_lon = 24
     integer(i32) :: n_lat = 12
+    character(len=16) :: tessellation = 'uv'
+    integer(i32) :: subdivisions = 2
   end type template_spec
 
   !> 実行条件・メッシュ入力・粒子注入・出力設定を一元管理する。
