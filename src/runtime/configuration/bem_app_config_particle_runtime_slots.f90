@@ -19,7 +19,7 @@ contains
   !! @param[inout] snapshot refresh 済み静電 snapshot（注入電位補正の使用時に必要）。
   !! @param[in] source_plan run 中に再利用する粒子 source 導出値（`build_particle_source_plan` で同じ MPI 文脈から構築）。
   module procedure build_batch_injection_layout
-  integer(i32) :: s, face, local_rank, n_ranks, segment, slot, local_index
+  integer(i32) :: s, face, local_rank, n_ranks, segment
   logical :: use_collective_reservoir_count
   type(particle_species_spec) :: face_spec
   real(dp) :: correction_vmin_normal, kinetic_vmin_normal, kinetic_barrier_normal, face_density_m3
@@ -156,29 +156,39 @@ contains
       call push_segment(s, slot_kind_reservoir_face, face, layout%boundary_global_count(face, s))
     end do
   end do
-  ! Hand the slots out round-robin over the segments, as the static batch interleaves species.
-  allocate (layout%slot_segment(layout%total_slots), layout%slot_index(layout%total_slots))
-  slot = 0_i32
-  do local_index = 1_i32, max_segment_length()
-    do segment = 1_i32, layout%nsegments
-      if (local_index > layout%segment_end(segment) - layout%segment_begin(segment) + 1_i32) cycle
-      slot = slot + 1_i32
-      layout%slot_segment(slot) = segment
-      layout%slot_index(slot) = local_index
-    end do
-  end do
-  if (slot /= layout%total_slots) error stop 'batch injection slot order does not cover every slot.'
+  ! Slots go out round-robin over the segments, as the static batch interleaves species; locate_slot
+  ! resolves that order per band of equal active-segment count instead of storing it per slot.
+  call build_slot_bands()
   layout%ready = .true.
 
 contains
-  pure integer(i32) function max_segment_length() result(length)
-    integer(i32) :: g
+  !> 相異なる segment 長を昇順に並べ、帯ごとの最後の slot を求める。
+  subroutine build_slot_bands()
+    integer(i32), allocatable :: lengths(:)
+    integer(i32) :: previous, current, g
+    integer(i64) :: last_slot
 
-    length = 0_i32
-    do g = 1_i32, layout%nsegments
-      length = max(length, layout%segment_end(g) - layout%segment_begin(g) + 1_i32)
+    lengths = layout%segment_end - layout%segment_begin + 1_i32
+    allocate (layout%band_length(0:layout%nsegments), layout%band_last_slot(0:layout%nsegments))
+    layout%band_length(0) = 0_i32
+    layout%band_last_slot(0) = 0_i32
+    layout%nbands = 0_i32
+    last_slot = 0_i64
+    previous = 0_i32
+    do
+      current = huge(0_i32)
+      do g = 1_i32, layout%nsegments
+        if (lengths(g) > previous) current = min(current, lengths(g))
+      end do
+      if (current == huge(0_i32)) exit
+      layout%nbands = layout%nbands + 1_i32
+      last_slot = last_slot + int(current - previous, i64)*int(count(lengths >= current), i64)
+      layout%band_length(layout%nbands) = current
+      layout%band_last_slot(layout%nbands) = int(last_slot, i32)
+      previous = current
     end do
-  end function max_segment_length
+    if (last_slot /= int(layout%total_slots, i64)) error stop 'batch injection slot order does not cover every slot.'
+  end subroutine build_slot_bands
 
   subroutine push_segment(species, kind, face_index, count)
     integer(i32), intent(in) :: species, kind, face_index, count
@@ -209,8 +219,7 @@ contains
 
   if (.not. layout%ready) error stop 'batch injection layout is not initialized.'
   if (slot < 1_i32 .or. slot > layout%total_slots) error stop 'batch injection slot is out of range.'
-  segment = layout%slot_segment(slot)
-  local_index = layout%slot_index(slot)
+  call layout%locate_slot(slot, segment, local_index)
   s = layout%segment_species(segment)
   kind = layout%segment_kind(segment)
   face = layout%segment_face(segment)

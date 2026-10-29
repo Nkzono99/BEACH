@@ -76,10 +76,16 @@ module bem_app_config_particle_runtime
     integer(i32), allocatable :: segment_face(:)
     integer(i32), allocatable :: segment_begin(:)
     integer(i32), allocatable :: segment_end(:)
-    !> global slot -> (segment, segment 内 index)。slot は segment を round-robin に回って並ぶので、
-    !! 取り合う順に種が混ざり、static の round-robin 組み立てと同じ処理順になる。
-    integer(i32), allocatable :: slot_segment(:)
-    integer(i32), allocatable :: slot_index(:)
+    !> slot は segment を round-robin に回って並ぶ（segment 内 index k の周回で、長さが k 以上の segment を順に取る）。
+    !! 取り合う順に種が混ざり、static の round-robin 組み立てと同じ処理順になる。slot ごとの表は持たず、
+    !! segment 長の相異なる値ごとの帯で `locate_slot` が (segment, segment 内 index) を求める。
+    !! 帯 b は segment 内 index が `band_length(b-1)+1 .. band_length(b)` の周回で、`band_length(0)=0`。
+    integer(i32) :: nbands = 0_i32
+    integer(i32), allocatable :: band_length(:)
+    !> 帯 b の最後の global slot（`band_last_slot(0)=0`）。
+    integer(i32), allocatable :: band_last_slot(:)
+  contains
+    procedure :: locate_slot => locate_batch_slot
   end type batch_injection_layout_type
 
   interface
@@ -157,6 +163,35 @@ module bem_app_config_particle_runtime
   end interface
 
 contains
+
+  !> global slot から (segment, segment 内 index) を求める。O(nsegments) で、slot ごとの表を持たない。
+  !! @param[in] slot `1..total_slots` の global slot。
+  !! @param[out] segment slot が属する segment。
+  !! @param[out] local_index segment 内の 1 始まり index。
+  pure subroutine locate_batch_slot(self, slot, segment, local_index)
+    class(batch_injection_layout_type), intent(in) :: self
+    integer(i32), intent(in) :: slot
+    integer(i32), intent(out) :: segment, local_index
+    integer(i32) :: band, active, offset, rank_in_round, g
+
+    band = 1_i32
+    do while (self%band_last_slot(band) < slot)
+      band = band + 1_i32
+    end do
+    active = count(self%segment_end - self%segment_begin + 1_i32 >= self%band_length(band))
+    offset = slot - self%band_last_slot(band - 1_i32) - 1_i32
+    local_index = self%band_length(band - 1_i32) + offset/active + 1_i32
+    rank_in_round = mod(offset, active) + 1_i32
+    segment = 0_i32
+    do g = 1_i32, self%nsegments
+      if (self%segment_end(g) - self%segment_begin(g) + 1_i32 < self%band_length(band)) cycle
+      rank_in_round = rank_in_round - 1_i32
+      if (rank_in_round == 0_i32) then
+        segment = g
+        return
+      end if
+    end do
+  end subroutine locate_batch_slot
 
   !> バッチ生成前に乱数シードだけを初期化する。
   !! @param[in] cfg 乱数シード値 `sim.rng_seed` を含むアプリ設定。

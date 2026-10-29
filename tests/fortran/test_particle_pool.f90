@@ -29,7 +29,7 @@ program test_particle_pool
   integer(i32) :: species_idx, source_element, collision_status, bounce_count
   integer(i32) :: species_idx2, source_element2, collision_status2, bounce_count2
   logical :: emitted, emitted2
-  integer(i32) :: slot
+  integer(i32) :: slot, segment, local_index
 
   call test_init(9)
 
@@ -54,11 +54,14 @@ program test_particle_pool
   call assert_equal_i32(layout%segment_end(2), 6_i32, 'segment 2 end mismatch')
   call assert_equal_i32(layout%boundary_global_count(5, 2), 1_i32, 'reservoir global count mismatch')
   ! Slots interleave the segments round-robin: volume, reservoir, volume, volume, ...
-  call assert_equal_i32(layout%slot_segment(1), 1_i32, 'slot 1 should come from the volume segment')
-  call assert_equal_i32(layout%slot_segment(2), 2_i32, 'slot 2 should come from the reservoir segment')
-  call assert_equal_i32(layout%slot_index(2), 1_i32, 'slot 2 segment index mismatch')
-  call assert_equal_i32(layout%slot_segment(6), 1_i32, 'slot 6 should come from the volume segment')
-  call assert_equal_i32(layout%slot_index(6), 5_i32, 'slot 6 segment index mismatch')
+  call layout%locate_slot(1_i32, segment, local_index)
+  call assert_equal_i32(segment, 1_i32, 'slot 1 should come from the volume segment')
+  call layout%locate_slot(2_i32, segment, local_index)
+  call assert_equal_i32(segment, 2_i32, 'slot 2 should come from the reservoir segment')
+  call assert_equal_i32(local_index, 1_i32, 'slot 2 segment index mismatch')
+  call layout%locate_slot(6_i32, segment, local_index)
+  call assert_equal_i32(segment, 1_i32, 'slot 6 should come from the volume segment')
+  call assert_equal_i32(local_index, 5_i32, 'slot 6 segment index mismatch')
   ! The static path samples the same global counts on one rank.
   allocate (state_static%macro_residual(2), state_static%boundary_macro_residual(6, 2))
   state_static%macro_residual = 0.0_dp
@@ -92,7 +95,8 @@ program test_particle_pool
                      'the same slot must regenerate the same particle')
     call assert_equal_i32(species_idx, species_idx2, 'the same slot must regenerate the same species')
     call assert_equal_i32(source_element, -1_i32, 'volume and reservoir slots have no source element')
-    if (layout%slot_segment(slot) == 1_i32) then
+    call layout%locate_slot(slot, segment, local_index)
+    if (segment == 1_i32) then
       call assert_equal_i32(species_idx, 1_i32, 'volume slot species mismatch')
       call assert_true(all(x >= cfg%particle_species(1)%pos_low) .and. all(x <= cfg%particle_species(1)%pos_high), &
                        'volume slot position must lie in the seed box')
@@ -239,6 +243,7 @@ contains
     end do
     call seed_particles_from_config(app)
     call build_particle_source_plan(app, plan)
+    call assert_slot_order_is_round_robin(app, plan)
     call init_particle_batch_from_config(app, 1_i32, particles, source_plan=plan)
     ! The interleaving order is layout_segments_follow_static_order's contract; here every particle must carry
     ! the attributes of its own species, and disabled species emit nothing.
@@ -264,6 +269,30 @@ contains
     call assert_true(size(particles%x, 1) == 3 .and. size(particles%x, 2) == 0, 'empty batch position shape mismatch')
     call assert_true(size(particles%species_id) == 0 .and. size(particles%alive) == 0, 'empty batch state mismatch')
   end subroutine test_uneven_species_batch
+
+  !> Slots of segments with unequal lengths follow the round-robin enumeration: round k takes, in segment
+  !> order, every segment that has at least k slots.
+  subroutine assert_slot_order_is_round_robin(app, plan)
+    type(app_config), intent(in) :: app
+    type(particle_source_plan_type), intent(in) :: plan
+    type(batch_injection_layout_type) :: uneven_layout
+    integer(i32) :: k, g, expected_slot, segment, local_index, lengths(16)
+
+    call build_batch_injection_layout(app, 1_i32, uneven_layout, source_plan=plan)
+    lengths(:uneven_layout%nsegments) = uneven_layout%segment_end - uneven_layout%segment_begin + 1_i32
+    call assert_equal_i32(uneven_layout%nsegments, 3_i32, 'uneven layout segment count mismatch')
+    expected_slot = 0_i32
+    do k = 1_i32, maxval(lengths(:uneven_layout%nsegments))
+      do g = 1_i32, uneven_layout%nsegments
+        if (lengths(g) < k) cycle
+        expected_slot = expected_slot + 1_i32
+        call uneven_layout%locate_slot(expected_slot, segment, local_index)
+        call assert_equal_i32(segment, g, 'round-robin slot segment mismatch')
+        call assert_equal_i32(local_index, k, 'round-robin slot index mismatch')
+      end do
+    end do
+    call assert_equal_i32(expected_slot, uneven_layout%total_slots, 'round-robin slot count mismatch')
+  end subroutine assert_slot_order_is_round_robin
 
   !> volume、密度 0 の reservoir、photo_raycast が混在する batch の粒子数・電荷・光電子の反作用電荷の配分。
   subroutine test_photo_batch()

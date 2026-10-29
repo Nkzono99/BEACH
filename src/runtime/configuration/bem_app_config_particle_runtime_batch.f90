@@ -22,7 +22,7 @@ contains
   module procedure init_particle_batch_from_config
 
   integer(i32) :: local_rank, n_ranks, local_count, slot_begin, local_slot, n_emit, out_idx, failed_slot
-  integer(i32) :: s, elem
+  integer(i32) :: s, elem, failed_segment, failed_ray
   type(batch_injection_layout_type) :: layout
   real(dp), allocatable :: gx(:, :), gv(:, :), gw(:), gq(:), gm(:)
   integer(i32), allocatable :: gspecies(:), gelement(:), gstatus(:), gbounce(:)
@@ -75,9 +75,9 @@ contains
     exit
   end do
   if (failed_slot > 0_i32) then
+    call layout%locate_slot(slot_begin + failed_slot - 1_i32, failed_segment, failed_ray)
     call finalize_particle_batch_collision_query( &
-      gstatus(failed_slot), batch_idx, gspecies(failed_slot), &
-      layout%slot_index(slot_begin + failed_slot - 1_i32), gbounce(failed_slot), photo_failure &
+      gstatus(failed_slot), batch_idx, gspecies(failed_slot), failed_ray, gbounce(failed_slot), photo_failure &
       )
     call allocate_particles(pcls, 0_i32)
     if (present(slot_ids)) allocate (slot_ids(0))
