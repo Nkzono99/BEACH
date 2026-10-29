@@ -1,10 +1,11 @@
-!> 平面/穴あき平面/円板/リング/箱/円柱/球テンプレートから三角形メッシュを生成するユーティリティ。
+!> 平面/穴あき平面/円板/リング/箱/円柱/球（UV・icosphere）テンプレートから三角形メッシュを生成するユーティリティ。
 module bem_templates
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
   implicit none
-  private :: build_unit_circle
+  private :: build_unit_circle, unit_midpoint, snap_rectangle_corner, uniform_ring_points, uniform_annulus_count, &
+             push_uniform_annulus
 contains
 
   !> XY平面を `nx*ny` 分割し、各セルを2三角形へ分割したメッシュを生成する。
@@ -58,10 +59,12 @@ contains
   !! @param[in] n_theta 周方向分割数（省略時 24）。
   !! @param[in] n_r 半径方向分割数（省略時 8）。
   !! @param[in] center 円板中心座標 `(x,y,z)` [m]（省略時原点）。
-  subroutine make_disk(mesh, radius, n_theta, n_r, center)
+  !! @param[in] uniform 要素面積がほぼ一様なリング配置にするか（省略時 `.false.`、`make_annulus` 参照）。
+  subroutine make_disk(mesh, radius, n_theta, n_r, center, uniform)
     type(mesh_type), intent(out) :: mesh
     real(dp), intent(in), optional :: radius, center(3)
     integer(i32), intent(in), optional :: n_theta, n_r
+    logical, intent(in), optional :: uniform
     real(dp) :: r, c(3)
     integer(i32) :: nt, nr0
 
@@ -70,7 +73,7 @@ contains
     if (present(n_theta)) nt = n_theta
     if (present(n_r)) nr0 = n_r
     if (present(center)) c = center
-    call make_annulus(mesh, radius=r, inner_radius=0.0d0, n_theta=nt, n_r=nr0, center=c)
+    call make_annulus(mesh, radius=r, inner_radius=0.0d0, n_theta=nt, n_r=nr0, center=c, uniform=uniform)
   end subroutine make_disk
 
   !> XY平面上の同心リングを極座標分割し、三角形メッシュを生成する。
@@ -80,10 +83,13 @@ contains
   !! @param[in] n_theta 周方向分割数（省略時 24）。
   !! @param[in] n_r 半径方向分割数（省略時 4）。
   !! @param[in] center リング中心座標 `(x,y,z)` [m]（省略時原点）。
-  subroutine make_annulus(mesh, radius, inner_radius, n_theta, n_r, center)
+  !! @param[in] uniform `.true.` なら各リングの周方向点数を半径に比例させ、要素面積をほぼ一様にする
+  !!   （省略時 `.false.`: 全リング `n_theta` 点で、要素面積が半径に比例する極座標格子）。
+  subroutine make_annulus(mesh, radius, inner_radius, n_theta, n_r, center, uniform)
     type(mesh_type), intent(out) :: mesh
     real(dp), intent(in), optional :: radius, inner_radius, center(3)
     integer(i32), intent(in), optional :: n_theta, n_r
+    logical, intent(in), optional :: uniform
     real(dp) :: r_out, r_in, c(3), r0, r1, dr
     integer(i32) :: nt, nr0, ir, it, itri, nelem
     real(dp) :: p00(3), p01(3), p10(3), p11(3), center_p(3)
@@ -99,6 +105,17 @@ contains
     if (r_out <= 0.0d0) error stop "radius must be > 0"
     if (r_in < 0.0d0) error stop "inner_radius must be >= 0"
     if (r_in >= r_out) error stop "inner_radius must be smaller than radius"
+
+    if (present(uniform)) then
+      if (uniform) then
+        nelem = uniform_annulus_count(r_in, r_out, nt, nr0)
+        allocate (v0(3, nelem), v1(3, nelem), v2(3, nelem))
+        itri = 0
+        call push_uniform_annulus(v0, v1, v2, itri, c, r_in, r_out, nt, nr0, .false.)
+        call init_mesh(mesh, v0, v1, v2)
+        return
+      end if
+    end if
 
     if (r_in <= 0.0d0) then
       nelem = nt*(2*nr0 - 1)
@@ -149,6 +166,7 @@ contains
     real(dp) :: p00(3), p01(3), p10(3), p11(3), corners(3, 3)
     integer(i32) :: nt, nr0, it, ir, itri, nelem, n_corner, k
     integer(i32), allocatable :: edge_ids(:)
+    logical, allocatable :: at_corner(:)
     real(dp), allocatable :: hole_pts(:, :), outer_pts(:, :)
     real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :)
 
@@ -170,7 +188,7 @@ contains
     if (r_hole <= 0.0d0) error stop "radius must be > 0 for plate_hole"
     if (r_hole >= min_margin) error stop "plate_hole radius must be smaller than half-width/half-height"
 
-    allocate (hole_pts(3, nt + 1), outer_pts(3, nt + 1), edge_ids(nt + 1))
+    allocate (hole_pts(3, nt + 1), outer_pts(3, nt + 1), edge_ids(nt + 1), at_corner(nt + 1))
     pi = acos(-1.0d0)
     do it = 0, nt
       angle = 2.0d0*pi*real(it, dp)/real(nt, dp)
@@ -178,11 +196,15 @@ contains
       call ray_to_rectangle( &
         c(1), c(2), cos(angle), sin(angle), x_min, x_max, y_min, y_max, c(3), outer_pts(:, it + 1), edge_ids(it + 1) &
         )
+      call snap_rectangle_corner( &
+        outer_pts(:, it + 1), edge_ids(it + 1), at_corner(it + 1), x_min, x_max, y_min, y_max, 1.0d-9*max(sx, sy) &
+        )
     end do
 
+    ! A spoke that ends on a corner already supplies that corner, so the fan starts after it.
     nelem = 2*nt*nr0
     do it = 1, nt
-      nelem = nelem + transition_corner_count(edge_ids(it), edge_ids(it + 1))
+      nelem = nelem + transition_corner_count(edge_ids(it), edge_ids(it + 1)) - merge(1, 0, at_corner(it))
     end do
     allocate (v0(3, nelem), v1(3, nelem), v2(3, nelem))
 
@@ -202,6 +224,10 @@ contains
       call transition_corners( &
         edge_ids(it), edge_ids(it + 1), x_min, x_max, y_min, y_max, c(3), corners, n_corner &
         )
+      if (at_corner(it)) then
+        corners(:, 1:2) = corners(:, 2:3)
+        n_corner = n_corner - 1
+      end if
       if (n_corner > 0) then
         if (n_corner == 1) then
           call push_tri(v0, v1, v2, itri, outer_pts(:, it), corners(:, 1), outer_pts(:, it + 1))
@@ -341,14 +367,17 @@ contains
   !! @param[in] center 円柱中心座標 `(x,y,z)` [m]（省略時原点）。
   !! @param[in] cap_top 上面キャップを生成するか（省略時 `.true.`）。
   !! @param[in] cap_bottom 下面キャップを生成するか（省略時 `.true.`）。
-  subroutine make_cylinder(mesh, radius, height, n_theta, n_z, cap, center, cap_top, cap_bottom)
+  !! @param[in] uniform_cap `.true.` ならキャップを `n_r` リングの一様配置の円板にする
+  !!   （省略時 `.false.`: 中心から外周への `n_theta` 枚の扇）。
+  !! @param[in] n_r `uniform_cap` のキャップの半径方向分割数（省略時 4）。
+  subroutine make_cylinder(mesh, radius, height, n_theta, n_z, cap, center, cap_top, cap_bottom, uniform_cap, n_r)
     type(mesh_type), intent(out) :: mesh
     real(dp), intent(in), optional :: radius, height, center(3)
-    integer(i32), intent(in), optional :: n_theta, n_z
-    logical, intent(in), optional :: cap, cap_top, cap_bottom
+    integer(i32), intent(in), optional :: n_theta, n_z, n_r
+    logical, intent(in), optional :: cap, cap_top, cap_bottom, uniform_cap
     real(dp) :: r, h, c(3), z0, z1
-    integer(i32) :: nt, nz0, iz, it, nelem, itri
-    logical :: cap_top0, cap_bottom0
+    integer(i32) :: nt, nz0, iz, it, nelem, itri, ncap, nr0
+    logical :: cap_top0, cap_bottom0, uniform_cap0
     real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :), circle(:, :)
 
     r = 0.5d0; h = 1.0d0; nt = 24; nz0 = 1; cap_top0 = .true.; cap_bottom0 = .true.; c = 0.0d0
@@ -363,17 +392,25 @@ contains
     if (present(cap_top)) cap_top0 = cap_top
     if (present(cap_bottom)) cap_bottom0 = cap_bottom
     if (present(center)) c = center
+    uniform_cap0 = .false.; nr0 = 4
+    if (present(uniform_cap)) uniform_cap0 = uniform_cap
+    if (present(n_r)) nr0 = n_r
     if (nt < 3 .or. nz0 <= 0) error stop "n_theta >= 3 and n_z > 0"
+    if (uniform_cap0 .and. nr0 <= 0) error stop "n_r > 0"
 
+    ncap = nt
+    if (uniform_cap0) ncap = uniform_annulus_count(0.0d0, r, nt, nr0)
     nelem = 2*nt*nz0
-    if (cap_bottom0) nelem = nelem + nt
-    if (cap_top0) nelem = nelem + nt
+    if (cap_bottom0) nelem = nelem + ncap
+    if (cap_top0) nelem = nelem + ncap
     allocate (v0(3, nelem), v1(3, nelem), v2(3, nelem)); itri = 0
 
     call build_unit_circle(nt, circle)
     do iz = 0, nz0 - 1
       z0 = c(3) - 0.5d0*h + h*real(iz, dp)/real(nz0, dp)
       z1 = c(3) - 0.5d0*h + h*real(iz + 1, dp)/real(nz0, dp)
+      ! The top ring uses the cap height expression so side and top cap share their rim vertices.
+      if (iz == nz0 - 1) z1 = c(3) + 0.5d0*h
       do it = 0, nt - 1
         call push_tri(v0, v1, v2, itri, &
                       [c(1) + r*circle(1, it), c(2) + r*circle(2, it), z0], &
@@ -386,21 +423,30 @@ contains
       end do
     end do
 
+    ! A uniform cap's outermost ring reuses the side circle, so the cap rim sits on the side vertices.
     if (cap_bottom0) then
-      do it = 0, nt - 1
-        call push_tri(v0, v1, v2, itri, &
-                      [c(1), c(2), c(3) - 0.5d0*h], &
-                      [c(1) + r*circle(1, it + 1), c(2) + r*circle(2, it + 1), c(3) - 0.5d0*h], &
-                      [c(1) + r*circle(1, it), c(2) + r*circle(2, it), c(3) - 0.5d0*h])
-      end do
+      if (uniform_cap0) then
+        call push_uniform_annulus(v0, v1, v2, itri, [c(1), c(2), c(3) - 0.5d0*h], 0.0d0, r, nt, nr0, .true.)
+      else
+        do it = 0, nt - 1
+          call push_tri(v0, v1, v2, itri, &
+                        [c(1), c(2), c(3) - 0.5d0*h], &
+                        [c(1) + r*circle(1, it + 1), c(2) + r*circle(2, it + 1), c(3) - 0.5d0*h], &
+                        [c(1) + r*circle(1, it), c(2) + r*circle(2, it), c(3) - 0.5d0*h])
+        end do
+      end if
     end if
     if (cap_top0) then
-      do it = 0, nt - 1
-        call push_tri(v0, v1, v2, itri, &
-                      [c(1), c(2), c(3) + 0.5d0*h], &
-                      [c(1) + r*circle(1, it), c(2) + r*circle(2, it), c(3) + 0.5d0*h], &
-                      [c(1) + r*circle(1, it + 1), c(2) + r*circle(2, it + 1), c(3) + 0.5d0*h])
-      end do
+      if (uniform_cap0) then
+        call push_uniform_annulus(v0, v1, v2, itri, [c(1), c(2), c(3) + 0.5d0*h], 0.0d0, r, nt, nr0, .false.)
+      else
+        do it = 0, nt - 1
+          call push_tri(v0, v1, v2, itri, &
+                        [c(1), c(2), c(3) + 0.5d0*h], &
+                        [c(1) + r*circle(1, it), c(2) + r*circle(2, it), c(3) + 0.5d0*h], &
+                        [c(1) + r*circle(1, it + 1), c(2) + r*circle(2, it + 1), c(3) + 0.5d0*h])
+        end do
+      end if
     end if
 
     call init_mesh(mesh, v0, v1, v2)
@@ -459,6 +505,80 @@ contains
     call init_mesh(mesh, v0, v1, v2)
   end subroutine make_sphere
 
+  !> 正二十面体の各面を再帰的に 4 分割し、辺中点を球面へ射影した球面三角形メッシュを生成する。
+  !! UV 球と異なり極の特異点がなく、要素面積の最大/最小比は分割数によらず 1.3 程度に収まる。
+  !! 隣接面の共有辺の中点は同じ和 `a+b` から作るため、頂点はビット一致し隙間を生じない。
+  !! @param[out] mesh 生成した球面三角形メッシュ（要素数 `20*4**subdivisions`、法線は外向き）。
+  !! @param[in] radius 球半径 [m]（省略時 0.5）。
+  !! @param[in] subdivisions 再帰分割回数（省略時 2、`0..10`）。
+  !! @param[in] center 球中心座標 `(x,y,z)` [m]（省略時原点）。
+  subroutine make_icosphere(mesh, radius, subdivisions, center)
+    type(mesh_type), intent(out) :: mesh
+    real(dp), intent(in), optional :: radius, center(3)
+    integer(i32), intent(in), optional :: subdivisions
+    real(dp) :: r, c(3), t, ab(3), bc(3), ca(3)
+    integer(i32) :: nsub, level, i, nface, k
+    integer(i32), parameter :: faces(3, 20) = reshape([ &
+                                                      1, 12, 6, 1, 6, 2, 1, 2, 8, 1, 8, 11, 1, 11, 12, &
+                                                      2, 6, 10, 6, 12, 5, 12, 11, 3, 11, 8, 7, 8, 2, 9, &
+                                                      4, 10, 5, 4, 5, 3, 4, 3, 7, 4, 7, 9, 4, 9, 10, &
+                                                      5, 10, 6, 3, 5, 12, 7, 3, 11, 9, 7, 8, 10, 9, 2], [3, 20])
+    real(dp) :: verts(3, 12)
+    real(dp), allocatable :: tri(:, :, :), next(:, :, :)
+
+    r = 0.5d0; nsub = 2; c = 0.0d0
+    if (present(radius)) r = radius
+    if (present(subdivisions)) nsub = subdivisions
+    if (present(center)) c = center
+    if (nsub < 0 .or. nsub > 10) error stop "subdivisions must be in [0, 10]"
+
+    t = 0.5d0*(1.0d0 + sqrt(5.0d0))
+    verts = reshape([ &
+                    -1.0d0, t, 0.0d0, 1.0d0, t, 0.0d0, -1.0d0, -t, 0.0d0, 1.0d0, -t, 0.0d0, &
+                    0.0d0, -1.0d0, t, 0.0d0, 1.0d0, t, 0.0d0, -1.0d0, -t, 0.0d0, 1.0d0, -t, &
+                    t, 0.0d0, -1.0d0, t, 0.0d0, 1.0d0, -t, 0.0d0, -1.0d0, -t, 0.0d0, 1.0d0], [3, 12])
+    verts = verts/sqrt(1.0d0 + t*t)
+
+    nface = 20
+    allocate (tri(3, 3, nface))
+    do i = 1, nface
+      do k = 1, 3
+        tri(:, k, i) = verts(:, faces(k, i))
+      end do
+    end do
+
+    do level = 1, nsub
+      allocate (next(3, 3, 4*nface))
+      do i = 1, nface
+        ab = unit_midpoint(tri(:, 1, i), tri(:, 2, i))
+        bc = unit_midpoint(tri(:, 2, i), tri(:, 3, i))
+        ca = unit_midpoint(tri(:, 3, i), tri(:, 1, i))
+        next(:, :, 4*i - 3) = reshape([tri(:, 1, i), ab, ca], [3, 3])
+        next(:, :, 4*i - 2) = reshape([ab, tri(:, 2, i), bc], [3, 3])
+        next(:, :, 4*i - 1) = reshape([ca, bc, tri(:, 3, i)], [3, 3])
+        next(:, :, 4*i) = reshape([ab, bc, ca], [3, 3])
+      end do
+      call move_alloc(next, tri)
+      nface = 4*nface
+    end do
+
+    do i = 1, nface
+      do k = 1, 3
+        tri(:, k, i) = c + r*tri(:, k, i)
+      end do
+    end do
+    call init_mesh(mesh, tri(:, 1, :), tri(:, 2, :), tri(:, 3, :))
+  end subroutine make_icosphere
+
+  !> 単位球面上の 2 点を結ぶ弦の中点を単位球面へ射影する。
+  !! `a+b` は加算の可換性により引数順に依らずビット一致する。
+  pure function unit_midpoint(a, b) result(p)
+    real(dp), intent(in) :: a(3), b(3)
+    real(dp) :: p(3)
+    p = a + b
+    p = p/norm2(p)
+  end function unit_midpoint
+
   !> XY平面上で、中心からのレイと長方形境界の最短交点を返す。
   subroutine ray_to_rectangle(hx, hy, dx, dy, x_min, x_max, y_min, y_max, z_plane, p, edge_id)
     real(dp), intent(in) :: hx, hy, dx, dy, x_min, x_max, y_min, y_max, z_plane
@@ -507,6 +627,37 @@ contains
 
     if (edge_id == 0_i32) error stop "failed to intersect ray with rectangle boundary"
   end subroutine ray_to_rectangle
+
+  !> 長方形の角に当たったレイの交点を角へ寄せ、角の手前（反時計回りで入ってくる辺）に属させる。
+  !! 角は辺の遷移でも追加されるため、`at_corner` の点から始まる遷移ではその角を重ねて追加しない。
+  !! 寄せないと丸め誤差で角と交点がずれ、面積が丸め誤差程度の三角形が生じる。
+  !! @param[inout] p レイと長方形境界の交点。
+  !! @param[inout] edge_id 交点が属する辺。
+  !! @param[out] at_corner 交点が角に一致したか。
+  !! @param[in] tol 角と見なす距離 [m]。
+  pure subroutine snap_rectangle_corner(p, edge_id, at_corner, x_min, x_max, y_min, y_max, tol)
+    real(dp), intent(inout) :: p(3)
+    integer(i32), intent(inout) :: edge_id
+    logical, intent(out) :: at_corner
+    real(dp), intent(in) :: x_min, x_max, y_min, y_max, tol
+    logical :: on_x_max, on_x_min, on_y_max, on_y_min
+
+    on_x_max = abs(p(1) - x_max) <= tol
+    on_x_min = abs(p(1) - x_min) <= tol
+    on_y_max = abs(p(2) - y_max) <= tol
+    on_y_min = abs(p(2) - y_min) <= tol
+    at_corner = (on_x_max .or. on_x_min) .and. (on_y_max .or. on_y_min)
+    if (.not. at_corner) return
+    if (on_x_max .and. on_y_max) then
+      p(1:2) = [x_max, y_max]; edge_id = 2_i32
+    else if (on_x_min .and. on_y_max) then
+      p(1:2) = [x_min, y_max]; edge_id = 4_i32
+    else if (on_x_min .and. on_y_min) then
+      p(1:2) = [x_min, y_min]; edge_id = 1_i32
+    else
+      p(1:2) = [x_max, y_min]; edge_id = 3_i32
+    end if
+  end subroutine snap_rectangle_corner
 
   !> 長方形外周を反時計回りに見たとき、辺遷移で通過するコーナー数を返す。
   integer(i32) function transition_corner_count(edge_from, edge_to) result(n_corner)
@@ -609,6 +760,104 @@ contains
     p(2) = c(2) + r*sin(phi)*sin(theta)
     p(3) = c(3) + r*cos(phi)
   end subroutine sph
+
+  !> 一様リング配置で、リング `j`（内側 0 から外周 `n_r`）に置く周方向点数を返す。中心点は 0。
+  !! 点数を半径に比例させると各リング帯の三角形数が帯の面積に比例し、要素面積がほぼ一様になる。
+  !! 内側のリングは 6 点（正六角形）を下限とし、外周は `n_theta` 点で側面などと頂点を共有する。
+  pure integer(i32) function uniform_ring_points(j, r_in, r_out, nt, nr) result(m)
+    integer(i32), intent(in) :: j, nt, nr
+    real(dp), intent(in) :: r_in, r_out
+    real(dp) :: rj
+
+    if (j == nr) then
+      m = nt
+      return
+    end if
+    rj = r_in + (r_out - r_in)*real(j, dp)/real(nr, dp)
+    if (rj <= 0.0d0) then
+      m = 0
+    else
+      m = min(nt, max(6_i32, nint(real(nt, dp)*rj/r_out, i32)))
+    end if
+  end function uniform_ring_points
+
+  !> 一様リング配置の円環（`r_in = 0` なら円板）の三角形数を返す。
+  pure integer(i32) function uniform_annulus_count(r_in, r_out, nt, nr) result(nelem)
+    real(dp), intent(in) :: r_in, r_out
+    integer(i32), intent(in) :: nt, nr
+    integer(i32) :: j
+
+    nelem = 0
+    do j = 0, nr - 1
+      nelem = nelem + uniform_ring_points(j, r_in, r_out, nt, nr) + uniform_ring_points(j + 1, r_in, r_out, nt, nr)
+    end do
+  end function uniform_annulus_count
+
+  !> 中心 `c` の XY 平面に、一様リング配置の円環（`r_in = 0` なら円板）を +z 法線（`flip` で -z）で追加する。
+  !! 隣接リングは角度順に頂点を進めて三角形でつなぐ（点数 m と n の帯で m+n 枚）。
+  subroutine push_uniform_annulus(v0, v1, v2, itri, c, r_in, r_out, nt, nr, flip)
+    real(dp), intent(inout) :: v0(:, :), v1(:, :), v2(:, :)
+    integer(i32), intent(inout) :: itri
+    real(dp), intent(in) :: c(3), r_in, r_out
+    integer(i32), intent(in) :: nt, nr
+    logical, intent(in) :: flip
+    real(dp), allocatable :: inner(:, :), outer(:, :)
+    integer(i32) :: j, m, n, i, k
+
+    call uniform_ring(0_i32, inner, m)
+    do j = 1, nr
+      call uniform_ring(j, outer, n)
+      if (m == 0) then
+        do k = 0, n - 1
+          call push_oriented(c, outer(:, k), outer(:, k + 1))
+        end do
+      else
+        i = 0; k = 0
+        do while (i < m .or. k < n)
+          ! Advance on the ring whose next vertex comes first in angle (k+1)/n <= (i+1)/m.
+          if (k < n .and. (i == m .or. (k + 1)*m <= (i + 1)*n)) then
+            call push_oriented(inner(:, i), outer(:, k), outer(:, k + 1))
+            k = k + 1
+          else
+            call push_oriented(inner(:, i), outer(:, k), inner(:, i + 1))
+            i = i + 1
+          end if
+        end do
+      end if
+      call move_alloc(outer, inner)
+      m = n
+    end do
+
+  contains
+
+    !> リング `jr` の頂点（終端は始点と一致）を返す。中心点なら点数 0。
+    subroutine uniform_ring(jr, points, np)
+      integer(i32), intent(in) :: jr
+      real(dp), allocatable, intent(out) :: points(:, :)
+      integer(i32), intent(out) :: np
+      real(dp), allocatable :: circle(:, :)
+      real(dp) :: rj
+
+      np = uniform_ring_points(jr, r_in, r_out, nt, nr)
+      if (np == 0) return
+      rj = r_out
+      if (jr < nr) rj = r_in + (r_out - r_in)*real(jr, dp)/real(nr, dp)
+      call build_unit_circle(np, circle)
+      allocate (points(3, 0:np))
+      points(1, :) = c(1) + rj*circle(1, :)
+      points(2, :) = c(2) + rj*circle(2, :)
+      points(3, :) = c(3)
+    end subroutine uniform_ring
+
+    subroutine push_oriented(a, b, d)
+      real(dp), intent(in) :: a(3), b(3), d(3)
+      if (flip) then
+        call push_tri(v0, v1, v2, itri, a, d, b)
+      else
+        call push_tri(v0, v1, v2, itri, a, b, d)
+      end if
+    end subroutine push_oriented
+  end subroutine push_uniform_annulus
 
   !> 周方向の三角関数を一度だけ計算し、終端を始点と一致させる。
   subroutine build_unit_circle(n, points)

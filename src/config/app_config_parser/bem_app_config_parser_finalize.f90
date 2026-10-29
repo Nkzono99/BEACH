@@ -178,6 +178,39 @@ contains
         error stop path//'.kind is unknown.'
       end select
       if (.not. cfg%mesh_parts(i)%enabled) cycle
+      ! An empty tessellation selects each kind's default: polar for disk/annulus/cylinder; for sphere, uv when
+      ! n_lon or n_lat is given and icosphere otherwise.
+      if (trim(cfg%mesh_parts(i)%kind) == 'sphere') then
+        select case (trim(cfg%mesh_parts(i)%tessellation))
+        case ('')
+          if (cfg%mesh_parts(i)%has_n_lon_lat .and. cfg%mesh_parts(i)%has_subdivisions) &
+            error stop path//'.tessellation is required when both n_lon/n_lat and subdivisions are set.'
+        case ('uv')
+          if (cfg%mesh_parts(i)%has_subdivisions) error stop path//'.subdivisions is only valid for tessellation="icosphere".'
+        case ('icosphere')
+          if (cfg%mesh_parts(i)%has_n_lon_lat) error stop path//'.n_lon and n_lat are only valid for tessellation="uv".'
+        end select
+      end if
+      if (len_trim(cfg%mesh_parts(i)%tessellation) > 0) then
+        select case (trim(cfg%mesh_parts(i)%kind))
+        case ('sphere')
+          select case (trim(cfg%mesh_parts(i)%tessellation))
+          case ('uv', 'icosphere')
+            continue
+          case default
+            error stop path//'.tessellation must be uv or icosphere for kind="sphere".'
+          end select
+        case ('disk', 'annulus', 'cylinder')
+          select case (trim(cfg%mesh_parts(i)%tessellation))
+          case ('polar', 'uniform')
+            continue
+          case default
+            error stop path//'.tessellation must be polar or uniform for kind="'//trim(cfg%mesh_parts(i)%kind)//'".'
+          end select
+        case default
+          error stop path//'.tessellation is only valid for kind sphere, disk, annulus, or cylinder.'
+        end select
+      end if
       select case (trim(cfg%mesh_parts(i)%surface_side_policy))
       case ('normal_plus', 'normal_minus', 'outward_closed')
         continue

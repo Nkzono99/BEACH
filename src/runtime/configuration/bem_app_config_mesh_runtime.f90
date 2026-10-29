@@ -3,7 +3,8 @@ module bem_app_config_mesh_runtime
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type
   use bem_types, only: surface_model_insulator, surface_model_conductor, surface_model_dielectric
-  use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
+  use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere, &
+                           make_icosphere
   use bem_mesh, only: init_mesh
   use bem_panel_surface_sides, only: resolve_panel_surface_sides_by_mesh_id, panel_surface_side_ok
   use bem_importers, only: load_obj_mesh
@@ -184,10 +185,14 @@ contains
         center=spec%center &
         )
     case ('disk')
-      call make_disk(mesh, radius=spec%radius, n_theta=spec%n_theta, n_r=spec%n_r, center=spec%center)
+      call make_disk( &
+        mesh, radius=spec%radius, n_theta=spec%n_theta, n_r=spec%n_r, center=spec%center, &
+        uniform=trim(spec%tessellation) == 'uniform' &
+        )
     case ('annulus')
       call make_annulus( &
-        mesh, radius=spec%radius, inner_radius=spec%inner_radius, n_theta=spec%n_theta, n_r=spec%n_r, center=spec%center &
+        mesh, radius=spec%radius, inner_radius=spec%inner_radius, n_theta=spec%n_theta, n_r=spec%n_r, center=spec%center, &
+        uniform=trim(spec%tessellation) == 'uniform' &
         )
     case ('box')
       call make_box(mesh, size=spec%size, center=spec%center, nx=spec%nx, ny=spec%ny, nz=spec%nz)
@@ -198,10 +203,15 @@ contains
       if (spec%has_cap_bottom) cap_bottom = spec%cap_bottom
       call make_cylinder( &
         mesh, radius=spec%radius, height=spec%height, n_theta=spec%n_theta, n_z=spec%n_z, &
-        cap=spec%cap, center=spec%center, cap_top=cap_top, cap_bottom=cap_bottom &
+        cap=spec%cap, center=spec%center, cap_top=cap_top, cap_bottom=cap_bottom, &
+        uniform_cap=trim(spec%tessellation) == 'uniform', n_r=spec%n_r &
         )
     case ('sphere')
-      call make_sphere(mesh, radius=spec%radius, n_lon=spec%n_lon, n_lat=spec%n_lat, center=spec%center)
+      if (trim(spec%tessellation) == 'uv' .or. (len_trim(spec%tessellation) == 0 .and. spec%has_n_lon_lat)) then
+        call make_sphere(mesh, radius=spec%radius, n_lon=spec%n_lon, n_lat=spec%n_lat, center=spec%center)
+      else
+        call make_icosphere(mesh, radius=spec%radius, subdivisions=spec%subdivisions, center=spec%center)
+      end if
     case default
       error stop 'Unknown template kind in config.'
     end select

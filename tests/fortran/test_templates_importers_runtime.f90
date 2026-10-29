@@ -2,7 +2,8 @@
 program test_templates_importers_runtime
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, surface_model_conductor, surface_model_insulator
-  use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
+  use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere, &
+                           make_icosphere
   use bem_importers, only: load_obj_mesh
   use bem_app_config, only: app_config, default_app_config, build_mesh_from_config
   use test_support, only: test_init, test_begin, test_end, test_summary, &
@@ -38,11 +39,24 @@ program test_templates_importers_runtime
                        'plate_hole area must exclude the inscribed hole polygon')
   call assert_true(minval(radial_distance(mesh, shift)) >= 0.2_dp*(1.0_dp - 1.0e-12_dp), &
                    'plate_hole has a vertex inside the hole')
+  ! On a square plate with n_theta divisible by 4 the 45-degree spokes end exactly on the corners,
+  ! so the plate is spokes only and no corner fan may degenerate to a rounding-size sliver.
+  call make_plate_hole(mesh, size_x=1.0_dp, size_y=1.0_dp, radius=0.2_dp, n_theta=16_i32, n_r=2_i32, center=shift)
+  call assert_template_mesh(mesh, 64_i32, 'plate_hole(square)')
+  call assert_close_dp(sum(mesh%panel_area), 1.0_dp - polygon_area(16, 0.2_dp), 1.0e-12_dp, &
+                       'plate_hole(square) area must exclude the inscribed hole polygon')
+  call assert_true(minval(mesh%panel_area) > 1.0e-3_dp*maxval(mesh%panel_area), &
+                   'plate_hole(square) has a degenerate corner triangle')
 
   call make_disk(mesh, radius=0.7_dp, n_theta=8_i32, n_r=2_i32, center=shift)
   call assert_template_mesh(mesh, 24_i32, 'disk')
   call assert_close_dp(maxval(radial_distance(mesh, shift)), 0.7_dp, 1.0e-12_dp, 'disk radius mismatch')
   call assert_close_dp(sum(mesh%panel_area), polygon_area(8, 0.7_dp), 1.0e-12_dp, 'disk area mismatch')
+
+  ! Uniform rings hold 6, 12, 18 and 24 points: 6 + 18 + 30 + 42 triangles that tile the rim 24-gon.
+  call make_disk(mesh, radius=0.5_dp, n_theta=24_i32, n_r=4_i32, center=shift, uniform=.true.)
+  call assert_template_mesh(mesh, 96_i32, 'disk(uniform)')
+  call assert_flat_ring_mesh(mesh, polygon_area(24, 0.5_dp), 24, 'disk(uniform)')
 
   call make_annulus(mesh, n_theta=8_i32, n_r=2_i32, radius=0.5d0, inner_radius=0.2d0, center=shift)
   call assert_template_mesh(mesh, 32_i32, 'annulus')
@@ -50,6 +64,11 @@ program test_templates_importers_runtime
   call assert_close_dp(minval(radial_distance(mesh, shift)), 0.2_dp, 1.0e-12_dp, 'annulus inner radius mismatch')
   call assert_close_dp(sum(mesh%panel_area), polygon_area(8, 0.5_dp) - polygon_area(8, 0.2_dp), 1.0e-12_dp, &
                        'annulus area mismatch')
+
+  ! Uniform rings hold 12, 15, 18, 21 and 24 points between the inner 12-gon and the outer 24-gon.
+  call make_annulus(mesh, n_theta=24_i32, n_r=4_i32, radius=0.5_dp, inner_radius=0.25_dp, center=shift, uniform=.true.)
+  call assert_template_mesh(mesh, 144_i32, 'annulus(uniform)')
+  call assert_flat_ring_mesh(mesh, polygon_area(24, 0.5_dp) - polygon_area(12, 0.25_dp), 24 + 12, 'annulus(uniform)')
 
   call make_box(mesh, size=[2.0_dp, 1.0_dp, 0.5_dp], center=shift, nx=2_i32, ny=1_i32, nz=1_i32)
   call assert_template_mesh(mesh, 20_i32, 'box')
@@ -74,12 +93,29 @@ program test_templates_importers_runtime
   call assert_template_mesh(mesh, 24_i32, 'cylinder(cap_bottom only)')
   call assert_cylinder(mesh, 0, 8, 'cylinder(cap_bottom only)')
 
+  ! Each uniform cap holds a 6-point ring and the 8-point rim: 6 + 14 triangles per cap.
+  call make_cylinder(mesh, radius=0.3_dp, height=2.0_dp, n_theta=8_i32, n_z=2_i32, cap=.true., center=shift, &
+                     uniform_cap=.true., n_r=2_i32)
+  call assert_template_mesh(mesh, 72_i32, 'cylinder(uniform cap)')
+  call assert_cylinder(mesh, 20, 20, 'cylinder(uniform cap)')
+  call assert_equal_i32(unpaired_edge_count(mesh), 0_i32, 'cylinder(uniform cap) must be a closed surface')
+
   call make_sphere(mesh, radius=0.4_dp, n_lon=8_i32, n_lat=4_i32, center=shift)
   call assert_template_mesh(mesh, 48_i32, 'sphere')
   call assert_close_dp(maxval(abs(vertex_distance(mesh, shift) - 0.4_dp)), 0.0_dp, 1.0e-12_dp, &
                        'sphere vertices must lie on the requested radius')
   ! With 8 longitudes and 4 latitude bands the equator ring has vertices on both horizontal axes.
   call assert_template_bounds(mesh, shift - 0.4_dp, shift + 0.4_dp, 'sphere')
+
+  ! subdivisions=0 is the icosahedron inscribed in the sphere: edge a = 4 r / sqrt(10 + 2 sqrt 5).
+  call make_icosphere(mesh, radius=0.4_dp, subdivisions=0_i32, center=shift)
+  call assert_template_mesh(mesh, 20_i32, 'icosphere(0)')
+  call assert_close_dp(sum(mesh%panel_area), 5.0_dp*sqrt(3.0_dp)*(1.6_dp/sqrt(10.0_dp + 2.0_dp*sqrt(5.0_dp)))**2, &
+                       1.0e-12_dp, 'icosphere(0) must be the inscribed icosahedron')
+  call assert_icosphere(mesh, 0.4_dp, 'icosphere(0)')
+  call make_icosphere(mesh, radius=0.4_dp, subdivisions=2_i32, center=shift)
+  call assert_template_mesh(mesh, 320_i32, 'icosphere(2)')
+  call assert_icosphere(mesh, 0.4_dp, 'icosphere(2)')
   call test_end()
 
   call test_begin('obj_import')
@@ -201,6 +237,7 @@ program test_templates_importers_runtime
   cfg%mesh_parts(2)%center = [0.0_dp, 0.0_dp, 1.0_dp]
   cfg%mesh_parts(2)%n_lon = 8_i32
   cfg%mesh_parts(2)%n_lat = 4_i32
+  cfg%mesh_parts(2)%has_n_lon_lat = .true.
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32( &
     int(count(mesh%elem_mesh_id == 1_i32), i32), 2_i32, &
@@ -267,6 +304,31 @@ program test_templates_importers_runtime
   cfg%mesh_parts(1)%has_cap_bottom = .true.
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32(mesh%nelem, 24_i32, 'template parts cylinder cap_top/cap_bottom mismatch')
+
+  call default_app_config(cfg)
+
+  cfg%mesh_parts(1)%enabled = .true.
+  cfg%mesh_parts(1)%kind = 'sphere'
+  cfg%mesh_parts(1)%subdivisions = 1_i32
+  call build_mesh_from_config(cfg, mesh)
+  call assert_equal_i32(mesh%nelem, 80_i32, 'a sphere without n_lon/n_lat must default to the icosphere')
+  ! Given n_lon/n_lat, an unset tessellation keeps the UV sphere those keys describe.
+  cfg%mesh_parts(1)%n_lon = 8_i32
+  cfg%mesh_parts(1)%n_lat = 4_i32
+  cfg%mesh_parts(1)%has_n_lon_lat = .true.
+  call build_mesh_from_config(cfg, mesh)
+  call assert_equal_i32(mesh%nelem, 48_i32, 'a sphere with n_lon/n_lat must default to the UV sphere')
+
+  call default_app_config(cfg)
+
+  cfg%mesh_parts(1)%enabled = .true.
+  cfg%mesh_parts(1)%kind = 'cylinder'
+  cfg%mesh_parts(1)%tessellation = 'uniform'
+  cfg%mesh_parts(1)%n_theta = 24_i32
+  cfg%mesh_parts(1)%n_z = 1_i32
+  cfg%mesh_parts(1)%n_r = 4_i32
+  call build_mesh_from_config(cfg, mesh)
+  call assert_equal_i32(mesh%nelem, 48_i32 + 2_i32*96_i32, 'template parts cylinder uniform caps mismatch')
   call test_end()
 
   call delete_file_if_exists(obj_path)
@@ -293,6 +355,61 @@ contains
       trim(label)//' triangles must be finite and non-degenerate' &
       )
   end subroutine assert_template_mesh
+
+  !> 半径 r、中心 shift の icosphere が球面上の頂点・外向き法線・隙間のない閉曲面・ほぼ一様な要素面積を持つことを確かめる。
+  subroutine assert_icosphere(candidate, r, label)
+    type(mesh_type), intent(in) :: candidate
+    real(dp), intent(in) :: r
+    character(len=*), intent(in) :: label
+
+    call assert_close_dp(maxval(abs(vertex_distance(candidate, shift) - r)), 0.0_dp, 1.0e-12_dp, &
+                         trim(label)//' vertices must lie on the requested radius')
+    call assert_true(all(sum(candidate%normals*(candidate%centers - spread(shift, 2, candidate%nelem)), dim=1) > 0.0_dp), &
+                     trim(label)//' normals must point outward')
+    ! A UV sphere with 24x12 cells already has a 3.9x area spread; the icosphere stays below 1.3.
+    call assert_true(maxval(candidate%panel_area)/minval(candidate%panel_area) < 1.3_dp, &
+                     trim(label)//' element areas must be nearly uniform')
+
+    call assert_equal_i32(unpaired_edge_count(candidate), 0_i32, trim(label)//' must be a closed surface without cracks')
+  end subroutine assert_icosphere
+
+  !> 中心 shift の XY 平面上の一様リング配置メッシュが、+z 法線で重なりなく多角形を覆い、
+  !! 要素面積がほぼ一様で、外周（と内周）以外に隙間がないことを確かめる。
+  subroutine assert_flat_ring_mesh(candidate, expected_area, n_boundary_edges, label)
+    type(mesh_type), intent(in) :: candidate
+    real(dp), intent(in) :: expected_area
+    integer, intent(in) :: n_boundary_edges
+    character(len=*), intent(in) :: label
+
+    call assert_true(all(abs(candidate%normals(3, :) - 1.0_dp) < 1.0e-12_dp), trim(label)//' normals must point to +z')
+    ! With every triangle positively oriented, matching the polygon area excludes overlaps and holes.
+    call assert_close_dp(sum(candidate%panel_area), expected_area, 1.0e-12_dp, trim(label)//' area mismatch')
+    ! The polar layout reaches 2*n_r for these sizes; uniform rings stay below 1.5 when n_theta = 6*n_r.
+    call assert_true(maxval(candidate%panel_area)/minval(candidate%panel_area) < 1.5_dp, &
+                     trim(label)//' element areas must be nearly uniform')
+    call assert_equal_i32(unpaired_edge_count(candidate), int(n_boundary_edges, i32), &
+                          trim(label)//' interior edges must be shared')
+  end subroutine assert_flat_ring_mesh
+
+  !> 逆向きの相手（頂点がビット一致する辺）を持たない有向辺の数を返す。閉曲面なら 0。
+  integer(i32) function unpaired_edge_count(candidate) result(n_unpaired)
+    type(mesh_type), intent(in) :: candidate
+    real(dp), allocatable :: edge_from(:, :), edge_to(:, :)
+    integer :: i, j, n_edge, n_twin
+
+    n_edge = 3*candidate%nelem
+    allocate (edge_from(3, n_edge), edge_to(3, n_edge))
+    edge_from = reshape([candidate%v0, candidate%v1, candidate%v2], [3, n_edge])
+    edge_to = reshape([candidate%v1, candidate%v2, candidate%v0], [3, n_edge])
+    n_unpaired = 0
+    do i = 1, n_edge
+      n_twin = 0
+      do j = 1, n_edge
+        if (all(edge_from(:, j) == edge_to(:, i)) .and. all(edge_to(:, j) == edge_from(:, i))) n_twin = n_twin + 1
+      end do
+      if (n_twin /= 1) n_unpaired = n_unpaired + 1
+    end do
+  end function unpaired_edge_count
 
   !> 全頂点の軸ごとの最小・最大が期待する箱に一致することを確かめる。
   subroutine assert_template_bounds(candidate, lower, upper, label)
@@ -339,7 +456,7 @@ contains
     call assert_close_dp(sum(candidate%panel_area, mask=.not. (top .or. bottom)), lateral_area, 1.0e-12_dp, &
                          trim(label)//' lateral area mismatch')
     call assert_close_dp(sum(candidate%panel_area, mask=top .or. bottom), &
-                         real(n_top + n_bottom, dp)/8.0_dp*polygon_area(8, 0.3_dp), 1.0e-12_dp, &
+                         real(merge(1, 0, n_top > 0) + merge(1, 0, n_bottom > 0), dp)*polygon_area(8, 0.3_dp), 1.0e-12_dp, &
                          trim(label)//' cap area mismatch')
   end subroutine assert_cylinder
 

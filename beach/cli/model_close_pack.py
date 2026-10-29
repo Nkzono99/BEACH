@@ -75,6 +75,11 @@ def configure(parser: argparse.ArgumentParser) -> None:
         default=6,
         help="sphere mesh latitude count",
     )
+    parser.add_argument(
+        "--sphere-subdivisions",
+        type=int,
+        help="use an icosphere with this many recursive subdivisions instead of the n_lon/n_lat UV sphere",
+    )
     box_group = parser.add_mutually_exclusive_group()
     box_group.add_argument(
         "--box-height",
@@ -106,6 +111,7 @@ def run(args: argparse.Namespace) -> None:
         plane_ny=args.plane_ny,
         sphere_n_lon=args.sphere_n_lon,
         sphere_n_lat=args.sphere_n_lat,
+        sphere_subdivisions=args.sphere_subdivisions,
         box_height=args.box_height,
         top_clearance=args.top_clearance,
     )

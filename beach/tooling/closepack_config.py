@@ -95,6 +95,7 @@ class ClosePackSpec:
     plane_ny: int = 20
     sphere_n_lon: int = 14
     sphere_n_lat: int = 6
+    sphere_subdivisions: int | None = None
     box_height: float | None = None
     top_clearance: float | None = None
 
@@ -113,6 +114,8 @@ class ClosePackSpec:
             raise ValueError("sphere_n_lon must be >= 3.")
         if self.sphere_n_lat < 2:
             raise ValueError("sphere_n_lat must be >= 2.")
+        if self.sphere_subdivisions is not None and not 0 <= self.sphere_subdivisions <= 10:
+            raise ValueError("sphere_subdivisions must be in [0, 10] when provided.")
         if self.box_height is not None and not (
             math.isfinite(self.box_height) and self.box_height > 0.0
         ):
@@ -197,6 +200,10 @@ def generate_closepack_sphere_templates(
     z0 = spec.floor_z + spec.radius
     dz = layer_spacing(spec.radius)
     templates: list[dict[str, Any]] = []
+    if spec.sphere_subdivisions is None:
+        tessellation: dict[str, Any] = {"n_lon": spec.sphere_n_lon, "n_lat": spec.sphere_n_lat}
+    else:
+        tessellation = {"tessellation": "icosphere", "subdivisions": spec.sphere_subdivisions}
     for layer_index in range(spec.layers):
         basis = basis_a if layer_index % 2 == 0 else basis_b
         center_z = z0 + layer_index * dz
@@ -212,8 +219,7 @@ def generate_closepack_sphere_templates(
                             "surface_side": "outward_closed",
                             "radius": spec.radius,
                             "center": [x_shift + basis_x, y_shift + basis_y, center_z],
-                            "n_lon": spec.sphere_n_lon,
-                            "n_lat": spec.sphere_n_lat,
+                            **tessellation,
                         }
                     )
     return templates

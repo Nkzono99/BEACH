@@ -5,8 +5,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `kind = "sphere"` に `tessellation = "icosphere"` と `subdivisions` を追加した。正二十面体を再帰分割した
+  `20 * 4**subdivisions` 要素の球面で、要素面積の最大/最小比は約 1.3 に収まる。`beachx model close-pack` は
+  `--sphere-subdivisions` で icosphere の球を生成する。
+- `kind = "disk"`, `"annulus"`, `"cylinder"`（キャップ）に `tessellation = "uniform"` を追加した。各リングの点数を
+  半径に比例させ、要素面積の最大/最小比を分割数によらず約 1.5 に保つ。円柱のキャップは `n_r` で半径方向に分割できる。
+  既定の `"polar"` は従来の極座標格子（要素面積が半径に比例）のまま。
+
+### Fixed
+
+- 正方形の `plate_hole` で `n_theta` が 4 の倍数のとき（既定の 1×1、`n_theta = 48` を含む）、角に当たる放射線の
+  交点が丸め誤差で角とずれ、面積が丸め誤差程度の三角形が角に生成されていた。角に当たる交点を角に一致させ、
+  その要素を生成しないようにした。該当する設定では要素数が減る（1×1、`n_theta = 48`、`n_r = 4` では 386 から 384）。
+- `cylinder` の側面最上段の頂点の z 座標を上面キャップと同じ式で計算し、側面と上面キャップが外周の頂点を
+  ビット一致で共有するようにした（従来は丸め誤差で 1 ulp ずれる場合があった）。
+
 ### Changed
 
+- `kind = "sphere"` の既定の分割を icosphere（`subdivisions = 2`、320 要素）にした。`n_lon` または `n_lat` を書いた球は
+  従来どおり UV 球になる。どちらも書いていない球は、従来の UV 球（24×12、528 要素）から icosphere に変わる。
+  従来のメッシュを保つには `tessellation = "uv"` を書く。
 - 通常の開発テストから周期検証 workflow の全ケースを分離し、代表 3 ケースを残した。
   全ケースは `make test-validation-workflow` と CI で実行する。
 - L2 で共有 field kernel を build して Python/native 数値比較を実行し、lint CLI の native 設定契約も確認する。

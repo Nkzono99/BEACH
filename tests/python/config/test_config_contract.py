@@ -466,11 +466,17 @@ def test_photo_raycast_inputs_are_owned_by_preflight(edit, diagnostic, native_ch
     ({"kind": "obj", "path": "unused.obj", "center": [0, 0, 0]}, "center"),
     ({"kind": "plane", "scale": 1.0}, "scale"),
     ({"kind": "plane", "rotation": [0, 0, 0]}, "rotation"),
+    ({"kind": "sphere", "tessellation": "uniform"}, "tessellation"),
+    ({"kind": "sphere", "tessellation": "icosphere", "n_lon": 8}, "n_lon"),
+    ({"kind": "sphere", "tessellation": "uv", "subdivisions": 2}, "subdivisions"),
+    ({"kind": "sphere", "n_lat": 4, "subdivisions": 2}, "tessellation"),
+    ({"kind": "disk", "tessellation": "icosphere"}, "tessellation"),
+    ({"kind": "plane", "tessellation": "uniform"}, "tessellation"),
 ])
 def test_mesh_part_combinations_are_owned_by_preflight(part, diagnostic, native_checker, tmp_path):
     config = default_config()
     part = {**part, "surface_side": "normal_plus"}
-    if part.get("kind") == "plane":
+    if part.get("kind") != "obj":
         part["center"] = [0, 0, 0]
     config["mesh"]["parts"] = [part]
     path = _write_config(config, tmp_path)

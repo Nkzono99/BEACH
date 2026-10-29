@@ -46,7 +46,7 @@ beachx lint case.toml
 | `annulus` | 同心リング | `radius`, `inner_radius` | `n_theta`, `n_r` |
 | `box` | 閉じた直方体表面 | `size` | `nx`, `ny`, `nz` |
 | `cylinder` | z 軸方向の円柱 | `radius`, `height`, `cap` | `n_theta`, `n_z` |
-| `sphere` | 球面 | `radius` | `n_lon`, `n_lat` |
+| `sphere` | 球面 | `radius` | `subdivisions`（`n_lon`, `n_lat` を書くと UV 球） |
 
 たとえば、チュートリアルの平面を球へ置き換える場合は、既存の `[[mesh.parts]]` block だけを
 次のように置き換えます。
@@ -58,9 +58,11 @@ enabled = true
 surface_side = "outward_closed"
 center = [0.5, 0.5, 0.5]
 radius = 0.2
-n_lon = 24
-n_lat = 12
+subdivisions = 2
 ```
+
+球は正二十面体を `subdivisions` 回分割した、要素の大きさがほぼ一様な面になります。
+`n_lon`, `n_lat` を書くと経度・緯度分割の UV 球になり、極に近い要素ほど小さくなります。
 
 OBJ 要素も同じ `[[mesh.parts]]` block に書きます。template と混在させるには、末尾に追加します。
 
