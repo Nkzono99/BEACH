@@ -253,25 +253,37 @@ contains
   end procedure open_fixed_current_history_writer
 
   !> 窓内でtargetを適用したchannelだけを書く。追跡電荷が0なら比はnanとする。
+  !! 最後に species_idx=0 の `surface_net` 行へ全 species の表面正味電荷（raw と closure 後）を書く。
   module procedure write_fixed_current_history_rows
   character(len=*), parameter :: channel_names(3) = [character(len=8) :: 'absorbed', 'emission', 'escape']
-  character(len=32) :: ratio_text
   integer(i32) :: species_idx, channel
 
   do species_idx = 1_i32, int(size(channel_active, 2), i32)
     do channel = 1_i32, 3_i32
       if (.not. channel_active(channel, species_idx)) cycle
-      if (tracked_charge_c(channel, species_idx) /= 0.0_dp) then
-        write (ratio_text, '(es24.16)') target_charge_c(channel, species_idx)/tracked_charge_c(channel, species_idx)
-      else
-        ratio_text = 'nan'
-      end if
-      write (unit_id, '(i0,a,es24.16,2(a,i0),a,a,2(a,es24.16),a,a)') &
-        batch_idx, ',', simulated_time_s, ',', window_batches, ',', species_idx, ',', trim(channel_names(channel)), &
-        ',', tracked_charge_c(channel, species_idx), ',', target_charge_c(channel, species_idx), &
-        ',', trim(adjustl(ratio_text))
+      call write_row( &
+        species_idx, trim(channel_names(channel)), tracked_charge_c(channel, species_idx), &
+        target_charge_c(channel, species_idx) &
+        )
     end do
   end do
+  if (any(channel_active)) call write_row(0_i32, 'surface_net', surface_charge_c(1), surface_charge_c(2))
+contains
+  subroutine write_row(row_species_idx, channel_name, tracked, target)
+    integer(i32), intent(in) :: row_species_idx
+    character(len=*), intent(in) :: channel_name
+    real(dp), intent(in) :: tracked, target
+    character(len=32) :: ratio_text
+
+    if (tracked /= 0.0_dp) then
+      write (ratio_text, '(es24.16)') target/tracked
+    else
+      ratio_text = 'nan'
+    end if
+    write (unit_id, '(i0,a,es24.16,2(a,i0),a,a,2(a,es24.16),a,a)') &
+      batch_idx, ',', simulated_time_s, ',', window_batches, ',', row_species_idx, ',', channel_name, &
+      ',', tracked, ',', target, ',', trim(adjustl(ratio_text))
+  end subroutine write_row
   end procedure write_fixed_current_history_rows
 
   !> fresh run の開始時に、前の run が書き今回は書かないかもしれない任意出力を消す。

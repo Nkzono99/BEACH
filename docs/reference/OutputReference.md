@@ -306,11 +306,17 @@ PE の設定放出量は PE だけの値です。新しい履歴は 21 列です
 | --- | --- |
 | `batch`, `simulated_time_s` | 窓の最後の accepted batch と、その後の模擬時刻 |
 | `window_batches` | 窓に含まれる accepted batch 数。通常は `output.history.stride_batches`、run の最初と再開直後は短い |
-| `species_idx` | 1 始まりの species index |
-| `channel` | `absorbed`、`emission`、`escape`。窓内で target を適用した channel だけを書く |
+| `species_idx` | 1 始まりの species index。`surface_net` 行は 0 |
+| `channel` | `absorbed`、`emission`、`escape`。窓内で target を適用した channel だけを書く。窓の最後に `surface_net` 行を 1 つ書く |
 | `tracked_charge_C` | 粒子追跡で得た signed charge の窓合計 [C]。emission は表面へ残る電荷 |
 | `target_charge_C` | 外部 closure の目標 signed charge の窓合計 [C] |
 | `target_over_tracked` | `target_charge_C / tracked_charge_C`。追跡値が 0 なら `nan` |
+
+`surface_net` 行は、全 species が表面へ置いた正味電荷（吸収 + 放出の反作用）の窓合計です。
+`tracked_charge_C` は closure 前の追跡値、`target_charge_C` は closure 後に実際に置いた値です。
+外部根（`sheath.closure = "zero_current"`）の run では、closure 後の値は丸め誤差の範囲で 0 になります。
+0 にならない batch があると、最初とその後 10000 batch ごとに標準エラーへ警告を出します。
+追跡した SEE の脱出が根の脱出束を超えた batch などが該当し、その電荷はセルの正味電荷として残ります。
 
 `absorbed` と `emission` の `target_over_tracked` は、その窓で標本の weight に掛けた倍率の平均です。
 `escape` は表面電荷に反映せず、目標と追跡の差を ledger の補正として記録します。

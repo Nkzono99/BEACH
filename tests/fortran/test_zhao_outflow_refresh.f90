@@ -34,6 +34,9 @@ program test_zhao_outflow_refresh
   real(dp) :: edges(outflow_spectrum_bins + 1), split_edge, slow_fraction, last_batch_flux
   real(dp) :: row_time, row_low, row_high, row_flux
   integer :: fixed_history_unit, read_ios, fixed_history_rows, spectrum_history_unit, split_bin
+  integer :: row_species
+  real(dp) :: row_tracked, row_target, surface_net_max, channel_target_max
+  character(len=32) :: row_channel, row_ratio
   integer(i32) :: row_batch, row_bin, last_row_batch
   logical :: spectrum_rows_valid
   character(len=512) :: line
@@ -84,17 +87,27 @@ program test_zhao_outflow_refresh
   close (spectrum_history_unit)
   open (newunit=fixed_history_unit, file=fixed_history_path, status='old', action='read')
   fixed_history_rows = 0
+  surface_net_max = 0.0_dp
+  channel_target_max = 0.0_dp
   do
     read (fixed_history_unit, '(a)', iostat=read_ios) line
     if (read_ios /= 0) exit
     fixed_history_rows = fixed_history_rows + 1
+    read (line, *) row_batch, row_time, row_bin, row_species, row_channel, row_tracked, row_target, row_ratio
+    if (trim(row_channel) == 'surface_net') then
+      surface_net_max = max(surface_net_max, abs(row_target))
+    else
+      channel_target_max = max(channel_target_max, abs(row_target))
+    end if
   end do
   close (fixed_history_unit)
   call delete_file_if_exists(fixed_history_path)
-  ! electron/ion吸収、PE吸収・放出・脱出の5 channelを毎batch書く。
+  ! electron/ion吸収、PE吸収・放出・脱出の5 channelと surface_net 行を毎batch書く。
   call assert_equal_i32( &
-    int(fixed_history_rows, i32), 5_i32*cfg%sim%batch_count, 'fixed-current history must write every active channel' &
+    int(fixed_history_rows, i32), 6_i32*cfg%sim%batch_count, 'fixed-current history must write every active channel' &
     )
+  call assert_true(surface_net_max <= 1.0e-12_dp*channel_target_max, &
+                   'the zero-current closure must leave no net surface charge')
   emission_flux = static_root%photoelectron_emission_current_density_a_m2/qe
   call assert_true(stats%matching_plane%state_valid, 'outflow refresh state was not published')
   call assert_equal_i32( &

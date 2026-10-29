@@ -35,6 +35,9 @@ contains
   ! 固定電流historyの窓合計。(channel, species)、channelは1=吸収、2=放出、3=脱出。
   real(dp), allocatable :: fixed_window_tracked(:, :), fixed_window_target(:, :)
   logical, allocatable :: fixed_window_active(:, :)
+  ! 全 species の表面正味電荷の窓合計（1=raw、2=closure 後）と、外部根の収支が閉じなかった accepted batch 数。
+  real(dp) :: fixed_window_surface(2)
+  integer(i64) :: fixed_unclosed_batches
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
   integer(i64) :: batch_counts(6), batch_retry_counts(2), batch_substep_counts(4)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
@@ -198,6 +201,7 @@ contains
       fixed_window_active(3, app%n_particle_species) &
       )
     call reset_fixed_current_window()
+    fixed_unclosed_batches = 0_i64
     if (potential_history_enabled) allocate (potential_buf(mesh%nelem))
   end subroutine resolve_history_outputs
 
@@ -507,6 +511,7 @@ contains
     if (outflow_refreshed) call apply_surface_plane_gauge(cell, mesh, surface_closure, snapshot, mpi_ctx, .false.)
     call record_matching_fields(stats_candidate, snapshot, surface_closure, mesh)
     if (fixed_history_enabled) call accumulate_fixed_current_window()
+    call warn_unclosed_surface_budget()
     stats_candidate%last_rel_change = rel
     if (ledger_enabled) then
       batch_ledger%surface_charge_after = finite_charge_sum(mesh%q_elem, 'batch surface charge after commit')
@@ -517,6 +522,21 @@ contains
     stats = stats_candidate
     call perf_region_end(perf_region_stats_update, t0)
   end subroutine commit_accepted_batch
+
+  !> 外部根（zero_current）の固定電流 closure は表面正味電荷を毎 batch 0 にする。閉じなかった accepted batch を
+  !! 数え、最初と以後 10000 batch ごとに警告する。窓ごとの値は fixed_current_history.csv の surface_net 行にある。
+  subroutine warn_unclosed_surface_budget()
+    if (.not. surface_closure%active) return
+    if (abs(workspace%fixed_surface_net_charge) <= sqrt(epsilon(1.0_dp))*workspace%fixed_surface_charge_scale) return
+    fixed_unclosed_batches = fixed_unclosed_batches + 1_i64
+    if (.not. mpi_is_root(mpi_ctx)) return
+    if (fixed_unclosed_batches /= 1_i64 .and. mod(fixed_unclosed_batches, 10000_i64) /= 0_i64) return
+    write (error_unit, '(a,i0,a,es24.16,a,i0,a)') &
+      'WARNING: fixed_current surface budget did not close against the zero-current root: batch=', batch_idx, &
+      ', net_surface_charge_C=', workspace%fixed_surface_net_charge, ', unclosed_batches=', fixed_unclosed_batches, &
+      ' (see the surface_net rows of fixed_current_history.csv)'
+    flush (error_unit)
+  end subroutine warn_unclosed_surface_budget
 
   !> root rank で batch の進捗と各 history を書く。
   subroutine write_batch_history()
@@ -535,7 +555,7 @@ contains
     if (fixed_history_enabled .and. mod(batch_idx - 1_i32, hist_stride) == 0_i32) then
       call write_fixed_current_history_rows( &
         fixed_hist_unit, batch_idx, stats%simulated_time, fixed_window_batches, fixed_window_active, &
-        fixed_window_tracked, fixed_window_target &
+        fixed_window_tracked, fixed_window_target, fixed_window_surface &
         )
       call reset_fixed_current_window()
     end if
@@ -585,6 +605,7 @@ contains
     fixed_window_tracked = 0.0_dp
     fixed_window_target = 0.0_dp
     fixed_window_active = .false.
+    fixed_window_surface = 0.0_dp
   end subroutine reset_fixed_current_window
 
   !> accepted batch の固定電流 closure の追跡電荷と目標電荷を history 窓へ足す。
@@ -599,6 +620,7 @@ contains
     fixed_window_target(2, :) = fixed_window_target(2, :) + workspace%fixed_emission_target_charge
     fixed_window_target(3, :) = fixed_window_target(3, :) + workspace%fixed_escape_target_charge
     fixed_window_active = fixed_window_active .or. workspace%fixed_channel_active
+    fixed_window_surface = fixed_window_surface + [workspace%fixed_surface_raw_charge, workspace%fixed_surface_net_charge]
     fixed_window_batches = fixed_window_batches + 1_i32
   end subroutine accumulate_fixed_current_window
   end procedure run_absorption_insulator
