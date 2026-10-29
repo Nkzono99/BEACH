@@ -963,8 +963,10 @@ class ObjectProbe:
         )
 
     def _validate_vertical_geometry(self, displacement_m: np.ndarray) -> None:
-        translations = np.zeros((displacement_m.size, 3), dtype=np.float64)
-        translations[:, 2] = displacement_m
+        # Translation leaves x/y fixed; every intermediate z lies between these
+        # two extrema. Validate the same bounds without materializing every height.
+        translations = np.zeros((2, 3), dtype=np.float64)
+        translations[:, 2] = (np.min(displacement_m), np.max(displacement_m))
         vertices = (
             self._target_triangles_m[None, :, :, :] + translations[:, None, None, :]
         )

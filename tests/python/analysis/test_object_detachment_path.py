@@ -441,3 +441,22 @@ def test_vertical_path_checks_triangle_vertices_before_native_evaluation(
         with pytest.raises(ValueError, match="box"):
             probe.vertical_path(np.array([0.0, 0.02]))
         assert analytic_kernel.eval_calls == before
+
+
+@pytest.mark.parametrize("upper", [1.0, np.nextafter(1.0, 0.0)])
+def test_vertical_path_geometry_at_box_limit(tmp_path: Path, analytic_kernel, upper: float) -> None:
+    config = tmp_path / "beach.toml"
+    _write_config(config, box_max_z=upper)
+    with ObjectInteractionSnapshot.from_result(
+        _result(tmp_path), step=None, config_path=config
+    ) as snapshot:
+        probe = snapshot.object_probe(1)
+        displacement = np.linspace(0.0, 1.0, 257)
+        if upper == 1.0:
+            path = probe.vertical_path(displacement, adaptive=False)
+            np.testing.assert_allclose(path.force_N[:, 2], 1.0 / (1.0 + displacement) ** 2)
+        else:
+            before = analytic_kernel.eval_calls
+            with pytest.raises(ValueError, match="box"):
+                probe.vertical_path(displacement, adaptive=False)
+            assert analytic_kernel.eval_calls == before

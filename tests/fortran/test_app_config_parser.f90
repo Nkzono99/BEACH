@@ -15,6 +15,8 @@ program test_app_config_parser
   type(app_config) :: cfg
   integer(i32) :: effective_boundary_low(3), effective_boundary_high(3)
   integer :: i
+  integer :: probe_exit
+  integer(i32) :: batch_n
   real(dp) :: electron_temperature_ev
   character(len=64) :: run_mode
   character(len=512) :: probe_config_path
@@ -28,6 +30,14 @@ program test_app_config_parser
   character(len=*), parameter :: config_failure_path = 'test_zhao_config_failure_tmp.log'
 
   call get_command_argument(1, run_mode)
+  if (trim(run_mode) == '--batch-count-overflow-probe') then
+    call default_app_config(cfg)
+    cfg%n_particle_species = 3_i32
+    cfg%particle_species(1:3)%enabled = .true.
+    cfg%particle_species(1:3)%npcls_per_step = huge(0_i32)
+    batch_n = particles_per_batch_from_config(cfg)
+    error stop 'overflow probe unexpectedly completed'
+  end if
   if (trim(run_mode) == '--config-failure-probe') then
     call get_command_argument(2, probe_config_path)
     call default_app_config(cfg)
@@ -35,7 +45,24 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(49)
+  call test_init(50)
+
+  call test_begin('volume_batch_count_integer_boundary')
+  call default_app_config(cfg)
+  cfg%n_particle_species = 3_i32
+  cfg%particle_species(1:3)%enabled = .true.
+  cfg%particle_species(1)%npcls_per_step = huge(0_i32) - 1_i32
+  cfg%particle_species(2)%npcls_per_step = 1_i32
+  cfg%particle_species(3)%npcls_per_step = 0_i32
+  call assert_equal_i32(particles_per_batch_from_config(cfg), huge(0_i32), 'largest representable batch count')
+  cfg%particle_species(3)%npcls_per_step = huge(0_i32)
+  cfg%particle_species(3)%enabled = .false.
+  call assert_equal_i32(particles_per_batch_from_config(cfg), huge(0_i32), 'disabled species do not count')
+  call run_self_probe('--batch-count-overflow-probe', config_failure_path, probe_exit)
+  call assert_true(probe_exit /= 0, 'overflow must be rejected before allocation')
+  call assert_true(file_contains(config_failure_path, 'Total volume particles per batch exceed'), 'overflow diagnostic')
+  call delete_file_if_exists(config_failure_path)
+  call test_end()
 
   call test_begin('grouped_input_preserves_clock_fields_and_boundary_inflow')
   call write_grouped_config(input_contract_path, '')

@@ -273,13 +273,10 @@ contains
     type(mpi_context), intent(in) :: ctx
     real(dp), intent(inout) :: values(:)
 #ifdef USE_MPI
-    real(dp), allocatable :: recvbuf(:)
     integer :: ierr
 
     if (.not. ctx%enabled) return
-    allocate (recvbuf(size(values)))
-    call MPI_Allreduce(values, recvbuf, size(values), MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
-    values = recvbuf
+    call MPI_Allreduce(MPI_IN_PLACE, values, size(values), MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
 #endif
   end subroutine mpi_allreduce_sum_real_dp_array
 
@@ -302,13 +299,10 @@ contains
     type(mpi_context), intent(in) :: ctx
     real(dp), intent(inout) :: values(:)
 #ifdef USE_MPI
-    real(dp), allocatable :: recvbuf(:)
     integer :: ierr
 
     if (.not. ctx%enabled) return
-    allocate (recvbuf(size(values)))
-    call MPI_Allreduce(values, recvbuf, size(values), MPI_DOUBLE_PRECISION, MPI_MIN, MPI_COMM_WORLD, ierr)
-    values = recvbuf
+    call MPI_Allreduce(MPI_IN_PLACE, values, size(values), MPI_DOUBLE_PRECISION, MPI_MIN, MPI_COMM_WORLD, ierr)
 #endif
   end subroutine mpi_allreduce_min_real_dp_array
 
@@ -317,13 +311,10 @@ contains
     type(mpi_context), intent(in) :: ctx
     real(dp), intent(inout) :: values(:)
 #ifdef USE_MPI
-    real(dp), allocatable :: recvbuf(:)
     integer :: ierr
 
     if (.not. ctx%enabled) return
-    allocate (recvbuf(size(values)))
-    call MPI_Allreduce(values, recvbuf, size(values), MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
-    values = recvbuf
+    call MPI_Allreduce(MPI_IN_PLACE, values, size(values), MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
 #endif
   end subroutine mpi_allreduce_max_real_dp_array
 
@@ -332,14 +323,10 @@ contains
     type(mpi_context), intent(in) :: ctx
     integer(i32), intent(inout) :: values(:)
 #ifdef USE_MPI
-    integer, allocatable :: sendbuf(:), recvbuf(:)
     integer :: ierr
 
     if (.not. ctx%enabled) return
-    allocate (sendbuf(size(values)), recvbuf(size(values)))
-    sendbuf = int(values, kind=kind(0))
-    call MPI_Allreduce(sendbuf, recvbuf, size(values), MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
-    values = int(recvbuf, kind=i32)
+    call MPI_Allreduce(MPI_IN_PLACE, values, size(values), MPI_INTEGER4, MPI_SUM, MPI_COMM_WORLD, ierr)
 #endif
   end subroutine mpi_allreduce_sum_i32_array
 
@@ -348,13 +335,10 @@ contains
     type(mpi_context), intent(in) :: ctx
     integer(i64), intent(inout) :: values(:)
 #ifdef USE_MPI
-    integer(i64), allocatable :: recvbuf(:)
     integer :: ierr
 
     if (.not. ctx%enabled) return
-    allocate (recvbuf(size(values)))
-    call MPI_Allreduce(values, recvbuf, size(values), MPI_INTEGER8, MPI_SUM, MPI_COMM_WORLD, ierr)
-    values = recvbuf
+    call MPI_Allreduce(MPI_IN_PLACE, values, size(values), MPI_INTEGER8, MPI_SUM, MPI_COMM_WORLD, ierr)
 #endif
   end subroutine mpi_allreduce_sum_i64_array
 

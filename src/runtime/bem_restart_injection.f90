@@ -48,7 +48,7 @@ contains
   integer :: u, ios
   integer(i32) :: species_idx, face
   real(dp) :: residual
-  character(len=512) :: header
+  character(len=512) :: header, record
   logical :: extended_format
   logical, allocatable :: seen(:), boundary_seen(:, :)
 
@@ -84,14 +84,16 @@ contains
   end select
 
   do
-    if (extended_format) then
-      read (u, *, iostat=ios) species_idx, face, residual
-    else
-      read (u, *, iostat=ios) species_idx, residual
-      face = 0_i32
-    end if
+    call read_checkpoint_csv_record(u, record, merge(3, 2, extended_format), ios)
     if (ios < 0) exit
     if (ios > 0) error stop 'Failed to parse macro_residuals.csv during resume.'
+    if (extended_format) then
+      read (record, *, iostat=ios) species_idx, face, residual
+    else
+      read (record, *, iostat=ios) species_idx, residual
+      face = 0_i32
+    end if
+    if (ios /= 0) error stop 'Failed to parse macro_residuals.csv during resume.'
     if (species_idx < 1_i32 .or. species_idx > size(state%macro_residual)) then
       error stop 'Resume checkpoint macro_residuals.csv has an invalid species index.'
     end if

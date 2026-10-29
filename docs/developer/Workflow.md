@@ -92,6 +92,7 @@ periodic2 FMM と光電子、零電流の外部根更新）を release・OpenMP 
 各 history を、build 情報や時間の行を除いたテキストの完全一致で比較します。演算順が変わる変更では `--rtol 1e-14` のように
 許容を指定すると数値を相対差で比べます。どちらでも片側にしかない case・ファイル、有限値から NaN/Inf への変化
 （非有限値は同じ表記どうしだけ一致）は失敗です。
+`--rtol` は有限の非負値に限り、NaN・Inf・負値は比較を開始せず終了コード 2 で拒否します。
 
 Fortran test 名は `fpm.toml`、tier の所属は `Makefile` が実行上の正本です。subsystem、source、直接 test、
 関連 document の対応は[開発者向けアーキテクチャ](Architecture.md)にあります。

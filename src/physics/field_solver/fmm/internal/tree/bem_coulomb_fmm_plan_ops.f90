@@ -706,7 +706,8 @@ contains
     end do
 
     call clear_target_tree(plan)
-    plan%target_max_node = max(1024_i32, max(16_i32*plan%nnode, target_cap))
+    ! depth_max bounds the complete target octree independently of the source tree.
+    plan%target_max_node = target_cap
     allocate (plan%target_child_count(plan%target_max_node), plan%target_child_idx(8, plan%target_max_node))
     allocate (plan%target_child_octant(8, plan%target_max_node))
     allocate (plan%target_node_depth(plan%target_max_node))

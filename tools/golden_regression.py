@@ -158,8 +158,12 @@ def compare_trees(base: Path, new: Path, rtol: float) -> int:
     Cases and files are matched from both sides, so a file present on only one side
     fails. With ``rtol == 0`` the stable (non-volatile) lines must be identical text.
     With ``rtol > 0`` numbers are compared relatively, a NaN or infinity matches only
-    the same token, and any other text difference fails.
+    the same token, and any other text difference fails. Invalid tolerances return 2.
     """
+
+    if not math.isfinite(rtol) or rtol < 0.0:
+        print("rtol must be finite and nonnegative", file=sys.stderr)
+        return 2
 
     status = 0
     worst_overall = 0.0

@@ -108,6 +108,9 @@ export BEACH_FIELD_KERNEL_LIB=/path/to/BEACH/build/libbeach_field_kernel.so
 `library_path=` で場所を指定することもできます。`Beach.kernel()` の作成後は同じセッションで複数の解析に使えます。
 `beach.analysis.field_kernel.field_kernel_from_result` で直接作る場合は、呼び出し側が `with` または `close()` で閉じます。
 
+`FieldKernelOptions` に `box_min` と `box_max` を指定する場合は、両方とも有限な 3 成分の座標にします。
+周期計算でも、長さが違う配列や片方だけの指定は、共有ライブラリへ渡す前に `ValueError` になります。
+
 `kernel=` を受け付ける関数に渡した kernel は、その plan と電荷を使い、閉じません。plan を決める
 `periodic2`、`theta`、`leaf_max`、`order`、`library_path` は kernel の作成時に指定してください。
 `step` を使う力の計算やアニメーションは一時的に電荷を入れ替え、終了時に戻します。
@@ -197,3 +200,5 @@ with Beach("outputs/latest", config_path="beach.toml") as run:
 標準出力は `key=value` 行で、表は 1 行 1 レコードです。ファイルの保存先は `saved=<path>`、複数なら
 `saved_<name>=<path>` です。機械処理には `--json` を使います。非有限値は文字列 `"inf"`、`"-inf"`、`"nan"` です。
 `inspect` は保存済み mesh 電位がある場合だけ電位を要約し、`--recompute-potential` で再計算します。
+`coulomb` の力の報告は選択した target ごとに並びます。source 別の値は source の選択順で、
+合力はその全 source の和です。API が返す行列は source 行 × target 列です。

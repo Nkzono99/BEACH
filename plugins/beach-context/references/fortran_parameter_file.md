@@ -624,6 +624,9 @@ z 軸方向の円柱です。
 | 粒子数 | 境界流入を使わない場合、有効な粒子種全体で `sampling.volume_macro_particles_per_batch` の合計が 1 以上必要 |
 | 重み自動解決 | `inflow` を持たない `volume_seed` では `sampling.target_macro_particles_per_batch` は使用不可 |
 
+有効な粒子種の `sampling.volume_macro_particles_per_batch` の合計も符号付き 32 bit の上限
+`2147483647` 以下である必要があります。個々の値が範囲内でも、合計が超える設定は実行前に拒否します。
+
 境界流入だけを使う粒子種では `source` と `sampling.volume_macro_particles_per_batch` を省略し、体積生成は行いません。
 Maxwell 分布で体積生成を加える場合は `source.mode="volume_seed"` と正の
 `sampling.volume_macro_particles_per_batch` を指定します。

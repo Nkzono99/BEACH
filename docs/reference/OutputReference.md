@@ -348,6 +348,9 @@ PE の設定放出量は PE だけの値です。新しい履歴は 21 列です
 | Python | `result.ledger` の `ChargeLedgerEntry` |
 | 再開 | `summary.txt` に ledger metadata がある場合は必須 |
 
+Python reader は、旧版でヘッダに存在しない補正列には従来の既定値を使います。
+ヘッダに存在する数値列の空欄や、ヘッダと列数が異なる行はエラーになります。
+
 列順は次のとおりです。
 
 | 列 | 意味 |
@@ -456,6 +459,10 @@ PE の設定放出量は PE だけの値です。新しい履歴は 21 列です
 | `macro_residuals.csv` | schema v8 以降で manifest が宣言した場合 | `species_idx`, `face`, `residual`。global な macro 粒子数残差 |
 | `charge_ledger.csv` | summary / manifest に ledger metadata がある場合 | [25 列の species ledger](#charge-ledger) |
 | `checkpoint_complete.txt` | schema v8 以降で必須 | `schema_version`, `state`, `batches`, `mpi_world_size`, `macro_residuals_present`, `charge_ledger_present` |
+
+再開時の `charges.csv`、`macro_residuals.csv`、`charge_ledger.csv` は、各行に所定数の数値が必要です。
+空欄、行をまたぐ値の補完、Fortran 自由形式入力の `/` や繰り返し指定（`3*0.0` など）は受け付けません。
+数値の前後の空白と `D` 指数表記、旧 2 列形式の残差ファイルは引き続き読み込めます。
 
 ### 更新と自動選択
 

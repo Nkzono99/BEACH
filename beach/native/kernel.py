@@ -725,6 +725,8 @@ def _periodic_box_vectors(
     box_max: tuple[float, float, float] | None,
     source_vertices_3xn: tuple[np.ndarray, np.ndarray, np.ndarray],
 ) -> tuple[np.ndarray, np.ndarray]:
+    if (box_min is None) != (box_max is None):
+        raise ValueError("box_min and box_max must be provided together.")
     if box_min is None:
         all_vertices = np.concatenate(source_vertices_3xn, axis=1)
         mins = np.min(all_vertices, axis=1)
@@ -733,10 +735,8 @@ def _periodic_box_vectors(
         box_min_arr = mins - 0.5 * span
         box_max_arr = maxs + 0.5 * span
     else:
-        box_min_arr = np.asarray(box_min, dtype=np.float64)
-        if box_max is None:
-            raise ValueError("box_max is required when box_min is set.")
-        box_max_arr = np.asarray(box_max, dtype=np.float64)
+        box_min_arr = _vec3(box_min, name="box_min")
+        box_max_arr = _vec3(box_max, name="box_max")
 
     box_min_arr = box_min_arr.copy()
     box_max_arr = box_max_arr.copy()

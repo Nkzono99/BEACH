@@ -171,6 +171,35 @@ def test_field_kernel_diagnostics_is_a_frozen_top_level_api() -> None:
 
 
 @pytest.mark.parametrize(
+    ("box_min", "box_max", "message"),
+    [
+        ((0.0, 0.0), (1.0, 1.0, 1.0), "box_min must contain exactly 3"),
+        ((0.0, 0.0, 0.0), (1.0, 1.0), "box_max must contain exactly 3"),
+        ((0.0, 0.0, np.nan), (1.0, 1.0, 1.0), "box_min must contain finite"),
+        ((0.0, 0.0, 0.0), (1.0, 1.0, np.inf), "box_max must contain finite"),
+        (None, (1.0, 1.0, 1.0), "must be provided together"),
+        ((0.0, 0.0, 0.0), None, "must be provided together"),
+    ],
+)
+def test_periodic_kernel_rejects_invalid_bounds_before_native_build(
+    monkeypatch: pytest.MonkeyPatch, box_min, box_max, message: str,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    triangles, charges = _one_panel_source()
+    options = FieldKernelOptions(
+        periodic2={"axes": (0, 1), "lengths": (1.0, 1.0)},
+        box_min=box_min,
+        box_max=box_max,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        FieldKernel(triangles, charges, options=options)
+
+    assert "build" not in lib.events
+    assert len(lib.beach_kernel_destroy.calls) == len(lib.beach_kernel_create.calls)
+
+
+@pytest.mark.parametrize(
     ("triangles", "message"),
     [
         (np.zeros((1, 3)), r"shape \(n_triangles, 3, 3\)"),

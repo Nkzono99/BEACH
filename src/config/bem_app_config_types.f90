@@ -206,6 +206,9 @@ contains
         if (cfg%particle_species(s)%npcls_per_step < 0_i32) then
           error stop species_config_path(int(s))//'.sampling.volume_macro_particles_per_batch must be >= 0.'
         end if
+        if (cfg%particle_species(s)%npcls_per_step > huge(batch_n) - batch_n) then
+          error stop 'Total volume particles per batch exceed the supported 32-bit integer range.'
+        end if
         batch_n = batch_n + cfg%particle_species(s)%npcls_per_step
       case ('photo_raycast')
         has_dynamic_source = .true.

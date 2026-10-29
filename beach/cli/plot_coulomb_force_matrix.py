@@ -81,7 +81,7 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
             "sources": list(metadata["source_labels"]),
             "force_matrix": [
                 {"target": label, f"force_{args.component}_N": row}
-                for label, row in zip(metadata["target_labels"], metadata["matrix"])
+                for label, row in zip(metadata["target_labels"], metadata["matrix"].T)
             ],
         },
     )

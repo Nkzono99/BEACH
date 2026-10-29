@@ -4,6 +4,7 @@ program test_mpi_hybrid
   use bem_constants, only: qe
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_select_lowest_rank_i32_values, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_real_dp_array, &
+                     mpi_allreduce_sum_i32_array, mpi_allreduce_min_real_dp_array, mpi_allreduce_max_real_dp_array, &
                      mpi_allreduce_sum_i64_array, mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, &
                      mpi_world_barrier
   use bem_mesh, only: init_mesh
@@ -120,10 +121,14 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(12)
+  call test_init(13)
 
   call test_begin('mpi_rank_count_matches_launcher_request')
   call check_requested_rank_count(mpi)
+  call test_end()
+
+  call test_begin('mpi_array_reductions_preserve_sections_and_empty_inputs')
+  call check_array_reductions(mpi)
   call test_end()
 
   call test_begin('mpi_lowest_rank_metadata_selection')
@@ -378,6 +383,44 @@ program test_mpi_hybrid
   call mpi_shutdown(mpi)
 
 contains
+
+  subroutine check_array_reductions(ctx)
+    type(mpi_context), intent(in) :: ctx
+    real(dp) :: values(6), empty_real(0), rank_sum
+    integer(i32) :: values_i32(6), empty_i32(0), expected_sum
+    integer(i64) :: values_i64(6), empty_i64(0)
+
+    expected_sum = ctx%size*(ctx%size + 1_i32)/2_i32
+    rank_sum = real(expected_sum, dp)
+    values = -99.0_dp
+    values(1:6:2) = real(ctx%rank + 1_i32, dp)
+    call mpi_allreduce_sum_real_dp_array(ctx, values(1:6:2))
+    call assert_true(all(values(1:6:2) == rank_sum), 'real strided sum must match the rank-series sum')
+    call assert_true(all(values(2:6:2) == -99.0_dp), 'real reduction must preserve unselected entries')
+    values = real(ctx%rank + 1_i32, dp)
+    call mpi_allreduce_min_real_dp_array(ctx, values(1:6:2))
+    call mpi_allreduce_max_real_dp_array(ctx, values(2:6:2))
+    call assert_true(all(values(1:6:2) == 1.0_dp), 'real minimum mismatch')
+    call assert_true(all(values(2:6:2) == real(ctx%size, dp)), 'real maximum mismatch')
+
+    values_i32 = -99_i32
+    values_i32(1:6:2) = ctx%rank + 1_i32
+    call mpi_allreduce_sum_i32_array(ctx, values_i32(1:6:2))
+    call assert_true(all(values_i32(1:6:2) == expected_sum), 'i32 strided sum mismatch')
+    call assert_true(all(values_i32(2:6:2) == -99_i32), 'i32 reduction must preserve unselected entries')
+    values_i64 = -99_i64
+    values_i64(1:6:2) = int(ctx%rank + 1_i32, i64)*4294967296_i64
+    call mpi_allreduce_sum_i64_array(ctx, values_i64(1:6:2))
+    call assert_true(all(values_i64(1:6:2) == int(expected_sum, i64)*4294967296_i64), 'i64 sum must preserve high bits')
+    call assert_true(all(values_i64(2:6:2) == -99_i64), 'i64 reduction must preserve unselected entries')
+
+    ! All ranks still participate when the collective count is zero.
+    call mpi_allreduce_sum_real_dp_array(ctx, empty_real)
+    call mpi_allreduce_min_real_dp_array(ctx, empty_real)
+    call mpi_allreduce_max_real_dp_array(ctx, empty_real)
+    call mpi_allreduce_sum_i32_array(ctx, empty_i32)
+    call mpi_allreduce_sum_i64_array(ctx, empty_i64)
+  end subroutine check_array_reductions
 
   !> Two triangles per cell on a square grid in z=0, with smoothly varying charges.
   subroutine make_mpi_panel_grid(v0_out, v1_out, v2_out, q_out)

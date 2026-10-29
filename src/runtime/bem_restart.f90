@@ -1,5 +1,6 @@
 !> チェックポイントファイルの保存/復元を扱う補助モジュール。
 module bem_restart
+  use, intrinsic :: iso_fortran_env, only: iostat_end, iostat_eor
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: i32
   use bem_types, only: sim_stats, mesh_type, injection_state
@@ -7,6 +8,7 @@ module bem_restart
   use bem_charge_ledger, only: charge_ledger_type
   use bem_checkpoint_contract, only: checkpoint_schema_is_loadable, inspect_checkpoint_directory
   use bem_mpi, only: mpi_context, mpi_bcast_real_dp_array
+  use bem_string_utils, only: is_decimal_real_token
   implicit none
 
   private
@@ -21,6 +23,12 @@ module bem_restart
   public :: restart_macro_residual_path
 
   interface
+    module subroutine read_checkpoint_csv_record(unit, line, columns, ios)
+      integer, intent(in) :: unit, columns
+      character(len=*), intent(out) :: line
+      integer, intent(out) :: ios
+    end subroutine read_checkpoint_csv_record
+
     module subroutine load_summary_file(path, expected_nelem, stats, expected_world_size)
       character(len=*), intent(in) :: path
       integer(i32), intent(in) :: expected_nelem

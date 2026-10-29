@@ -1,6 +1,6 @@
 !> app_config から三角形メッシュを構築する実行時変換。
 module bem_app_config_mesh_runtime
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_types, only: mesh_type
   use bem_types, only: surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere, &
@@ -126,42 +126,52 @@ contains
   subroutine build_parts_mesh(cfg, mesh)
     type(app_config), intent(in) :: cfg
     type(mesh_type), intent(out) :: mesh
+    ! Keep only vertices between passes; retaining whole meshes would also retain
+    ! every part's geometry caches. Move ownership without copying the vertices.
+    type :: part_vertices
+      real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :)
+    end type part_vertices
+    type(part_vertices), allocatable :: parts(:)
     type(mesh_type) :: part
-    real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :)
-    real(dp), allocatable :: elem_epsilon_r(:), part_epsilon_r(:)
-    integer(i32), allocatable :: elem_mesh_id(:), part_mesh_id(:)
-    integer(i32), allocatable :: elem_surface_model(:), part_surface_model(:)
-    integer(i32) :: i, mesh_id
+    real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :), elem_epsilon_r(:)
+    integer(i32), allocatable :: elem_mesh_id(:), elem_surface_model(:)
+    integer(i32) :: i, mesh_id, n
+    integer(i64) :: first, last
 
-    allocate (v0(3, 0), v1(3, 0), v2(3, 0), elem_mesh_id(0), elem_surface_model(0), elem_epsilon_r(0))
-    mesh_id = 0_i32
+    allocate (parts(cfg%n_mesh_parts))
+    n = 0_i32
     do i = 1, cfg%n_mesh_parts
       if (.not. cfg%mesh_parts(i)%enabled) cycle
-      mesh_id = mesh_id + 1_i32
       if (trim(cfg%mesh_parts(i)%kind) == 'obj') then
         call load_obj_mesh(trim(cfg%mesh_parts(i)%path), part)
         call apply_obj_transform(part, cfg%mesh_parts(i)%scale, cfg%mesh_parts(i)%rotation, cfg%mesh_parts(i)%offset)
       else
         call build_one_template(cfg%mesh_parts(i), part)
       end if
-      call append_triangles(v0, v1, v2, part%v0, part%v1, part%v2)
-      if (allocated(part_mesh_id)) deallocate (part_mesh_id)
-      allocate (part_mesh_id(part%nelem))
-      part_mesh_id = mesh_id
-      call append_mesh_ids(elem_mesh_id, part_mesh_id)
-      if (allocated(part_surface_model)) deallocate (part_surface_model)
-      allocate (part_surface_model(part%nelem))
-      part_surface_model = surface_model_id_from_name(cfg%mesh_parts(i)%surface_model)
-      call append_mesh_ids(elem_surface_model, part_surface_model)
-      if (allocated(part_epsilon_r)) deallocate (part_epsilon_r)
-      allocate (part_epsilon_r(part%nelem))
-      part_epsilon_r = cfg%mesh_parts(i)%epsilon_r
-      call append_real_values(elem_epsilon_r, part_epsilon_r)
+      if (part%nelem > huge(n) - n) error stop 'Combined mesh element count exceeds the supported integer range.'
+      n = n + part%nelem
+      call move_alloc(part%v0, parts(i)%v0)
+      call move_alloc(part%v1, parts(i)%v1)
+      call move_alloc(part%v2, parts(i)%v2)
     end do
+    if (n == 0_i32) error stop 'No enabled mesh.parts found in configuration.'
 
-    if (size(v0, 2) == 0) then
-      error stop 'No enabled mesh.parts found in configuration.'
-    end if
+    allocate (v0(3, n), v1(3, n), v2(3, n), elem_mesh_id(n), elem_surface_model(n), elem_epsilon_r(n))
+    mesh_id = 0_i32
+    first = 1_i64
+    do i = 1, cfg%n_mesh_parts
+      if (.not. cfg%mesh_parts(i)%enabled) cycle
+      mesh_id = mesh_id + 1_i32
+      last = first + size(parts(i)%v0, 2) - 1_i64
+      v0(:, first:last) = parts(i)%v0
+      v1(:, first:last) = parts(i)%v1
+      v2(:, first:last) = parts(i)%v2
+      deallocate (parts(i)%v0, parts(i)%v1, parts(i)%v2)
+      elem_mesh_id(first:last) = mesh_id
+      elem_surface_model(first:last) = surface_model_id_from_name(cfg%mesh_parts(i)%surface_model)
+      elem_epsilon_r(first:last) = cfg%mesh_parts(i)%epsilon_r
+      first = last + 1_i64
+    end do
     call init_mesh( &
       mesh, v0, v1, v2, elem_mesh_id0=elem_mesh_id, elem_surface_model0=elem_surface_model, &
       elem_epsilon_r0=elem_epsilon_r &
