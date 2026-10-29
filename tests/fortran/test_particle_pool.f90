@@ -183,6 +183,7 @@ contains
   subroutine test_particle_append_preserves_existing_state()
     type(particles_soa) :: particles
     real(dp) :: initial_x(3, 1), initial_v(3, 1), append_x(3, 2), append_v(3, 2)
+    integer :: j
 
     initial_x(:, 1) = [1.0_dp, 2.0_dp, 3.0_dp]
     initial_v(:, 1) = [4.0_dp, 5.0_dp, 6.0_dp]
@@ -214,9 +215,34 @@ contains
     call assert_true(all(particles%w(1:3) == [3.0_dp, 8.0_dp, 9.0_dp]), 'particle append weight mismatch')
     call assert_true(all(particles%species_id(1:3) == [1_i32, 2_i32, 3_i32]), 'particle append species mismatch')
     call assert_true( &
-      all(particles%source_element(1:3) == [7_i32, 8_i32, 9_i32]), &
+      all(particles%source_element(:particles%n) == [7_i32, 8_i32, 9_i32]), &
       'particle append must preserve and append source provenance' &
       )
+    call append_particles( &
+      particles, append_x(:, :0), append_v(:, :0), [real(dp) ::], [real(dp) ::], [real(dp) ::], [integer(i32) ::] &
+      )
+    call assert_equal_i32(particles%n, 3_i32, 'empty particle append changed the count')
+    ! Single appends cross several capacity growths; every earlier particle must keep its state.
+    do j = 4, 8
+      call append_particles( &
+        particles, reshape(real([j, -j, 2*j], dp), [3, 1]), reshape(real([-j, j, 3*j], dp), [3, 1]), &
+        [real(j, dp)], [real(2*j, dp)], [real(3*j, dp)], [int(j, i32)] &
+        )
+      call assert_equal_i32(particles%n, int(j, i32), 'consecutive particle append count mismatch')
+      call assert_true(size(particles%q) >= particles%n, 'particle capacity is smaller than the count')
+    end do
+    call assert_true(.not. particles%alive(1) .and. all(particles%alive(2:8)), &
+                     'capacity growth must preserve alive state')
+    call assert_true(all(particles%source_element(:8) == [7_i32, 8_i32, 9_i32, -1_i32, -1_i32, -1_i32, -1_i32, -1_i32]), &
+                     'capacity growth must preserve source provenance')
+    call assert_true(all(particles%x(:, 2) == [7.0_dp, 8.0_dp, 9.0_dp]), 'capacity growth moved an early position')
+    do j = 4, 8
+      call assert_true(all(particles%x(:, j) == real([j, -j, 2*j], dp)) .and. &
+                       all(particles%v(:, j) == real([-j, j, 3*j], dp)), 'appended state mismatch after growth')
+      call assert_true(particles%q(j) == real(j, dp) .and. particles%m(j) == real(2*j, dp) .and. &
+                       particles%w(j) == real(3*j, dp) .and. particles%species_id(j) == j, &
+                       'appended attributes mismatch after growth')
+    end do
   end subroutine test_particle_append_preserves_existing_state
 
   subroutine test_uneven_species_batch()
@@ -534,11 +560,11 @@ contains
   !! chunk 幅を変えても同じ ray 集合が同じ要素に当たるので、収支は丸め誤差の範囲で一致する。
   subroutine run_shared_pool_photo_test()
     integer(i32), parameter :: rays = 1024_i32
-    type(mesh_type) :: mesh_small, mesh_large
-    type(app_config) :: cfg_small, cfg_large
-    type(sim_stats) :: stats_small, stats_large
-    type(charge_ledger_type) :: ledger_small, ledger_large
-    real(dp) :: signature_small(9), signature_large(9)
+    type(mesh_type) :: mesh_small, mesh_large, mesh_grown
+    type(app_config) :: cfg_small, cfg_large, cfg_grown
+    type(sim_stats) :: stats_small, stats_large, stats_grown
+    type(charge_ledger_type) :: ledger_small, ledger_large, ledger_grown
+    real(dp) :: signature_small(9), signature_large(9), signature_grown(9)
     integer :: value_index
     character(len=96) :: message
 
@@ -565,6 +591,25 @@ contains
     do value_index = 1, size(signature_small)
       write (message, '(a,i0)') 'photo pool signature mismatch at index ', value_index
       call assert_close_dp(signature_large(value_index), signature_small(value_index), &
+                           1.0e-11_dp*max(1.0_dp, abs(signature_small(value_index))), trim(message))
+    end do
+
+    ! A process sized for 8 ranks starts with room for about 1/8 of the pool; claiming all of it alone must
+    ! grow the batch arrays between claims without losing or reordering any particle.
+    call setup_photo_fixture(mesh_grown, cfg_grown, rays)
+    cfg_grown%sim%particle_distribution = 'shared'
+    cfg_grown%sim%particle_pool_chunk = 7_i32
+    call seed_particles_from_config(cfg_grown)
+    call run_absorption_insulator( &
+      mesh_grown, cfg_grown, stats_grown, mpi=mpi_context(rank=0_i32, size=8_i32, enabled=.false.), &
+      charge_ledger=ledger_grown &
+      )
+    call assert_equal_i64(stats_grown%processed_particles, stats_small%processed_particles, &
+                          'a growing pool must keep every claimed particle')
+    call pack_photo_signature(mesh_grown, ledger_grown, signature_grown)
+    do value_index = 1, size(signature_small)
+      write (message, '(a,i0)') 'growing photo pool signature mismatch at index ', value_index
+      call assert_close_dp(signature_grown(value_index), signature_small(value_index), &
                            1.0e-11_dp*max(1.0_dp, abs(signature_small(value_index))), trim(message))
     end do
   end subroutine run_shared_pool_photo_test

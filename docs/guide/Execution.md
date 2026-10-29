@@ -69,6 +69,8 @@ rank 数を変えても同じ粒子集合になります。rank 間で粒子追�
 `summary.txt` の `particle_pool_claim_seconds` で claim の待ち時間を確認できます。各 rank は次の chunk を先に要求して
 粒子追跡と通信を重ねるので、ノードをまたぐ実行でも既定の 64 から 256 程度の chunk なら claim の待ち時間はバッチ時間の
 1% 未満です。
+各 rank が粒子配列に持つのは自分が claim した slot の分だけで、最初は均等分の 1.25 倍と 1 chunk を確保し、
+多く取った rank は claim の合間に配列を広げます。rank を増やすと rank あたりの粒子メモリも減ります。
 
 ## 実行前に負荷を見積もる
 

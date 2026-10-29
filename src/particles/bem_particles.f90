@@ -6,6 +6,7 @@ module bem_particles
 contains
 
   !> 粒子数に一致するSoA領域を確保する。位置・速度・電荷・質量は呼出し元で埋める。
+  !! SoA の配列長は容量で、有効な粒子は常に先頭 `pcls%n` 個（`extend_particles` 後は配列長の方が長くなり得る）。
   !! 重みは1、粒子種IDは0、放出元は-1、aliveはtrueで初期化する。
   subroutine allocate_particles(pcls, n)
     type(particles_soa), intent(out) :: pcls
@@ -66,15 +67,13 @@ contains
   end subroutine init_particles
 
   !> 既存 SoA の末尾へ粒子群を追加し、既存の alive 状態を保持する。
+  !! 容量が足りなければ `extend_particles` が 1.5 倍以上に広げるので、配列長は `pcls%n` より長くなり得る。
   subroutine append_particles(pcls, x, v, q, m, w, species_id, source_element)
     type(particles_soa), intent(inout) :: pcls
     real(dp), intent(in) :: x(:, :), v(:, :), q(:), m(:), w(:)
     integer(i32), intent(in) :: species_id(:)
     integer(i32), intent(in), optional :: source_element(:)
-    real(dp), allocatable :: grown_x(:, :), grown_v(:, :), grown_q(:), grown_m(:), grown_w(:)
-    integer(i32), allocatable :: grown_species_id(:), grown_source_element(:)
-    logical, allocatable :: grown_alive(:)
-    integer(i32) :: old_count, added_count, new_count
+    integer(i32) :: old_count, added_count
 
     old_count = pcls%n
     added_count = int(size(q), i32)
@@ -87,9 +86,27 @@ contains
       if (size(source_element) /= added_count) error stop 'particle append source_element size mismatch'
     end if
     if (added_count == 0_i32) return
-    if (old_count < 0_i32 .or. old_count > huge(0_i32) - added_count) then
-      error stop 'particle append count overflow'
-    end if
+    call extend_particles(pcls, added_count)
+    pcls%x(:, old_count + 1:pcls%n) = x
+    pcls%v(:, old_count + 1:pcls%n) = v
+    pcls%q(old_count + 1:pcls%n) = q
+    pcls%m(old_count + 1:pcls%n) = m
+    pcls%w(old_count + 1:pcls%n) = w
+    pcls%species_id(old_count + 1:pcls%n) = species_id
+    if (present(source_element)) pcls%source_element(old_count + 1:pcls%n) = source_element
+  end subroutine append_particles
+
+  !> 末尾に `added` 個の枠を足して `pcls%n` を進める。新しい枠は重み 1、粒子種 0、放出元 -1、alive で、
+  !! 位置・速度・電荷・質量は呼出し元が埋める。容量が足りなければ必要数と現容量の 1.5 倍の大きい方へ広げ、
+  !! 二次電子の世代ごとの追加で毎回全粒子を写し直さない。
+  subroutine extend_particles(pcls, added)
+    type(particles_soa), intent(inout) :: pcls
+    integer(i32), intent(in) :: added
+    integer(i32) :: old_count, new_count, capacity
+
+    old_count = pcls%n
+    if (added < 0_i32) error stop 'particle append count must be >= 0'
+    if (old_count < 0_i32 .or. old_count > huge(0_i32) - added) error stop 'particle append count overflow'
     if (old_count > 0_i32) then
       if (.not. allocated(pcls%x) .or. .not. allocated(pcls%v) .or. .not. allocated(pcls%q) .or. &
           .not. allocated(pcls%m) .or. .not. allocated(pcls%w) .or. .not. allocated(pcls%species_id) .or. &
@@ -97,33 +114,41 @@ contains
         error stop 'particle append requires a complete existing SoA'
       end if
     end if
-
-    new_count = old_count + added_count
-    allocate (grown_x(3, new_count), grown_v(3, new_count), grown_q(new_count), grown_m(new_count), &
-              grown_w(new_count), grown_species_id(new_count), grown_source_element(new_count), grown_alive(new_count))
-    if (old_count > 0_i32) then
-      grown_x(:, :old_count) = pcls%x
-      grown_v(:, :old_count) = pcls%v
-      grown_q(:old_count) = pcls%q
-      grown_m(:old_count) = pcls%m
-      grown_w(:old_count) = pcls%w
-      grown_species_id(:old_count) = pcls%species_id
-      grown_source_element(:old_count) = pcls%source_element
-      grown_alive(:old_count) = pcls%alive
+    new_count = old_count + added
+    capacity = particle_capacity(pcls)
+    if (new_count > capacity) then
+      call reserve_particles(pcls, max(new_count, capacity + min(capacity/2_i32, huge(0_i32) - capacity)))
     end if
-    grown_x(:, old_count + 1:new_count) = x
-    grown_v(:, old_count + 1:new_count) = v
-    grown_q(old_count + 1:new_count) = q
-    grown_m(old_count + 1:new_count) = m
-    grown_w(old_count + 1:new_count) = w
-    grown_species_id(old_count + 1:new_count) = species_id
-    if (present(source_element)) then
-      grown_source_element(old_count + 1:new_count) = source_element
-    else
-      grown_source_element(old_count + 1:new_count) = -1_i32
-    end if
-    grown_alive(old_count + 1:new_count) = .true.
+    pcls%w(old_count + 1:new_count) = 1.0_dp
+    pcls%species_id(old_count + 1:new_count) = 0_i32
+    pcls%source_element(old_count + 1:new_count) = -1_i32
+    pcls%alive(old_count + 1:new_count) = .true.
+    pcls%n = new_count
+  end subroutine extend_particles
 
+  !> 容量を `capacity` 以上にする。先頭 `pcls%n` 個だけを写し、それより後ろの値は未定義のまま残す。
+  subroutine reserve_particles(pcls, capacity)
+    type(particles_soa), intent(inout) :: pcls
+    integer(i32), intent(in) :: capacity
+    real(dp), allocatable :: grown_x(:, :), grown_v(:, :), grown_q(:), grown_m(:), grown_w(:)
+    integer(i32), allocatable :: grown_species_id(:), grown_source_element(:)
+    logical, allocatable :: grown_alive(:)
+    integer(i32) :: n
+
+    if (capacity <= particle_capacity(pcls)) return
+    n = pcls%n
+    allocate (grown_x(3, capacity), grown_v(3, capacity), grown_q(capacity), grown_m(capacity), &
+              grown_w(capacity), grown_species_id(capacity), grown_source_element(capacity), grown_alive(capacity))
+    if (n > 0_i32) then
+      grown_x(:, :n) = pcls%x(:, :n)
+      grown_v(:, :n) = pcls%v(:, :n)
+      grown_q(:n) = pcls%q(:n)
+      grown_m(:n) = pcls%m(:n)
+      grown_w(:n) = pcls%w(:n)
+      grown_species_id(:n) = pcls%species_id(:n)
+      grown_source_element(:n) = pcls%source_element(:n)
+      grown_alive(:n) = pcls%alive(:n)
+    end if
     call move_alloc(grown_x, pcls%x)
     call move_alloc(grown_v, pcls%v)
     call move_alloc(grown_q, pcls%q)
@@ -132,8 +157,15 @@ contains
     call move_alloc(grown_species_id, pcls%species_id)
     call move_alloc(grown_source_element, pcls%source_element)
     call move_alloc(grown_alive, pcls%alive)
-    pcls%n = new_count
-  end subroutine append_particles
+  end subroutine reserve_particles
+
+  !> 確保済みの粒子枠数。未確保なら 0。
+  pure integer(i32) function particle_capacity(pcls) result(capacity)
+    type(particles_soa), intent(in) :: pcls
+
+    capacity = 0_i32
+    if (allocated(pcls%q)) capacity = int(size(pcls%q), i32)
+  end function particle_capacity
 
   !> 先頭 `n` 個だけを残して配列を詰め直す。容量を先に確保して埋めた SoA を実数に合わせるときに使う。
   subroutine trim_particles(pcls, n)

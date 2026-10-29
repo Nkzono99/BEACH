@@ -199,6 +199,7 @@ module bem_types
   end type mesh_type
 
   !> 粒子の位置・速度・物性値・生存フラグをSoA形式で保持する型。
+  !! 配列長は容量で、有効な粒子は先頭 `n` 個。利用側は `1:n` だけを読む。
   type :: particles_soa
     integer(i32) :: n = 0
     real(dp), allocatable :: x(:, :)
