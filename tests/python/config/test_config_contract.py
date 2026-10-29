@@ -1,9 +1,10 @@
-"""Check that ``beachx lint`` returns the Fortran preflight verdict.
+"""Check that ``beachx lint`` returns the schema and Fortran preflight verdicts.
 
 The JSON Schema owns key names, types, and ranges; the Fortran preflight owns
-combinations and derived values. ``make test-config-contract`` supplies the
-freshly built executable. Ordinary Python-only runs skip these cases instead of
-selecting a stale binary.
+combinations and derived values. Schema cases run without a native executable.
+``make test-config-contract`` supplies the freshly built executable for the
+preflight cases; ordinary Python-only runs skip them instead of selecting a stale
+binary.
 """
 
 from __future__ import annotations
@@ -35,65 +36,108 @@ def _periodic2_cell() -> dict:
     return config
 
 
-def _cases() -> list:
-    # Bundled examples (including the tutorial default) are accepted by
-    # test_config_layout.test_grouped_examples_pass_native_config_check. Rules whose
-    # diagnostics tests/fortran/test_app_config_parser.f90 already checks in L1 are
-    # not repeated here; test_lint_reports_the_fortran_diagnostic shows lint relays them.
+def _schema_cases() -> list:
+    # Key names, types, and ranges belong to the JSON Schema (and the finite-number
+    # check of the Python loader), so lint rejects these before any native check.
     cases = []
     config = to_grouped_layout(default_config())
     config["particles"]["tracking"]["dtt"] = 1.0e-8
-    cases.append(pytest.param(config, False, id="dtt-1e-08"))
-    for key, value, accepted in (
-        ("dt", -1.0, False),
-        ("dt", float("nan"), False),
-        ("dt", float("inf"), False),
-        ("dt", True, False),
-        ("batch_count", 0, False),
-        ("max_step", 0, False),
-        ("tree_theta", -1.0, True),  # inactive for direct evaluation
-        ("field_solver", "DIRECT", True),
-        ("e0_phi_z_deg", 90.0, False),  # requires e0_abs
+    cases.append(pytest.param(config, "('dtt' was unexpected)", id="dtt-1e-08"))
+    for key, value, diagnostic in (
+        ("dt", -1.0, "schema error at particles.tracking.dt_s"),
+        ("dt", float("nan"), "config error at particles.tracking.dt_s: number must be finite"),
+        ("dt", float("inf"), "config error at particles.tracking.dt_s: number must be finite"),
+        ("dt", True, "schema error at particles.tracking.dt_s"),
+        ("batch_count", 0, "schema error at run.batch_count"),
+        ("max_step", 0, "schema error at particles.tracking.max_steps_per_particle"),
+        ("e0_phi_z_deg", 90.0, "schema error at fields.external"),  # requires e0_abs
     ):
         config = default_config()
         config["sim"][key] = value
-        cases.append(pytest.param(config, accepted, id=f"{key}-{value}"))
-
-    config = default_config()
-    config["sim"].update(field_solver="treecode", tree_theta=-1.0)
-    cases.append(pytest.param(config, False, id="active-tree-theta"))
+        cases.append(pytest.param(config, diagnostic, id=f"{key}-{value}"))
 
     config = default_config()
     config["sim"].update(e0=[0.0, 0.0, -1.0], e0_abs=1.0)
-    cases.append(pytest.param(config, False, id="e0-vector-and-magnitude"))
+    cases.append(pytest.param(
+        config, "'required': ['electric_v_m', 'electric_magnitude_v_m']",
+        id="e0-vector-and-magnitude",
+    ))
 
     config = default_config()
     config["output"].update(resume=True, write_files=False)
-    cases.append(pytest.param(config, False, id="resume-without-file-output"))
+    cases.append(pytest.param(config, "schema error at output.enabled", id="resume-without-file-output"))
 
     config = default_config()
     config["mesh"]["parts"][0]["kind"] = "unknown"
-    cases.append(pytest.param(config, False, id="unsupported-template-kind"))
+    cases.append(pytest.param(config, "schema error at mesh.parts[0].kind", id="unsupported-template-kind"))
 
-    for name_length, accepted in ((64, True), (65, False)):
-        config = default_config()
-        config["mesh"]["groups"] = {"g" * name_length: {"scale": 1.0}}
-        cases.append(pytest.param(config, accepted, id=f"mesh-group-name-length-{name_length}"))
+    config = default_config()
+    config["mesh"]["groups"] = {"g" * 65: {"scale": 1.0}}
+    cases.append(pytest.param(config, "schema error at mesh.groups", id="mesh-group-name-length-65"))
 
     config = default_config()
     config["sim"].update(batch_duration=1.0, batch_duration_step=1.0)
-    cases.append(pytest.param(config, False, id="exclusive-batch-duration"))
+    cases.append(pytest.param(
+        config, "'required': ['duration_s', 'duration_steps']", id="exclusive-batch-duration",
+    ))
+
+    reservoir = to_runtime_layout(load_toml_file(ROOT / "examples/beach.toml"))
+    reservoir["particles"]["species"][0]["number_density_m3"] = 1.0e6
+    cases.append(pytest.param(
+        reservoir, "'required': ['number_density_cm3', 'number_density_m3']",
+        id="reservoir-two-density-forms",
+    ))
+    config = default_config()
+    config["particles"]["species"][0]["target_macro_particles_per_batch"] = 10
+    cases.append(pytest.param(
+        config, "'required': ['target_macro_particles_per_batch']",
+        id="volume-seed-with-reservoir-target",
+    ))
+    return cases
+
+
+def _preflight_cases() -> list:
+    # Bundled examples (including the tutorial default) are accepted by
+    # test_config_layout.test_grouped_examples_pass_native_config_check. Rules whose
+    # diagnostics tests/fortran/test_app_config_parser.f90 already checks in L1 are
+    # not repeated here; test_lint_reports_the_fortran_diagnostic compares the relay
+    # with the native stderr. A diagnostic of None means the configuration is valid.
+    cases = []
+    for key, value in (
+        ("tree_theta", -1.0),  # inactive for direct evaluation
+        ("field_solver", "DIRECT"),
+    ):
+        config = default_config()
+        config["sim"][key] = value
+        cases.append(pytest.param(config, None, id=f"{key}-{value}"))
+
+    config = default_config()
+    config["sim"].update(field_solver="treecode", tree_theta=-1.0)
+    cases.append(pytest.param(
+        config, "fields.solver.tree.theta must satisfy 0 < theta <= 1", id="active-tree-theta",
+    ))
+
+    config = default_config()
+    config["mesh"]["groups"] = {"g" * 64: {"scale": 1.0}}
+    cases.append(pytest.param(config, None, id="mesh-group-name-length-64"))
 
     for dt, steps, label in ((1.0e308, 1.0e308, "overflow"), (1.0e-300, 1.0e-300, "underflow")):
         config = default_config()
+        del config["sim"]["batch_duration"]
         config["sim"].update(dt=dt, batch_duration_step=steps)
-        cases.append(pytest.param(config, False, id=f"resolved-batch-duration-{label}"))
+        cases.append(pytest.param(
+            config, "run.batch.duration_steps produced invalid run.batch.duration_s",
+            id=f"resolved-batch-duration-{label}",
+        ))
 
     config = default_config()
     config["domain"] = {"box_origin": [0.0, 0.0, 0.0], "box_size": [1.0, 1.0, 1.0]}
-    cases.append(pytest.param(config, True, id="domain-authoring"))
+    cases.append(pytest.param(config, None, id="domain-authoring"))
 
-    for species_override in (False, True):
+    for species_override, diagnostic in (
+        (False, "[particles.boundary] requires a finite [domain]"),
+        (True, "particles.species[1].boundary requires a finite [domain]"),
+    ):
         config = default_config()
         del config["domain"]
         config["particle_boundary"] = {}
@@ -101,69 +145,84 @@ def _cases() -> list:
             config["particles"]["species"][0]["boundary"] = {"z_high": "reflect"}
         else:
             config["particle_boundary"]["z_high"] = "reflect"
-        cases.append(pytest.param(config, False, id=f"boundary-without-domain-{species_override}"))
+        cases.append(pytest.param(config, diagnostic, id=f"boundary-without-domain-{species_override}"))
 
     config = _periodic2_cell()
     config["particles"]["species"][0]["boundary"] = {"x_high": "open"}
-    cases.append(pytest.param(config, False, id="species-override-of-periodic-face"))
+    cases.append(pytest.param(
+        config, "particles.species[1].boundary cannot override a periodic domain face",
+        id="species-override-of-periodic-face",
+    ))
 
     config = default_config()
     config["particles"]["species"][0]["q_particle"] = 0.0
-    cases.append(pytest.param(config, False, id="zero-charge"))
+    cases.append(pytest.param(
+        config, "particles.species[1].charge_c must be finite and non-zero", id="zero-charge",
+    ))
     config = default_config()
     species = copy.deepcopy(config["particles"]["species"][0])
     species.update(species_key="species_1", enabled=False)
     config["particles"]["species"].append(species)
-    cases.append(pytest.param(config, False, id="duplicate-disabled-species-key"))
+    cases.append(pytest.param(
+        config, "particles.species[2].species_key values must be unique",
+        id="duplicate-disabled-species-key",
+    ))
 
     config = default_config()
     config["particles"]["species"][0]["enabled"] = False
-    cases.append(pytest.param(config, False, id="disabled-only-workload"))
+    cases.append(pytest.param(
+        config, "At least one enabled [[particles.species]] entry", id="disabled-only-workload",
+    ))
 
     config = default_config()
     disabled = copy.deepcopy(config["particles"]["species"][0])
     disabled.update(enabled=False, q_particle=0.0)
     config["particles"]["species"].append(disabled)
-    cases.append(pytest.param(config, True, id="active-source-with-disabled-zero-charge"))
+    cases.append(pytest.param(config, None, id="active-source-with-disabled-zero-charge"))
 
     reservoir = to_runtime_layout(load_toml_file(ROOT / "examples/beach.toml"))
     first_species = reservoir["particles"]["species"][0]
     first_species.pop("target_macro_particles_per_batch")
     first_species["w_particle"] = 1.0e6
-    cases.append(pytest.param(reservoir, True, id="reservoir-fixed-weight"))
-    config = copy.deepcopy(reservoir)
-    config["particles"]["species"][0]["number_density_m3"] = 1.0e6
-    cases.append(pytest.param(config, False, id="reservoir-two-density-forms"))
+    cases.append(pytest.param(reservoir, None, id="reservoir-fixed-weight"))
     config = copy.deepcopy(reservoir)
     config["domain"]["periodic_axes"] = ["z"]
-    cases.append(pytest.param(config, False, id="reservoir-inflow-through-periodic-face"))
-    config = default_config()
-    config["particles"]["species"][0]["target_macro_particles_per_batch"] = 10
-    cases.append(pytest.param(config, False, id="volume-seed-with-reservoir-target"))
+    cases.append(pytest.param(
+        config, "particles.boundary.z_low cannot override a periodic domain face",
+        id="reservoir-inflow-through-periodic-face",
+    ))
 
     config = copy.deepcopy(reservoir)
     config["particles"]["species"][0].update(
         surface_charge_closure="fixed_current", target_absorbed_current_a=-1.0e-9,
     )
-    cases.append(pytest.param(config, True, id="fixed-current-absorbed"))
+    cases.append(pytest.param(config, None, id="fixed-current-absorbed"))
 
     periodic = to_runtime_layout(load_toml_file(ROOT / "examples/closed_photoelectron.toml"))
     periodic["periodic2"] = {"lower_boundary_model": "symmetric_vacuum"}
-    cases.append(pytest.param(copy.deepcopy(periodic), False, id="partial-periodic-wrong-solver"))
+    cases.append(pytest.param(
+        copy.deepcopy(periodic), "panel_spectral_reference requires field backend direct",
+        id="partial-periodic-wrong-solver",
+    ))
     periodic["sim"]["field_solver"] = "direct"
-    cases.append(pytest.param(copy.deepcopy(periodic), True, id="partial-periodic-reference"))
+    cases.append(pytest.param(copy.deepcopy(periodic), None, id="partial-periodic-reference"))
     config = copy.deepcopy(periodic)
     config["sim"]["field_periodic_image_layers"] = -1
-    cases.append(pytest.param(config, False, id="negative-periodic-image-layers"))
+    cases.append(pytest.param(
+        config, "fields.periodic.image_layers must be >= 0", id="negative-periodic-image-layers",
+    ))
     periodic["sim"].update(field_solver="fmm", field_periodic_far_correction="cached_kneq0")
     periodic["periodic2"] = {
         "nonzero_mode_backend": "cached_kneq0",
         "max_nonzero_mode_potential_step": 1.0e-2,
     }
-    cases.append(pytest.param(copy.deepcopy(periodic), True, id="partial-periodic-cached"))
+    cases.append(pytest.param(copy.deepcopy(periodic), None, id="partial-periodic-cached"))
     config = copy.deepcopy(periodic)
     config["particles"]["species"][-1]["boundary"]["z_high"] = "open"
-    cases.append(pytest.param(config, False, id="neutral-return-without-reflecting-face"))
+    cases.append(pytest.param(
+        config, "neutral_return requires a negative photo_raycast species",
+        id="neutral-return-without-reflecting-face",
+    ))
 
     config = _periodic2_cell()
     config["sim"].update(batch_duration=1.0e-6, field_periodic_far_correction="cached_kneq0")
@@ -173,15 +232,26 @@ def _cases() -> list:
         "lower_boundary_model": "e_bottom_zero",
         "max_nonzero_mode_potential_step": 1.0e-2,
     }
-    cases.append(pytest.param(config, False, id="adaptive-step-with-volume-seed"))
+    cases.append(pytest.param(
+        config, "max_nonzero_mode_potential_step_v requires time-scaled reservoir or photo_raycast",
+        id="adaptive-step-with-volume-seed",
+    ))
     for label, mesh in (
         ("absent", {}), ("empty", {"parts": []}),
         ("disabled", {"parts": [{"kind": "plane", "enabled": False}]}),
     ):
         config = default_config()
         config["mesh"] = mesh
-        cases.append(pytest.param(config, True, id=f"no-enabled-mesh-{label}"))
+        cases.append(pytest.param(config, None, id=f"no-enabled-mesh-{label}"))
     return cases
+
+
+def _assert_schema_rejection(path: Path, diagnostic: str, beach: Path) -> None:
+    with pytest.raises(SystemExit) as caught:
+        run_lint(argparse.Namespace(config_path=path, schema=None, max_errors=20, beach=beach))
+    message = str(caught.value)
+    assert message.startswith(("schema validation failed:", "config error at ")), message
+    assert diagnostic in message
 
 
 def _write_config(config: dict, directory: Path) -> Path:
@@ -192,17 +262,28 @@ def _write_config(config: dict, directory: Path) -> Path:
     return path
 
 
-@pytest.mark.parametrize("config,accepted", _cases())
+@pytest.mark.parametrize("config,diagnostic", _schema_cases())
+def test_lint_rejects_schema_violations_before_the_preflight(
+    config: dict, diagnostic: str, tmp_path: Path,
+) -> None:
+    # A missing executable proves the native preflight was never consulted.
+    _assert_schema_rejection(_write_config(config, tmp_path), diagnostic, tmp_path / "missing-beach")
+
+
+@pytest.mark.parametrize("config,diagnostic", _preflight_cases())
 def test_lint_returns_the_preflight_verdict(
-    config: dict, accepted: bool, native_checker: Path, tmp_path: Path,
+    config: dict, diagnostic: str | None, native_checker: Path, tmp_path: Path,
 ) -> None:
     path = _write_config(config, tmp_path)
     args = argparse.Namespace(config_path=path, schema=None, max_errors=20, beach=native_checker)
-    if accepted:
+    if diagnostic is None:
         run_lint(args)
     else:
-        with pytest.raises(SystemExit):
+        with pytest.raises(SystemExit) as caught:
             run_lint(args)
+        message = str(caught.value)
+        assert message.startswith(f"preflight check failed: {path}"), message
+        assert diagnostic in message
     assert not (tmp_path / "simulation-output").exists(), "configuration checks must not start a simulation"
 
 
@@ -269,15 +350,24 @@ def test_native_check_requires_one_path(native_checker: Path, tmp_path: Path) ->
     assert "usage: beach --check-config beach.toml" in result.stderr
 
 
-@pytest.mark.parametrize("removed", ["reservoir_face", "plane_source", "source_normal"])
+@pytest.mark.parametrize("removed, schema_diagnostic, native_diagnostic", [
+    ("reservoir_face", "schema error at particles.species[0].source.mode",
+     "particles.species[1].source.mode"),
+    ("plane_source", "schema error at particles.species[0].source.mode",
+     "particles.species[1].source.mode"),
+    ("source_normal", "('normal' was unexpected)", "particles.species.source.normal"),
+])
 def test_removed_particle_source_inputs_are_rejected(
-    removed: str, native_checker: Path, tmp_path: Path,
+    removed: str, schema_diagnostic: str, native_diagnostic: str,
+    native_checker: Path, tmp_path: Path,
 ) -> None:
     config = to_grouped_layout(default_config())
     config["particles"]["species"][0]["source"]["normal" if removed == "source_normal" else "mode"] = (
         [0.0, 0.0, -1.0] if removed == "source_normal" else removed
     )
-    _assert_rejected_by_lint_and_native(config, native_checker, tmp_path)
+    _assert_rejected_by_lint_and_native(
+        config, schema_diagnostic, native_diagnostic, native_checker, tmp_path,
+    )
 
 
 @pytest.mark.parametrize("value", ["escape", "potential_barrier"])
@@ -286,20 +376,26 @@ def test_removed_ordinary_open_key_is_rejected(
 ) -> None:
     config = to_grouped_layout(default_config())
     config["particles"]["boundary"]["open_model"] = value
-    _assert_rejected_by_lint_and_native(config, native_checker, tmp_path)
+    _assert_rejected_by_lint_and_native(
+        config, "('open_model' was unexpected)", "particles.boundary.open_model",
+        native_checker, tmp_path,
+    )
 
 
-def _assert_rejected_by_lint_and_native(config, native_checker, tmp_path):
+def _assert_rejected_by_lint_and_native(
+    config, schema_diagnostic, native_diagnostic, native_checker, tmp_path,
+):
+    """Removed inputs fail the schema in lint and the native loader when beach runs directly."""
     config["output"]["dir"] = str(tmp_path / "simulation-output")
     path = tmp_path / "beach.toml"
     path.write_text(tomli_w.dumps(config), encoding="utf-8")
-    with pytest.raises(SystemExit):
-        run_lint(argparse.Namespace(config_path=path, schema=None, max_errors=20, beach=native_checker))
+    _assert_schema_rejection(path, schema_diagnostic, native_checker)
     native = subprocess.run(
         [str(native_checker), "--check-config", str(path)], cwd=tmp_path,
         text=True, capture_output=True, timeout=20,
     )
     assert native.returncode != 0
+    assert native_diagnostic in native.stderr
     assert not (tmp_path / "simulation-output").exists()
 
 

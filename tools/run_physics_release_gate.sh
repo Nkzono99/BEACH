@@ -154,6 +154,20 @@ if ((!dry_run)); then
   sed -n 's/^.*BEACH_CONVERGENCE,//p' \
     "$artifact_dir/release_correctness.log" "$artifact_dir/far_correction.log" \
     "$artifact_dir/mpi.log" "$artifact_dir/mpi_cache.log" >>"$convergence_csv"
+  # Each row is category,configuration,metric_1,metric_2,metric_3,acceptance:
+  # metric_1 and metric_2 are finite numbers, metric_3 is empty or finite.
+  malformed_row="$(awk -F, '
+    function finite(value) {
+      return value ~ /^[[:space:]]*[-+]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][-+]?[0-9]+)?[[:space:]]*$/
+    }
+    NR > 1 && (NF != 6 || $1 == "" || $2 == "" || $6 == "" || !finite($3) || !finite($4) ||
+               ($5 !~ /^[[:space:]]*$/ && !finite($5))) { print NR ": " $0; exit }
+  ' "$convergence_csv")"
+  if [[ -n "$malformed_row" ]]; then
+    printf 'convergence.status=failed_malformed_row\nstatus=failed\n' >>"$manifest"
+    echo "malformed convergence row (line $malformed_row)" >&2
+    exit 1
+  fi
   for category in boris_dt panel_fmm_order rough_panel_mesh; do
     if ! grep -q "^${category}," "$convergence_csv"; then
       printf 'convergence.status=failed_missing_%s\nstatus=failed\n' "$category" >>"$manifest"

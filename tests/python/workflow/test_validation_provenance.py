@@ -333,18 +333,15 @@ def test_native_binary_and_library_match_clean_current_source(
     assert build_origin["build_id"] == f"{source_commit}:clean"
 
 
-def test_probe_library_executes_basic_field_and_potential(
-    binary: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tool = _load_tool()
-    calls: list[Path] = []
+def _probe_kernel(electric_field, potential, calls: list[Path] | None = None):
+    """A kernel double that returns the given E and phi for the probe's one target."""
 
     class FakeKernel:
         def __init__(self, triangles, charges, *, library_path):
             assert np.asarray(triangles).shape == (1, 3, 3)
             assert np.asarray(charges).shape == (1,)
-            calls.append(Path(library_path))
+            if calls is not None:
+                calls.append(Path(library_path))
 
         def __enter__(self):
             return self
@@ -354,17 +351,57 @@ def test_probe_library_executes_basic_field_and_potential(
 
         def eval_e(self, points):
             assert np.asarray(points).shape == (1, 3)
-            return np.array([[1.0, 0.0, 0.0]])
+            return np.asarray(electric_field, dtype=float)
 
         def eval_phi(self, points):
-            return np.array([2.0])
+            assert np.asarray(points).shape == (1, 3)
+            return np.asarray(potential, dtype=float)
 
-    monkeypatch.setattr(tool, "FieldKernel", FakeKernel, raising=False)
+    return FakeKernel
+
+
+def test_probe_library_executes_basic_field_and_potential(
+    binary: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = _load_tool()
+    calls: list[Path] = []
+    kernel = _probe_kernel([[1.5, -2.5, 3.5]], [7.25], calls)
+    monkeypatch.setattr(tool, "FieldKernel", kernel, raising=False)
+
     report = tool.probe_library(binary)
 
     assert report["status"] == "ok"
     assert report["library_sha256"] == tool._sha256(binary)
     assert calls == [binary.resolve()]
+    assert report["electric_field_V_m"] == [1.5, -2.5, 3.5]
+    assert report["potential_V"] == 7.25
+
+
+@pytest.mark.parametrize(
+    ("electric_field", "potential"),
+    [
+        pytest.param([[0.0, 0.0, 0.0]], [7.25], id="zero-field"),
+        pytest.param([[1.5, -2.5, 3.5]], [0.0], id="zero-potential"),
+        pytest.param([[np.nan, 0.0, 1.0]], [7.25], id="nan-field"),
+        pytest.param([[1.5, -2.5, 3.5]], [np.inf], id="inf-potential"),
+        pytest.param([1.5, -2.5, 3.5], [7.25], id="field-shape"),
+        pytest.param([[1.5, -2.5, 3.5]], [7.25, 7.25], id="potential-shape"),
+    ],
+)
+def test_probe_library_rejects_invalid_field_or_potential(
+    binary: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    electric_field,
+    potential,
+) -> None:
+    tool = _load_tool()
+    monkeypatch.setattr(
+        tool, "FieldKernel", _probe_kernel(electric_field, potential), raising=False
+    )
+
+    with pytest.raises(tool.ValidationError, match="returned invalid values"):
+        tool.probe_library(binary)
 
 
 def test_verify_inputs_hashes_archive_analysis_assumptions(

@@ -5,7 +5,7 @@ program test_charge_ledger
   use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger, finite_charge_sum
   use test_support, only: &
     test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, &
-    run_self_probe, delete_file_if_exists
+    run_self_probe, delete_file_if_exists, file_contains
   implicit none
 
   type(charge_ledger_type) :: ledger, batch2, cumulative
@@ -291,11 +291,16 @@ program test_charge_ledger
   call test_end()
 
   call test_begin('invalid_numeric_accumulation_fails_closed')
-  call assert_probe_fails('--real-overflow-probe', 'real ledger overflow probe must fail')
-  call assert_probe_fails('--count-overflow-probe', 'count ledger overflow probe must fail')
-  call assert_probe_fails('--ratio-overflow-probe', 'derived ledger ratio overflow probe must fail')
-  call assert_probe_fails('--nonfinite-sum-probe', 'nonfinite charge sum probe must fail')
-  call assert_probe_fails('--sum-overflow-probe', 'charge sum overflow probe must fail')
+  call assert_probe_fails('--real-overflow-probe', 'injected charge charge accumulation', &
+                          'real ledger overflow probe must fail')
+  call assert_probe_fails('--count-overflow-probe', 'injected count accumulation overflowed', &
+                          'count ledger overflow probe must fail')
+  call assert_probe_fails('--ratio-overflow-probe', 'cumulative fixed absorbed weight scale', &
+                          'derived ledger ratio overflow probe must fail')
+  call assert_probe_fails('--nonfinite-sum-probe', 'nonfinite sum probe contains a non-finite charge', &
+                          'nonfinite charge sum probe must fail')
+  call assert_probe_fails('--sum-overflow-probe', 'sum overflow probe charge sum overflowed', &
+                          'charge sum overflow probe must fail')
   call test_end()
 
   call test_summary()
@@ -336,14 +341,19 @@ contains
       )
   end subroutine assert_reset_defaults
 
-  subroutine assert_probe_fails(mode, message)
-    character(len=*), intent(in) :: mode, message
-    character(len=*), parameter :: probe_log = 'test_charge_ledger_probe_tmp.log'
+  !> probe が非ゼロ終了し、狙った診断に到達したことを確認する。失敗時は log を残す。
+  subroutine assert_probe_fails(mode, diagnostic, message)
+    character(len=*), intent(in) :: mode, diagnostic, message
+    character(len=:), allocatable :: probe_log
     integer :: exit_status
+    logical :: reached
 
+    probe_log = 'test_charge_ledger'//mode//'_tmp.log'
     call run_self_probe(mode, probe_log, exit_status)
-    call delete_file_if_exists(probe_log)
+    reached = file_contains(probe_log, diagnostic)
     call assert_true(exit_status /= 0, message)
+    call assert_true(reached, message//': expected diagnostic "'//diagnostic//'" in '//probe_log)
+    if (exit_status /= 0 .and. reached) call delete_file_if_exists(probe_log)
   end subroutine assert_probe_fails
 
   subroutine run_real_overflow_probe()

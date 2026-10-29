@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import csv
+import math
 import os
 import subprocess
 import tomllib
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -133,20 +137,28 @@ def test_release_gate_propagates_failed_make_to_manifest(tmp_path: Path) -> None
     assert values["status"] == "failed"
 
 
+# Rows shaped like the Fortran producers (test_dynamics_basic, test_coulomb_fmm_core_panel):
+# es16.8 metrics with leading blanks, and an empty metric_3 for the two-metric axes.
+_PRODUCER_ROWS = (
+    "boris_dt,0.25_0.125_0.0625,  5.16000000E-03,  1.29900000E-03,  3.25330000E-04,second_order",
+    "panel_fmm_order,5,  2.88450000E-05,  4.78280000E-06,,field_and_potential_lt_2.0e-3",
+    "rough_panel_mesh,4,  1.06450000E-02,  1.08050000E-02,,reference_n32_and_decreasing",
+)
+
+
+def _convergence_make(rows: tuple[str, ...]) -> str:
+    lines = "".join(f"  printf '%s\\n' '[test] ... BEACH_CONVERGENCE,{row}'\n" for row in rows)
+    return f"""
+printf '%s\\n' "$*" >>"$BEACH_FAKE_MAKE_LOG"
+if [[ "$1" == "test-fortran-release-correctness" ]]; then
+{lines}fi
+"""
+
+
 def test_release_gate_collects_prefixed_convergence_and_runs_each_gate(tmp_path: Path) -> None:
     manifest = tmp_path / "manifest.txt"
     make_log = tmp_path / "make.log"
-    result = run_fake_gate(
-        tmp_path,
-        """
-printf '%s\n' "$*" >>"$BEACH_FAKE_MAKE_LOG"
-if [[ "$1" == "test-fortran-release-correctness" ]]; then
-  printf '[1/3] dt ... BEACH_CONVERGENCE,boris_dt,fixture,1,2,pass\n'
-  printf '[2/3] order ... BEACH_CONVERGENCE,panel_fmm_order,fixture,1,2,pass\n'
-  printf '[3/3] mesh ... BEACH_CONVERGENCE,rough_panel_mesh,fixture,1,2,pass\n'
-fi
-""",
-    )
+    result = run_fake_gate(tmp_path, _convergence_make(_PRODUCER_ROWS))
 
     assert result.returncode == 0, result.stderr
     assert make_log.read_text(encoding="utf-8").splitlines() == [
@@ -155,17 +167,44 @@ fi
         "test-mpi",
         "test-mpi-periodic-cache",
     ]
-    assert (tmp_path / "convergence.csv").read_text(encoding="utf-8").splitlines() == [
-        "category,configuration,metric_1,metric_2,metric_3,acceptance",
-        "boris_dt,fixture,1,2,pass",
-        "panel_fmm_order,fixture,1,2,pass",
-        "rough_panel_mesh,fixture,1,2,pass",
-    ]
+    with (tmp_path / "convergence.csv").open(encoding="utf-8", newline="") as stream:
+        reader = csv.DictReader(stream)
+        assert reader.fieldnames == [
+            "category", "configuration", "metric_1", "metric_2", "metric_3", "acceptance",
+        ]
+        rows = list(reader)
+    assert [row["category"] for row in rows] == ["boris_dt", "panel_fmm_order", "rough_panel_mesh"]
+    for row in rows:
+        assert None not in row and None not in row.values(), row
+        assert all(math.isfinite(float(row[key])) for key in ("metric_1", "metric_2"))
+        assert row["metric_3"].strip() == "" or math.isfinite(float(row["metric_3"]))
+        assert row["acceptance"]
+    assert rows[0]["acceptance"] == "second_order"
+    assert rows[1]["metric_3"] == ""
     values = read_manifest(manifest)
     assert values["status"] == "passed"
     assert values["convergence.status"] == "passed"
     assert values["convergence.rows"] == "3"
     assert all(values[f"{gate}.status"] == "passed" for gate in ("release_correctness", "far_correction", "mpi", "mpi_cache"))
+
+
+@pytest.mark.parametrize(
+    "broken_row",
+    [
+        pytest.param("rough_panel_mesh,4,1.0e-2,1.0e-2,pass", id="missing-column"),
+        pytest.param("rough_panel_mesh,4,1.0e-2,1.0e-2,,", id="empty-acceptance"),
+        pytest.param("rough_panel_mesh,4,NaN,1.0e-2,,decreasing", id="nonfinite-metric"),
+        pytest.param("rough_panel_mesh,4,1.0e-2,,,decreasing", id="missing-metric-2"),
+    ],
+)
+def test_release_gate_rejects_malformed_convergence_rows(tmp_path: Path, broken_row: str) -> None:
+    result = run_fake_gate(tmp_path, _convergence_make((*_PRODUCER_ROWS[:2], broken_row)))
+
+    assert result.returncode != 0
+    assert "malformed convergence row" in result.stderr
+    values = read_manifest(tmp_path / "manifest.txt")
+    assert values["convergence.status"] == "failed_malformed_row"
+    assert values["status"] == "failed"
 
 
 def test_makefile_separates_release_correctness_from_benchmark(tmp_path: Path) -> None:
