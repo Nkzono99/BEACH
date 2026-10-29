@@ -199,11 +199,18 @@ contains
     call assert_equal_i32(particles%n, 3_i32, 'particle append count mismatch')
     call assert_true(.not. particles%alive(1), 'particle append must preserve prior alive state')
     call assert_true(all(particles%alive(2:3)), 'particle append must activate appended particles')
-    call assert_close_dp(particles%x(3, 3), 12.0_dp, 0.0_dp, 'particle append position mismatch')
-    call assert_close_dp(particles%w(3), 9.0_dp, 0.0_dp, 'particle append weight mismatch')
-    call assert_equal_i32(particles%species_id(3), 3_i32, 'particle append species mismatch')
+    ! Every field of every record is distinct, so a zeroed, dropped or shifted copy of the old or the
+    ! appended records fails. Only the first n slots are compared; spare capacity is not part of the contract.
+    call assert_true(all(particles%x(:, 1:3) == reshape([initial_x, append_x], [3, 3])), &
+                     'particle append position mismatch')
+    call assert_true(all(particles%v(:, 1:3) == reshape([initial_v, append_v], [3, 3])), &
+                     'particle append velocity mismatch')
+    call assert_true(all(particles%q(1:3) == [1.0_dp, 4.0_dp, 5.0_dp]), 'particle append charge mismatch')
+    call assert_true(all(particles%m(1:3) == [2.0_dp, 6.0_dp, 7.0_dp]), 'particle append mass mismatch')
+    call assert_true(all(particles%w(1:3) == [3.0_dp, 8.0_dp, 9.0_dp]), 'particle append weight mismatch')
+    call assert_true(all(particles%species_id(1:3) == [1_i32, 2_i32, 3_i32]), 'particle append species mismatch')
     call assert_true( &
-      all(particles%source_element == [7_i32, 8_i32, 9_i32]), &
+      all(particles%source_element(1:3) == [7_i32, 8_i32, 9_i32]), &
       'particle append must preserve and append source provenance' &
       )
   end subroutine test_particle_append_preserves_existing_state

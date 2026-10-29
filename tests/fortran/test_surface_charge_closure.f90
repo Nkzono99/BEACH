@@ -11,7 +11,7 @@ program test_surface_charge_closure
   use bem_types, only: mesh_type, particles_soa, sim_stats, bc_open, bc_reflect
   use bem_charge_ledger, only: charge_ledger_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i64, assert_close_dp, delete_file_if_exists, &
+                          assert_true, assert_equal_i64, assert_close_dp, assert_allclose_1d, delete_file_if_exists, &
                           run_self_probe, file_contains
   implicit none
 
@@ -28,7 +28,7 @@ program test_surface_charge_closure
     error stop 'fixed-current empty absorbed channel probe unexpectedly completed'
   end if
 
-  call test_init(10)
+  call test_init(11)
 
   call test_begin('neutral_return_closes_mean_charge_and_preserves_redistribution')
   call test_neutral_return_closure()
@@ -36,6 +36,10 @@ program test_surface_charge_closure
 
   call test_begin('fixed_absorbed_current_preserves_spatial_mapping')
   call test_fixed_absorbed_current_closure()
+  call test_end()
+
+  call test_begin('fixed_current_corrections_land_on_hit_and_emitter_elements')
+  call test_fixed_current_element_distribution()
   call test_end()
 
   call test_begin('fixed_current_nonfinite_target_fails_closed')
@@ -218,6 +222,56 @@ contains
       )
     call assert_close_dp(fixed_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'fixed absorbed ledger residual mismatch')
   end subroutine test_fixed_absorbed_current_closure
+
+  !> 吸収と放出の補正が、それぞれの raw 電荷が載った要素へ raw 電荷に比例して配られることを要素ごとに確かめる。
+  !! 正しい総量を 1 要素へまとめる、または hit/放出要素を取り違える実装を検出する。
+  subroutine test_fixed_current_element_distribution()
+    type(app_config) :: app
+    type(surface_closure_contract_type) :: model
+    type(particles_soa) :: batch
+    type(simulator_batch_workspace_type) :: workspace
+    type(mpi_context) :: mpi
+    real(dp) :: x(3, 4), v(3, 4)
+
+    call default_app_config(app)
+    app%sim%batch_duration = 0.5_dp
+    app%n_particle_species = 1_i32
+    app%particle_species(1) = species_from_defaults()
+    app%particle_species(1)%q_particle = -1.0_dp
+    app%particle_species(1)%surface_charge_closure = 'fixed_current'
+    ! Targets -2.625 C absorbed and 2 C emission reaction against raw -3.5 C and 4 C: scales 0.75 and 0.5.
+    app%particle_species(1)%target_absorbed_current_a = -5.25_dp
+    app%particle_species(1)%has_target_absorbed_current_a = .true.
+    app%particle_species(1)%target_emission_current_a = 4.0_dp
+    app%particle_species(1)%has_target_emission_current_a = .true.
+    allocate (model%has_absorbed_target(1), model%has_emission_target(1), model%has_escape_target(1))
+    model%has_absorbed_target = .false.
+    model%has_emission_target = .false.
+    model%has_escape_target = .false.
+
+    ! Particles 1-3 are absorbed on elements 1, 3 and 3 with weights 1, 2 and 0.5; particle 4 escapes.
+    x = 0.0_dp
+    v = 0.0_dp
+    call init_particles(batch, x, v, [-1.0_dp, -1.0_dp, -1.0_dp, -1.0_dp], [1.0_dp, 1.0_dp, 1.0_dp, 1.0_dp], &
+                        [1.0_dp, 2.0_dp, 0.5_dp, 1.0_dp], species_id=[1_i32, 1_i32, 1_i32, 1_i32], &
+                        source_element=[-1_i32, -1_i32, -1_i32, -1_i32])
+    call workspace%init(3_i32, 1_i32, 1_i32)
+    call workspace%prepare_particle_flags(4_i32)
+    workspace%absorbed_flag(1:3) = .true.
+    workspace%absorbed_element(1:3) = [1_i32, 3_i32, 3_i32]
+    workspace%escaped_boundary_flag(4) = .true.
+    ! Raw emission reaction charge sits on elements 2 and 3 only.
+    workspace%photo_emission_dq(:, 1) = [0.0_dp, 3.0_dp, 1.0_dp]
+    call apply_fixed_surface_current_closure(app, model, batch, 4_i32, workspace, mpi)
+
+    call assert_close_dp(workspace%fixed_absorbed_weight_scale(1), 0.75_dp, 1.0e-15_dp, 'absorbed scale')
+    call assert_close_dp(workspace%fixed_emission_weight_scale(1), 0.5_dp, 1.0e-15_dp, 'emission scale')
+    ! Absorbed correction (scale - 1) q w on each hit element: element 1 gets +0.25, element 3 gets +0.625.
+    call assert_allclose_1d(workspace%dq_thread(:, 1), [0.25_dp, 0.0_dp, 0.625_dp], 1.0e-15_dp, &
+                            'absorbed correction must land on the hit elements in proportion to their raw charge')
+    call assert_allclose_1d(workspace%photo_emission_dq(:, 1), [0.0_dp, 1.5_dp, 0.5_dp], 1.0e-15_dp, &
+                            'emission reaction must stay on the emitting elements, scaled')
+  end subroutine test_fixed_current_element_distribution
 
   subroutine test_fixed_current_nonfinite_target_fails_closed()
     call assert_fixed_current_failure_probe( &
