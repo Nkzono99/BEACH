@@ -319,7 +319,7 @@ run-mpi:
 		$(BUILD_SH) --target beach --runner "$(MPI_RUNNER)" -- $(CONFIG)
 
 test-mpi:
-	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \
+	BEACH_TEST_MPI_RANKS=$(MPI_NP) BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \
 		FPM_PROFILE=debug FPM_FC=$(MPI_FC) FPM_FFLAGS="$(MPI_TEST_FLAGS)" \
 		$(BUILD_SH) --target test_mpi_hybrid --runner "$(MPI_RUNNER)"
 

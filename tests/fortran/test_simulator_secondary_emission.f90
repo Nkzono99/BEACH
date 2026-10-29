@@ -15,7 +15,8 @@ program test_simulator_secondary_emission
   type(sim_stats) :: stats, replay_stats
   type(charge_ledger_type) :: ledger, replay_ledger
   real(dp) :: reference_charge(2)
-  integer :: path
+  integer :: path, team_size
+  logical :: openmp_built
 
   call test_init(3)
   call test_begin('constant_two_beam_charge_ledger_both_absorption_paths')
@@ -53,6 +54,21 @@ program test_simulator_secondary_emission
   cfg%particle_species(1)%secondary_emission_const_yield = 1.37_dp
 !$ call omp_set_num_threads(4)
 !$ call omp_set_schedule(omp_sched_dynamic, 1)
+  ! The replay is only a parallel check if the runtime really grants a four-thread team (OMP_THREAD_LIMIT or
+  ! a serial build would silently turn it into a second serial run).
+  team_size = 1
+  openmp_built = .false.
+!$ openmp_built = .true.
+  !$omp parallel shared(team_size)
+  !$omp single
+!$ team_size = omp_get_num_threads()
+  !$omp end single
+  !$omp end parallel
+  if (openmp_built) then
+    call assert_true(team_size == 4, 'four-thread replay did not get a four-thread OpenMP team')
+  else
+    write (*, '(a)', advance='no') '(serial build: thread-count replay not exercised) '
+  end if
   call seed_particles_from_config(cfg)
   call run_absorption_insulator(mesh, cfg, replay_stats, charge_ledger=replay_ledger)
   call assert_true(stats%secondary_emission_count == replay_stats%secondary_emission_count, 'rounding replay')
