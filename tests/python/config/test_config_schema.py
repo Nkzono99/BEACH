@@ -45,12 +45,12 @@ def test_schema_distinguishes_fortran_integer_storage_from_real_values():
 
 
 def test_tree_parameter_schema_uses_runtime_omission_semantics():
+    # Omitted theta/leaf_max are resolved by the runtime element-count table
+    # (tests/fortran/test_dynamics_field_solver.f90), so the schema must not fill them.
     schema, _ = load_schema()
     solver = schema['$defs']['groupedConfig']['properties']['fields']['properties']['solver']['properties']
     for key in ('theta', 'leaf_max'):
         assert 'default' not in solver['tree']['properties'][key]
-        assert 'element-count heuristic' in solver['tree']['properties'][key]['description']
-    assert 'direct evaluation to FMM' in solver['auto_fmm_min_elements']['description']
 
 
 @pytest.mark.parametrize('key', ['field', 'outer_plasma', 'coupling', 'external_boundary', 'schema_version'])
