@@ -125,7 +125,7 @@ module bem_app_config_types
     logical :: has_cap_bottom = .false.
     integer(i32) :: n_lon = 24
     integer(i32) :: n_lat = 12
-    character(len=16) :: tessellation = 'uv'
+    character(len=16) :: tessellation = ''
     integer(i32) :: subdivisions = 2
   end type template_spec
 

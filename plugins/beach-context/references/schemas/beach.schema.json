@@ -4344,7 +4344,7 @@
           "type": "integer",
           "minimum": 1,
           "default": 4,
-          "description": "Radial subdivision count for disk/annulus/plate_hole."
+          "description": "Radial subdivision count for disk/annulus/plate_hole and for cylinder caps with tessellation=\"uniform\"."
         },
         "n_z": {
           "type": "integer",
@@ -4381,10 +4381,11 @@
           "type": "string",
           "enum": [
             "uv",
-            "icosphere"
+            "icosphere",
+            "polar",
+            "uniform"
           ],
-          "default": "uv",
-          "description": "Sphere tessellation: \"uv\" uses n_lon/n_lat, \"icosphere\" uses subdivisions."
+          "description": "Element layout. sphere: \"uv\" (default, n_lon/n_lat) or \"icosphere\" (subdivisions); disk/annulus/cylinder caps: \"polar\" (default) or \"uniform\" (ring point counts proportional to radius)."
         },
         "subdivisions": {
           "type": "integer",

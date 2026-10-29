@@ -178,12 +178,25 @@ contains
         error stop path//'.kind is unknown.'
       end select
       if (.not. cfg%mesh_parts(i)%enabled) cycle
-      if (trim(cfg%mesh_parts(i)%kind) == 'sphere') then
-        select case (trim(cfg%mesh_parts(i)%tessellation))
-        case ('uv', 'icosphere')
-          continue
+      ! An empty tessellation selects each kind's default (uv for sphere, polar for disk/annulus/cylinder).
+      if (len_trim(cfg%mesh_parts(i)%tessellation) > 0) then
+        select case (trim(cfg%mesh_parts(i)%kind))
+        case ('sphere')
+          select case (trim(cfg%mesh_parts(i)%tessellation))
+          case ('uv', 'icosphere')
+            continue
+          case default
+            error stop path//'.tessellation must be uv or icosphere for kind="sphere".'
+          end select
+        case ('disk', 'annulus', 'cylinder')
+          select case (trim(cfg%mesh_parts(i)%tessellation))
+          case ('polar', 'uniform')
+            continue
+          case default
+            error stop path//'.tessellation must be polar or uniform for kind="'//trim(cfg%mesh_parts(i)%kind)//'".'
+          end select
         case default
-          error stop path//'.tessellation must be uv or icosphere.'
+          error stop path//'.tessellation is only valid for kind sphere, disk, annulus, or cylinder.'
         end select
       end if
       select case (trim(cfg%mesh_parts(i)%surface_side_policy))
