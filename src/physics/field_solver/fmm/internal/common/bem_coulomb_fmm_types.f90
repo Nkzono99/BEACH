@@ -78,6 +78,9 @@ module bem_coulomb_fmm_types
 
   type :: fmm_plan_type
     type(fmm_options_type) :: options = fmm_options_type()
+    !> Options, `src_pos` and `panel_geometry` are set; enough for exact-direct evaluation.
+    logical :: sources_ready = .false.
+    !> Tree, interaction lists and operators are built as well (implies `sources_ready`).
     logical :: built = .false.
     integer(i32) :: nsrc = 0_i32
     integer(i32) :: ncoef = 0_i32
@@ -373,6 +376,7 @@ contains
     if (allocated(plan%source_shift_monomial)) deallocate (plan%source_shift_monomial)
     if (allocated(plan%target_shift_monomial)) deallocate (plan%target_shift_monomial)
     plan%options = fmm_options_type()
+    plan%sources_ready = .false.
     plan%built = .false.
     plan%nsrc = 0_i32
     plan%panel_source = .false.

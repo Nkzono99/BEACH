@@ -28,7 +28,9 @@ enum beach_kernel_far_correction {
  * Coordinate and vector arrays use xyz-interleaved storage:
  * values[3 * point_index + component]. Input arrays remain owned by the caller.
  * A handle returned by beach_kernel_create must be released exactly once with
- * beach_kernel_destroy.
+ * beach_kernel_destroy. A non-periodic handle builds its FMM data on the first
+ * FMM evaluation after build or a charge update, so evaluation calls may also
+ * change the handle: serialize all calls on one handle.
  */
 int beach_kernel_get_abi_version(int *major, int *minor);
 int beach_kernel_get_build_info(char *buffer, int buffer_capacity,

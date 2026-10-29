@@ -89,6 +89,38 @@ def test_field_kernel_exact_panel_direct_scales_with_charge_refresh(
     )
 
 
+def test_field_kernel_fmm_eval_follows_charge_refresh(
+    field_kernel_library: Path,
+) -> None:
+    lib = field_kernel_library
+    rng = np.random.default_rng(3)
+    corners = rng.uniform(-1.0, 1.0, size=(40, 1, 3))
+    triangles = corners + np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.1, 0.02]])
+    source_q = rng.standard_normal(40) * 1.0e-9
+    refreshed_q = rng.standard_normal(40) * 1.0e-9
+    targets = rng.uniform(-1.5, 1.5, size=(6, 3))
+    options = FieldKernelOptions(theta=0.5, leaf_max=4, order=4)
+    with FieldKernel(triangles, refreshed_q, options=options, library_path=lib) as fresh:
+        expected_e = fresh.eval_e(targets)
+        expected_phi = fresh.eval_phi(targets)
+        expected_force = fresh.force_on_charges(targets, source_q[:6])
+
+    # FMM after FMM, and FMM after exact-direct use, must both see the refreshed charges.
+    with FieldKernel(triangles, source_q, options=options, library_path=lib) as kernel:
+        stale_e = kernel.eval_e(targets)
+        kernel.update_charges(refreshed_q)
+        np.testing.assert_array_equal(kernel.eval_e(targets), expected_e)
+        np.testing.assert_array_equal(kernel.eval_phi(targets), expected_phi)
+    with FieldKernel(triangles, source_q, options=options, library_path=lib) as kernel:
+        kernel.eval_e_direct(targets)
+        kernel.update_charges(refreshed_q)
+        force, torque = kernel.force_on_charges(targets, source_q[:6])
+        np.testing.assert_array_equal(force, expected_force[0])
+        np.testing.assert_array_equal(torque, expected_force[1])
+        np.testing.assert_array_equal(kernel.eval_e(targets), expected_e)
+    assert not np.array_equal(stale_e, expected_e)
+
+
 def test_field_kernel_from_result_uses_triangle_geometry(
     tmp_path: Path, field_kernel_library: Path,
 ) -> None:

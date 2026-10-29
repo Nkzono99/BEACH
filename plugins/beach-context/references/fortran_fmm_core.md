@@ -48,6 +48,10 @@ call build_panel_plan(plan, v0, v1, v2, options)   ! BEACH surface plan
 call update_state(plan, state, src_q)             ! optional 4th argument: mpi_context
 call eval_points(plan, state, target_pos, e)
 call eval_point(plan, state, r, e)
+
+call prepare_panel_sources(plan, v0, v1, v2, options)  ! panel geometry only
+call eval_direct_points(plan, src_q, target_pos, e)    ! non-periodic exact direct sum
+call complete_plan(plan)                               ! = build_panel_plan from here on
 ```
 
 入力・出力の意味は次の通りです。
@@ -71,6 +75,9 @@ call eval_point(plan, state, r, e)
 - コアが返す電場には`k_coulomb`を掛けていません。BEACHのadapterが最後に掛けます。
 - `build_plan` / `build_panel_plan`は幾何依存処理、`update_state`は電荷依存処理です。
 - `eval_point(s)` は `plan` と `state` が ready な前提です。
+- `build_panel_plan` は `prepare_panel_sources` と `complete_plan` を続けて呼ぶのと同じです。
+  `eval_direct_points` / `eval_direct_potential_points` は前半の panel 幾何と `src_q` だけを使うため、
+  exact-direct だけの呼び出し側は木・相互作用・演算子と `update_state` を省けます。
 
 ### 2.2 C ABI / Python 連携
 
@@ -98,7 +105,11 @@ beach_kernel_force_on_charges(handle, target_pos, target_q, origin, force, torqu
 `2.1` です。C の呼び出し側は、ほかの関数を使う前に `beach_kernel_get_abi_version` を呼び、
 major が `2` と一致し、library の minor が必要な minor（direct APIを使う場合は `1`）以上であることを
 確認してください。`eval_e_direct` / `eval_phi_direct` は非周期planだけで利用でき、同じsource geometryと
-chargeの非周期exact-direct値を返します。周期planに対してはinvalid argumentを返します。座標と
+chargeの非周期exact-direct値を返します。周期planに対してはinvalid argumentを返します。
+非周期の handle は `build` で panel 幾何だけを作り、`update_charges` では電荷を保持するだけです。
+FMM の木・演算子と展開は、最初の `eval_e` / `eval_phi` / `force_on_charges` で作り、以後は電荷が
+変わったときだけ更新します。direct だけを使う handle はこれらを作りません。評価関数も handle を
+更新することがあるため、1 つの handle への呼び出しは呼び出し側で直列化してください。座標と
 vector の配列は `values[3 * point_index + component]` の順で格納します。status code、
 periodic far-correction code、handle の所有権は公開ヘッダに定義しています。
 

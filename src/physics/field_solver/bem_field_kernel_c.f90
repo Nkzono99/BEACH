@@ -4,8 +4,8 @@ module bem_field_kernel_c
   use, intrinsic :: iso_c_binding, only: c_associated, c_char, c_double, c_f_pointer, c_int, c_loc, c_null_char, &
                                                                             c_ptr, c_null_ptr, c_signed_char
   use bem_constants, only: k_coulomb
-  use bem_coulomb_fmm_core, only: build_panel_plan, destroy_plan, destroy_state, eval_points, &
-                                  eval_direct_points, eval_potential_points, eval_direct_potential_points, &
+  use bem_coulomb_fmm_core, only: build_panel_plan, prepare_panel_sources, complete_plan, destroy_plan, destroy_state, &
+                                  eval_points, eval_direct_points, eval_potential_points, eval_direct_potential_points, &
                                   fmm_options_type, fmm_plan_type, fmm_state_type, update_state
   use bem_kinds, only: dp, i32, i64
   use bem_panel_geometry, only: init_panel_geometry, panel_geometry_ok, panel_geometry_type
@@ -23,11 +23,18 @@ module bem_field_kernel_c
   character(len=*), parameter :: default_periodic_cache_dir = ''
   real(dp), parameter :: default_periodic_generation_tolerance = 1.0d-8
 
+  !> A free-space handle builds only the panel sources on `beach_kernel_build` and keeps the charges
+  !! on `beach_kernel_update_charges`; the first FMM evaluation completes the plan and the FMM state
+  !! (`ensure_fmm_state`), so exact-direct use never builds them. Periodic plans are built at once.
+  !! Evaluation calls may therefore change the handle: a caller serializes all calls on one handle.
   type :: field_kernel_handle
     type(fmm_plan_type) :: plan
     type(fmm_state_type) :: state
+    real(dp), allocatable :: src_q(:)
     logical :: built = .false.
     logical :: charged = .false.
+    !> `state` holds the FMM expansion of the current `src_q`.
+    logical :: state_current = .false.
     character(len=periodic_cache_path_max_bytes) :: periodic_cache_dir = default_periodic_cache_dir
     real(dp) :: periodic_generation_tolerance = default_periodic_generation_tolerance
   end type field_kernel_handle
@@ -94,6 +101,7 @@ contains
     allocate (kernel)
     kernel%built = .false.
     kernel%charged = .false.
+    kernel%state_current = .false.
     kernel%periodic_cache_dir = default_periodic_cache_dir
     kernel%periodic_generation_tolerance = default_periodic_generation_tolerance
     handle = c_loc(kernel)
@@ -313,11 +321,17 @@ contains
       end select
     end if
 
-    if (kernel%charged) call destroy_state(kernel%state)
+    call destroy_state(kernel%state)
     if (kernel%built) call destroy_plan(kernel%plan)
-    call build_panel_plan(kernel%plan, real(v0, dp), real(v1, dp), real(v2, dp), options)
+    if (allocated(kernel%src_q)) deallocate (kernel%src_q)
+    if (options%use_periodic2) then
+      call build_panel_plan(kernel%plan, real(v0, dp), real(v1, dp), real(v2, dp), options)
+    else
+      call prepare_panel_sources(kernel%plan, real(v0, dp), real(v1, dp), real(v2, dp), options)
+    end if
     kernel%built = .true.
     kernel%charged = .false.
+    kernel%state_current = .false.
     status = beach_kernel_ok
   end function beach_kernel_build
 
@@ -341,8 +355,9 @@ contains
     end if
 
     call c_f_pointer(src_q_ptr, src_q, [int(nsrc)])
-    call update_state(kernel%plan, kernel%state, real(src_q, dp))
+    kernel%src_q = real(src_q, dp)
     kernel%charged = .true.
+    kernel%state_current = .false.
     status = beach_kernel_ok
   end function beach_kernel_update_charges
 
@@ -366,6 +381,7 @@ contains
 
     call c_f_pointer(target_pos_ptr, target_pos, [3, int(ntarget)])
     call c_f_pointer(e_ptr, e, [3, int(ntarget)])
+    call ensure_fmm_state(kernel)
     call eval_points(kernel%plan, kernel%state, target_pos, e)
     e = k_coulomb*e
     status = beach_kernel_ok
@@ -391,6 +407,7 @@ contains
 
     call c_f_pointer(target_pos_ptr, target_pos, [3, int(ntarget)])
     call c_f_pointer(phi_ptr, phi, [int(ntarget)])
+    call ensure_fmm_state(kernel)
     call eval_potential_points(kernel%plan, kernel%state, target_pos, phi)
     phi = k_coulomb*phi
     status = beach_kernel_ok
@@ -421,7 +438,7 @@ contains
       return
     end if
     call c_f_pointer(e_ptr, e, [3, int(ntarget)])
-    call eval_direct_points(kernel%plan, kernel%state, target_pos, e)
+    call eval_direct_points(kernel%plan, kernel%src_q, target_pos, e)
     e = k_coulomb*e
     status = beach_kernel_ok
   end function beach_kernel_eval_e_direct
@@ -451,7 +468,7 @@ contains
       return
     end if
     call c_f_pointer(phi_ptr, phi, [int(ntarget)])
-    call eval_direct_potential_points(kernel%plan, kernel%state, target_pos, phi)
+    call eval_direct_potential_points(kernel%plan, kernel%src_q, target_pos, phi)
     phi = k_coulomb*phi
     status = beach_kernel_ok
   end function beach_kernel_eval_phi_direct
@@ -495,6 +512,7 @@ contains
     call c_f_pointer(target_q_ptr, target_q, [int(ntarget)])
     call c_f_pointer(origin_ptr, origin, [3])
     allocate (e(3, int(ntarget)))
+    call ensure_fmm_state(kernel)
     call eval_points(kernel%plan, kernel%state, target_pos, e)
     e = k_coulomb*e
     do i = 1_i32, int(ntarget, i32)
@@ -508,6 +526,17 @@ contains
     deallocate (e)
     status = beach_kernel_ok
   end function beach_kernel_force_on_charges
+
+  !> Complete the FMM plan and refresh the FMM state from `src_q` if an earlier call left them out of date.
+  subroutine ensure_fmm_state(kernel)
+    type(field_kernel_handle), intent(inout) :: kernel
+
+    if (.not. kernel%plan%built) call complete_plan(kernel%plan)
+    if (.not. kernel%state_current) then
+      call update_state(kernel%plan, kernel%state, kernel%src_q)
+      kernel%state_current = .true.
+    end if
+  end subroutine ensure_fmm_state
 
   integer(c_int) function get_kernel(handle, kernel) result(status)
     type(c_ptr), intent(in) :: handle

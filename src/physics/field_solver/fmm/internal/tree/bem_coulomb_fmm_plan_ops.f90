@@ -22,6 +22,8 @@ module bem_coulomb_fmm_plan_ops
 
   public :: core_build_plan_impl
   public :: core_build_panel_plan_impl
+  public :: core_prepare_panel_sources_impl
+  public :: core_complete_plan_impl
   public :: core_destroy_plan_impl
 
 contains
@@ -34,10 +36,22 @@ contains
     type(fmm_plan_type), intent(inout) :: plan
     real(dp), intent(in) :: src_pos(:, :)
     type(fmm_options_type), intent(in) :: options
-    call core_build_plan_common(plan, src_pos, options)
+    call prepare_plan_sources(plan, src_pos, options)
+    call core_complete_plan_impl(plan)
   end subroutine core_build_plan_impl
 
   subroutine core_build_panel_plan_impl(plan, v0, v1, v2, options)
+    type(fmm_plan_type), intent(inout) :: plan
+    real(dp), intent(in) :: v0(:, :), v1(:, :), v2(:, :)
+    type(fmm_options_type), intent(in) :: options
+
+    call core_prepare_panel_sources_impl(plan, v0, v1, v2, options)
+    call core_complete_plan_impl(plan)
+  end subroutine core_build_panel_plan_impl
+
+  !> Panel sources only: options, centroids and panel geometry, as the first part of a plan build.
+  !! The plan then supports exact-direct evaluation; `core_complete_plan_impl` adds the FMM part.
+  subroutine core_prepare_panel_sources_impl(plan, v0, v1, v2, options)
     type(fmm_plan_type), intent(inout) :: plan
     real(dp), intent(in) :: v0(:, :), v1(:, :), v2(:, :)
     type(fmm_options_type), intent(in) :: options
@@ -49,18 +63,17 @@ contains
     end if
     allocate (src_pos(3, size(v0, 2)))
     src_pos = (v0 + v1 + v2)/3.0_dp
-    call core_build_plan_common(plan, src_pos, options, v0, v1, v2)
-  end subroutine core_build_panel_plan_impl
+    call prepare_plan_sources(plan, src_pos, options, v0, v1, v2)
+  end subroutine core_prepare_panel_sources_impl
 
-  subroutine core_build_plan_common(plan, src_pos, options, v0, v1, v2)
+  subroutine prepare_plan_sources(plan, src_pos, options, v0, v1, v2)
     type(fmm_plan_type), intent(inout) :: plan
     real(dp), intent(in) :: src_pos(:, :)
     type(fmm_options_type), intent(in) :: options
     real(dp), intent(in), optional :: v0(:, :), v1(:, :), v2(:, :)
-    integer(i32) :: nsrc, idx, panel_status, zero_status, free_axis
-    real(dp), allocatable :: original_centroid(:, :), source_heights(:, :)
+    integer(i32) :: nsrc, idx, panel_status
+    real(dp), allocatable :: original_centroid(:, :)
     real(dp) :: shift(3), shifted_vertex(3, 3)
-    character(len=256) :: zero_message
 
     if (allocated(plan%alpha) .or. allocated(plan%src_pos) .or. allocated(plan%elem_order)) then
       call core_destroy_plan_impl(plan)
@@ -139,7 +152,17 @@ contains
       end do
       deallocate (original_centroid)
     end if
+    plan%sources_ready = .true.
+  end subroutine prepare_plan_sources
 
+  !> Build the tree, interaction lists and operators of a plan whose sources are prepared.
+  subroutine core_complete_plan_impl(plan)
+    type(fmm_plan_type), intent(inout) :: plan
+    integer(i32) :: nsrc, idx, zero_status, free_axis
+    real(dp), allocatable :: source_heights(:, :)
+    character(len=256) :: zero_message
+
+    nsrc = plan%nsrc
     if (use_periodic2_cached_kneq0(plan)) then
       free_axis = 6_i32 - sum(plan%options%periodic_axes)
       allocate (source_heights(3, nsrc))
@@ -159,7 +182,7 @@ contains
       deallocate (source_heights)
     end if
 
-    call initialize_basis_tables(plan, options%order)
+    call initialize_basis_tables(plan, plan%options%order)
     if (use_periodic2_cached_kneq0(plan)) call precompute_periodic_source_grid(plan)
     call build_source_tree(plan)
     call precompute_source_p2m_basis(plan)
@@ -171,7 +194,7 @@ contains
     call precompute_periodic_root_operator(plan)
     call precompute_m2l_derivatives(plan)
     plan%built = .true.
-  end subroutine core_build_plan_common
+  end subroutine core_complete_plan_impl
 
   !> cached_kneq0 で引く、有限画像殻の面平均の滑らかな残りを線源ごとの高さ表にする。
   !! 平均をとるセルは線源の木の根の中心に置き、遠方補正の当てはめと同じ定義を使う。

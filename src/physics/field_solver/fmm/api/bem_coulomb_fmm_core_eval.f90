@@ -11,7 +11,7 @@ contains
   end procedure eval_points
 
   module procedure eval_direct_points
-  call core_eval_direct_points_impl(plan, state, target_pos, e)
+  call core_eval_direct_points_impl(plan, src_q, target_pos, e)
   end procedure eval_direct_points
 
   module procedure eval_point
@@ -23,7 +23,7 @@ contains
   end procedure eval_potential_points
 
   module procedure eval_direct_potential_points
-  call core_eval_direct_potential_points_impl(plan, state, target_pos, phi)
+  call core_eval_direct_potential_points_impl(plan, src_q, target_pos, phi)
   end procedure eval_direct_potential_points
 
   module procedure eval_potential_point
