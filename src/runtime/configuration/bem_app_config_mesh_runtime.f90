@@ -5,7 +5,7 @@ module bem_app_config_mesh_runtime
   use bem_types, only: surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
-  use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
+  use bem_panel_surface_sides, only: resolve_panel_surface_sides_by_mesh_id, panel_surface_side_ok
   use bem_importers, only: load_obj_mesh
   use bem_app_config_types, only: app_config, template_spec, mesh_part_config_path
   use bem_string_utils, only: lower_ascii
@@ -25,21 +25,27 @@ contains
   subroutine apply_panel_surface_config(cfg, mesh)
     type(app_config), intent(in) :: cfg
     type(mesh_type), intent(inout) :: mesh
-    integer(i32) :: i, mesh_id, status
+    integer(i32) :: i, mesh_id, status, failed_mesh_id
+    integer(i32), allocatable :: part_index(:)
     character(len=256) :: message
 
     if (any(mesh%panel_area <= 0.0_dp)) then
       error stop 'triangle_p0 requires finite, non-degenerate triangles.'
     end if
+    ! Enabled parts own mesh_id 1, 2, ... in list order (build_parts_mesh).
+    allocate (part_index(cfg%n_mesh_parts))
     mesh_id = 0_i32
     do i = 1, cfg%n_mesh_parts
       if (.not. cfg%mesh_parts(i)%enabled) cycle
       mesh_id = mesh_id + 1_i32
-      call resolve_panel_surface_sides( &
-        mesh, cfg%mesh_parts(i)%surface_side_policy, status, message, mesh_id=mesh_id &
-        )
-      if (status /= panel_surface_side_ok) error stop mesh_part_config_path(int(i))//'.surface_side: '//trim(message)
+      part_index(mesh_id) = i
     end do
+    call resolve_panel_surface_sides_by_mesh_id( &
+      mesh, cfg%mesh_parts(part_index(1:mesh_id))%surface_side_policy, status, message, failed_mesh_id &
+      )
+    if (status /= panel_surface_side_ok) then
+      error stop mesh_part_config_path(int(part_index(failed_mesh_id)))//'.surface_side: '//trim(message)
+    end if
     if (any(abs(mesh%elem_vacuum_sign) /= 1_i32)) then
       error stop 'triangle_p0 requires a resolved vacuum side for every element.'
     end if

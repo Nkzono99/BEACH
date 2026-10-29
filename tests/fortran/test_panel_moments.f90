@@ -5,8 +5,9 @@ program test_panel_moments
   use bem_panel_quadrature, only: panel_quadrature_plan_type, build_panel_quadrature, build_panel_duffy_quadrature
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
-  use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok, panel_surface_side_open, &
-                                     panel_surface_side_inconsistent
+  use bem_panel_surface_sides, only: resolve_panel_surface_sides, resolve_panel_surface_sides_by_mesh_id, &
+                                     panel_surface_side_ok, panel_surface_side_open, panel_surface_side_inconsistent, &
+                                     panel_surface_side_nonmanifold, panel_surface_side_invalid_policy
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
                           assert_close_dp, assert_allclose_1d
   implicit none
@@ -28,7 +29,7 @@ program test_panel_moments
   v0 = [0.0_dp, 0.0_dp, 0.0_dp]
   v1 = [1.0_dp, 0.0_dp, 0.0_dp]
   v2 = [0.0_dp, 1.0_dp, 0.0_dp]
-  call test_init(9)
+  call test_init(11)
 
   call test_begin('unit_triangle_geometry_and_raw_moments')
   call init_panel_geometry(v0, v1, v2, geom, status)
@@ -93,6 +94,14 @@ program test_panel_moments
 
   call test_begin('closed_surface_side_is_scale_and_translation_invariant')
   call check_closed_surface_scaling(tetra_v0, tetra_v1, tetra_v2)
+  call test_end()
+
+  call test_begin('closed_surface_edge_matching_contract')
+  call check_closed_surface_edge_matching(tetra_v0, tetra_v1, tetra_v2)
+  call test_end()
+
+  call test_begin('surface_sides_by_mesh_id')
+  call check_surface_sides_by_mesh_id(tetra_v0, tetra_v1, tetra_v2)
   call test_end()
 
   call test_begin('degree5_cubature_integrates_all_monomials')
@@ -196,6 +205,115 @@ contains
       end do
     end do
   end subroutine check_closed_surface_scaling
+
+  !> outward_closed edge matching on the unit tetrahedron: corners duplicated within the vertex
+  !! tolerance still close the surface and corners further apart open it; a face flipped against
+  !! its neighbors is inconsistent; a back-facing copy of a face gives its edges two partners; two
+  !! disjoint components in one part get their own outward sides.
+  subroutine check_closed_surface_edge_matching(t0, t1, t2)
+    real(dp), intent(in) :: t0(3, 4), t1(3, 4), t2(3, 4)
+    real(dp) :: v0(3, 8), v1(3, 8), v2(3, 8), center(3, 8)
+    type(mesh_type) :: closed
+    character(len=128) :: side_message
+    integer(i32) :: side_status
+
+    ! The vertex tolerance at unit scale is 128 eps (about 2.8e-14) per coordinate.
+    v0(:, 1:4) = t0 + 1.0e-15_dp*reshape([1, -2, 3, 0, 2, -1, -3, 1, 2, 1, 0, -2], [3, 4])
+    v1(:, 1:4) = t1 - 2.0e-15_dp*reshape([2, 1, -1, 3, 0, 1, 1, -2, 0, -1, 2, 1], [3, 4])
+    v2(:, 1:4) = t2
+    call init_mesh(closed, v0(:, 1:4), v1(:, 1:4), v2(:, 1:4))
+    call resolve_panel_surface_sides(closed, 'outward_closed', side_status, side_message)
+    call assert_equal_i32(side_status, panel_surface_side_ok, 'corners duplicated within tolerance must close')
+    call assert_true(all(closed%elem_vacuum_sign == 1_i32), 'duplicated-corner tetrahedron sign')
+    v1(1, 2) = v1(1, 2) + 1.0e-12_dp
+    call init_mesh(closed, v0(:, 1:4), v1(:, 1:4), v2(:, 1:4))
+    call resolve_panel_surface_sides(closed, 'outward_closed', side_status, side_message)
+    call assert_equal_i32(side_status, panel_surface_side_open, 'corner beyond tolerance must open the surface')
+    call assert_true(all(closed%elem_vacuum_sign == 0_i32), 'rejected surface must keep its unresolved sides')
+
+    v1(:, 1:4) = t1
+    v2(:, 1:4) = t2
+    v1(:, 3) = t2(:, 3)
+    v2(:, 3) = t1(:, 3)
+    call init_mesh(closed, t0, v1(:, 1:4), v2(:, 1:4))
+    call resolve_panel_surface_sides(closed, 'outward_closed', side_status, side_message)
+    call assert_equal_i32(side_status, panel_surface_side_inconsistent, 'flipped face must be inconsistent')
+
+    v0(:, 1:4) = t0
+    v1(:, 1:4) = t1
+    v2(:, 1:4) = t2
+    v0(:, 5) = t0(:, 1)
+    v1(:, 5) = t2(:, 1)
+    v2(:, 5) = t1(:, 1)
+    call init_mesh(closed, v0(:, 1:5), v1(:, 1:5), v2(:, 1:5))
+    call resolve_panel_surface_sides(closed, 'outward_closed', side_status, side_message)
+    call assert_equal_i32(side_status, panel_surface_side_nonmanifold, 'three faces on one edge must be nonmanifold')
+
+    ! Second tetrahedron: shifted by 3 along x and wound inward.
+    v0(:, 1:4) = t0
+    v1(:, 1:4) = t1
+    v2(:, 1:4) = t2
+    v0(:, 5:8) = t0 + spread([3.0_dp, 0.0_dp, 0.0_dp], 2, 4)
+    v1(:, 5:8) = t2 + spread([3.0_dp, 0.0_dp, 0.0_dp], 2, 4)
+    v2(:, 5:8) = t1 + spread([3.0_dp, 0.0_dp, 0.0_dp], 2, 4)
+    call init_mesh(closed, v0, v1, v2)
+    call resolve_panel_surface_sides(closed, 'outward_closed', side_status, side_message)
+    call assert_equal_i32(side_status, panel_surface_side_ok, 'two closed components in one part')
+    call assert_true(all(closed%elem_vacuum_sign == [1, 1, 1, 1, -1, -1, -1, -1]), 'per-component signs')
+    center(:, 1:4) = 0.25_dp
+    center(:, 5:8) = spread([3.25_dp, 0.25_dp, 0.25_dp], 2, 4)
+    call assert_true(all(sum(closed%vacuum_normals*(closed%centers - center), dim=1) > 0.0_dp), &
+                     'each component must face away from its own interior')
+  end subroutine check_closed_surface_edge_matching
+
+  !> One policy per mesh_id, applied in id order to elements that need not be contiguous: a
+  !! coincident tetrahedron in another id never pairs with this one, and a failing id is reported
+  !! with the earlier ids resolved and its own elements left unchanged.
+  subroutine check_surface_sides_by_mesh_id(t0, t1, t2)
+    real(dp), intent(in) :: t0(3, 4), t1(3, 4), t2(3, 4)
+    type(mesh_type) :: parts
+    character(len=128) :: side_message
+    integer(i32) :: side_status, failed_mesh_id
+    integer(i32), parameter :: ids(9) = [1, 2, 1, 2, 3, 1, 2, 1, 2]
+    integer, parameter :: face_of(9) = [1, 1, 2, 2, 1, 3, 3, 4, 4]
+    real(dp) :: v0(3, 9), v1(3, 9), v2(3, 9)
+    integer :: element
+
+    ! ids 1 and 2 hold the same tetrahedron (id 2 inward wound), interleaved; id 3 is one triangle.
+    do element = 1, 9
+      v0(:, element) = t0(:, face_of(element))
+      v1(:, element) = t1(:, face_of(element))
+      v2(:, element) = t2(:, face_of(element))
+      if (ids(element) == 2_i32) then
+        v1(:, element) = t2(:, face_of(element))
+        v2(:, element) = t1(:, face_of(element))
+      end if
+    end do
+    call init_mesh(parts, v0, v1, v2, elem_mesh_id0=ids)
+    call resolve_panel_surface_sides_by_mesh_id( &
+      parts, [character(len=16) :: 'outward_closed', 'OUTWARD_CLOSED', 'normal_minus'], side_status, side_message, &
+      failed_mesh_id)
+    call assert_equal_i32(side_status, panel_surface_side_ok, 'interleaved parts must resolve')
+    call assert_equal_i32(failed_mesh_id, 0_i32, 'no failed mesh_id on success')
+    call assert_true(all(parts%elem_vacuum_sign == [1, -1, 1, -1, -1, 1, -1, 1, -1]), 'per-part signs')
+    call assert_true(all(parts%vacuum_normals(:, 5) == -parts%normals(:, 5)), 'normal_minus vacuum normal')
+
+    call init_mesh(parts, v0, v1, v2, elem_mesh_id0=ids)
+    call resolve_panel_surface_sides_by_mesh_id( &
+      parts, [character(len=16) :: 'normal_plus', 'normal_minus', 'outward_closed'], side_status, side_message, &
+      failed_mesh_id)
+    call assert_equal_i32(side_status, panel_surface_side_open, 'open part must fail')
+    call assert_equal_i32(failed_mesh_id, 3_i32, 'failing mesh_id')
+    call assert_true(all(parts%elem_vacuum_sign(1:4) == [1, -1, 1, -1]), 'earlier parts stay resolved')
+    call assert_equal_i32(parts%elem_vacuum_sign(5), 0_i32, 'failing part stays unresolved')
+
+    call init_mesh(parts, v0, v1, v2, elem_mesh_id0=ids)
+    call resolve_panel_surface_sides_by_mesh_id( &
+      parts, [character(len=16) :: 'normal_plus', 'normal_plus', 'normal_plus', 'normal_plus'], side_status, &
+      side_message, failed_mesh_id)
+    call assert_equal_i32(side_status, panel_surface_side_invalid_policy, 'mesh_id without elements')
+    call assert_equal_i32(failed_mesh_id, 4_i32, 'empty mesh_id reported')
+  end subroutine check_surface_sides_by_mesh_id
 
   !> Replace each unit-tetrahedron corner (origin or a unit axis point) by its scaled, shifted copy.
   pure function map_corners(unit_vertices, corners) result(mapped)
