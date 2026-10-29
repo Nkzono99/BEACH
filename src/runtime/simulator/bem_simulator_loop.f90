@@ -39,7 +39,7 @@ contains
   real(dp) :: fixed_window_surface(2)
   integer(i64) :: fixed_unclosed_batches
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
-  integer(i64) :: batch_counts(6), batch_retry_counts(2), batch_substep_counts(4)
+  integer(i64) :: batch_counts(batch_count_kinds), batch_retry_counts(2), batch_substep_counts(4)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
   real(dp) :: trial_batch_duration, adaptive_potential_step
   type(particles_soa) :: pcls_batch
@@ -439,9 +439,12 @@ contains
     end if
     call perf_region_end(perf_region_mpi_reduce, t0)
     call enforce_soft_discard_limits( &
-      app%sim, stats, batch_idx, batch_counts(6), batch_counts(1), batch_soft_discarded_abs_charge, mpi_ctx &
+      app%sim, stats, batch_idx, batch_counts(batch_count_soft_discarded), batch_counts(batch_count_processed), &
+      batch_soft_discarded_abs_charge, mpi_ctx &
       )
-    call report_soft_discard_summary(batch_idx, batch_counts(6), batch_soft_discarded_abs_charge, mpi_ctx)
+    call report_soft_discard_summary( &
+      batch_idx, batch_counts(batch_count_soft_discarded), batch_soft_discarded_abs_charge, mpi_ctx &
+      )
   end subroutine reduce_batch_outcomes
 
   !> 受理した batch の統計更新を stats_candidate に組み立てる。overflow の検査は全て通ってから commit する。

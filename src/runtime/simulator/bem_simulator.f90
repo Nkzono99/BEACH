@@ -37,6 +37,16 @@ module bem_simulator
   implicit none
   private
 
+  !> `batch_counts(:)` の各要素の意味。MPI 合計は配列のまま行うので、順序はここだけで決める。
+  !! escaped は境界脱出・最大 step 到達・soft discard の合計（`sim_stats%escaped` と同じ定義）。
+  integer(i32), parameter :: batch_count_processed = 1_i32
+  integer(i32), parameter :: batch_count_absorbed = 2_i32
+  integer(i32), parameter :: batch_count_escaped = 3_i32
+  integer(i32), parameter :: batch_count_escaped_boundary = 4_i32
+  integer(i32), parameter :: batch_count_survived_max_step = 5_i32
+  integer(i32), parameter :: batch_count_soft_discarded = 6_i32
+  integer(i32), parameter :: batch_count_kinds = 6_i32
+
   public :: run_absorption_insulator
   !> 固定電流 closure は contract との契約をテストから直接確認する。
   public :: apply_fixed_surface_current_closure
@@ -171,14 +181,14 @@ module bem_simulator
       )
       type(particles_soa), intent(in) :: pcls_batch
       logical, intent(in) :: escaped_boundary_flag(:), absorbed_flag(:), soft_discarded_boundary_flag(:)
-      integer(i64), intent(out) :: batch_counts(6)
+      integer(i64), intent(out) :: batch_counts(batch_count_kinds)
       real(dp), intent(out) :: soft_discarded_abs_charge
     end subroutine count_batch_outcomes
 
     module subroutine accumulate_batch_stats(stats, batch_counts, soft_discarded_abs_charge, retry_counts, &
                                              substep_counts, rel)
       type(sim_stats), intent(inout) :: stats
-      integer(i64), intent(in) :: batch_counts(6)
+      integer(i64), intent(in) :: batch_counts(batch_count_kinds)
       integer(i64), intent(in) :: retry_counts(2)
       integer(i64), intent(in) :: substep_counts(4)
       real(dp), intent(in) :: soft_discarded_abs_charge, rel

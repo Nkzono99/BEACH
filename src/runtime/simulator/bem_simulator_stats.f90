@@ -9,20 +9,20 @@ contains
 
   batch_counts = 0_i64
   soft_discarded_abs_charge = 0.0_dp
-  batch_counts(1) = int(pcls_batch%n, i64)
+  batch_counts(batch_count_processed) = int(pcls_batch%n, i64)
   do i = 1, pcls_batch%n
     if (absorbed_flag(i)) then
-      batch_counts(2) = batch_counts(2) + 1_i64
+      batch_counts(batch_count_absorbed) = batch_counts(batch_count_absorbed) + 1_i64
     else if (escaped_boundary_flag(i)) then
-      batch_counts(3) = batch_counts(3) + 1_i64
-      batch_counts(4) = batch_counts(4) + 1_i64
+      batch_counts(batch_count_escaped) = batch_counts(batch_count_escaped) + 1_i64
+      batch_counts(batch_count_escaped_boundary) = batch_counts(batch_count_escaped_boundary) + 1_i64
     else if (soft_discarded_boundary_flag(i)) then
-      batch_counts(3) = batch_counts(3) + 1_i64
-      batch_counts(6) = batch_counts(6) + 1_i64
+      batch_counts(batch_count_escaped) = batch_counts(batch_count_escaped) + 1_i64
+      batch_counts(batch_count_soft_discarded) = batch_counts(batch_count_soft_discarded) + 1_i64
       soft_discarded_abs_charge = soft_discarded_abs_charge + abs(pcls_batch%q(i)*pcls_batch%w(i))
     else if (pcls_batch%alive(i)) then
-      batch_counts(3) = batch_counts(3) + 1_i64
-      batch_counts(5) = batch_counts(5) + 1_i64
+      batch_counts(batch_count_escaped) = batch_counts(batch_count_escaped) + 1_i64
+      batch_counts(batch_count_survived_max_step) = batch_counts(batch_count_survived_max_step) + 1_i64
     end if
   end do
   end procedure count_batch_outcomes
@@ -32,15 +32,15 @@ contains
   stats%batches = stats%batches + 1_i32
   stats%last_rel_change = rel
   stats%processed_particles = checked_add_nonnegative_i64( &
-                              stats%processed_particles, batch_counts(1), 'processed_particles' &
+                              stats%processed_particles, batch_counts(batch_count_processed), 'processed_particles' &
                               )
-  stats%absorbed = checked_add_nonnegative_i64(stats%absorbed, batch_counts(2), 'absorbed')
-  stats%escaped = checked_add_nonnegative_i64(stats%escaped, batch_counts(3), 'escaped')
+  stats%absorbed = checked_add_nonnegative_i64(stats%absorbed, batch_counts(batch_count_absorbed), 'absorbed')
+  stats%escaped = checked_add_nonnegative_i64(stats%escaped, batch_counts(batch_count_escaped), 'escaped')
   stats%escaped_boundary = checked_add_nonnegative_i64( &
-                           stats%escaped_boundary, batch_counts(4), 'escaped_boundary' &
+                           stats%escaped_boundary, batch_counts(batch_count_escaped_boundary), 'escaped_boundary' &
                            )
   stats%survived_max_step = checked_add_nonnegative_i64( &
-                            stats%survived_max_step, batch_counts(5), 'survived_max_step' &
+                            stats%survived_max_step, batch_counts(batch_count_survived_max_step), 'survived_max_step' &
                             )
   stats%multiple_box_events_retry_attempted = checked_add_nonnegative_i64( &
                                               stats%multiple_box_events_retry_attempted, retry_counts(1), &
@@ -51,7 +51,7 @@ contains
                                              'multiple_box_events_retry_resolved' &
                                              )
   stats%multiple_box_events_soft_discarded = checked_add_nonnegative_i64( &
-                                             stats%multiple_box_events_soft_discarded, batch_counts(6), &
+                                             stats%multiple_box_events_soft_discarded, batch_counts(batch_count_soft_discarded), &
                                              'multiple_box_events_soft_discarded' &
                                              )
   stats%adaptive_substep_halved_steps = checked_add_nonnegative_i64( &
