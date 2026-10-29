@@ -63,6 +63,11 @@ module bem_simulator_workspace
     !! 収支に載せた根の脱出と、放出がなく載せられなかった根の脱出。
     real(dp), allocatable :: fixed_escape_closed_charge(:)
     real(dp), allocatable :: fixed_escape_unclosed_charge(:)
+    !> 全 species が表面へ置く正味電荷（吸収 + 放出反作用）の raw 値と closure 後の値、closure 後の各項の
+    !! 絶対値和。固定電流 channel がない batch では 0。
+    real(dp) :: fixed_surface_raw_charge = 0.0_dp
+    real(dp) :: fixed_surface_net_charge = 0.0_dp
+    real(dp) :: fixed_surface_charge_scale = 0.0_dp
     !> この batch で固定電流 target を適用した channel。1=吸収、2=放出、3=脱出。
     logical, allocatable :: fixed_channel_active(:, :)
     !> neutral_return の非対応な終端の数（species, neutral_count_*）。
@@ -161,6 +166,9 @@ contains
     self%fixed_current_correction = 0.0_dp
     self%fixed_escape_closed_charge = 0.0_dp
     self%fixed_escape_unclosed_charge = 0.0_dp
+    self%fixed_surface_raw_charge = 0.0_dp
+    self%fixed_surface_net_charge = 0.0_dp
+    self%fixed_surface_charge_scale = 0.0_dp
     self%fixed_channel_active = .false.
     self%matching_plane_moments_thread = 0.0_dp
     self%secondary_counts_thread = 0_i64

@@ -262,10 +262,12 @@ contains
   end procedure apply_neutral_return_surface_closure
 
   module procedure apply_fixed_surface_current_closure
-  integer(i32) :: species_idx, n, mode
+  integer(i32) :: species_idx, n, mode, pass
   real(dp) :: partner_charge, reflected_escape, reflected_return, folded_return_charge, charge_sign
   logical :: tracked_source
-  logical :: fixed_current_species(app%n_particle_species)
+  logical :: fixed_current_species(app%n_particle_species), credits_reflected(app%n_particle_species)
+  !> 電子の種ごとに、放出電子側の目標が反射電子の分として減らした表面電荷（帯電符号の大きさ）。
+  real(dp) :: reflected_credit(app%n_particle_species)
 
   n = app%n_particle_species
   do species_idx = 1_i32, n
@@ -273,26 +275,36 @@ contains
       surface_charge_closure_id(app%particle_species(species_idx)%surface_charge_closure) == &
       surface_charge_closure_fixed_current
   end do
+  credits_reflected = .false.
+  if (allocated(current_model%absorbed_target_credits_tracked_escape)) then
+    credits_reflected = current_model%absorbed_target_credits_tracked_escape(1:n)
+  end if
+  reflected_credit = 0.0_dp
   workspace%fixed_escape_closed_charge = 0.0_dp
   workspace%fixed_escape_unclosed_charge = 0.0_dp
   call tally_raw_charge()
 
-  do species_idx = 1_i32, n
-    mode = species_closure_mode(current_model, species_idx, fixed_current_species(species_idx))
-    if (mode == closure_mode_none) cycle
-    tracked_source = mode == closure_mode_tracked_source
-    charge_sign = sign(1.0_dp, app%particle_species(species_idx)%q_particle)
-    partner_charge = 0.0_dp
-    reflected_escape = 0.0_dp
-    reflected_return = 0.0_dp
-    if (mode /= closure_mode_target) call attribute_tracked_escape()
-    folded_return_charge = 0.0_dp
-    if (app%particle_species(species_idx)%has_target_absorbed_current_a .or. &
-        current_model%has_absorbed_target(species_idx)) call close_absorbed_channel()
-    if (app%particle_species(species_idx)%has_target_emission_current_a .or. &
-        current_model%has_emission_target(species_idx)) call close_emission_channel()
-    if (current_model%has_escape_target(species_idx)) call close_escape_channel()
+  ! 反射電子の由来となった電子の吸収目標は放出電子側が実際に差し引いた量で決まるので、他の種の後に閉じる。
+  do pass = 1, 2
+    do species_idx = 1_i32, n
+      if (credits_reflected(species_idx) .neqv. pass == 2) cycle
+      mode = species_closure_mode(current_model, species_idx, fixed_current_species(species_idx))
+      if (mode == closure_mode_none) cycle
+      tracked_source = mode == closure_mode_tracked_source
+      charge_sign = sign(1.0_dp, app%particle_species(species_idx)%q_particle)
+      partner_charge = 0.0_dp
+      reflected_escape = 0.0_dp
+      reflected_return = 0.0_dp
+      if (mode /= closure_mode_target) call attribute_tracked_escape()
+      folded_return_charge = 0.0_dp
+      if (app%particle_species(species_idx)%has_target_absorbed_current_a .or. &
+          current_model%has_absorbed_target(species_idx)) call close_absorbed_channel()
+      if (app%particle_species(species_idx)%has_target_emission_current_a .or. &
+          current_model%has_emission_target(species_idx)) call close_emission_channel()
+      if (current_model%has_escape_target(species_idx)) call close_escape_channel()
+    end do
   end do
+  call record_surface_budget()
 contains
 
   !> 種ごとの raw 電荷（吸収・放出反作用・脱出・外部障壁で戻った電荷）を数え、rank 合計する。
@@ -350,6 +362,16 @@ contains
       workspace%fixed_escape_closed_charge(species_idx) = partner_charge
       workspace%fixed_escape_unclosed_charge(species_idx) = partner_escape_charge + reflected_escape - partner_charge
     end if
+    if (reflected_idx > 0_i32) then
+      ! 追跡した源の種は放出・帰還目標から反射電子の脱出全量を差し引く。partner を持つ放出電子は根の脱出束までしか
+      ! 差し引けないので、SEE の脱出を先に充てた残りだけが反射電子の分になる。電子へはこの量だけを足し戻す（#93）。
+      if (tracked_source .or. .not. current_model%has_escape_target(species_idx)) then
+        reflected_credit(reflected_idx) = reflected_credit(reflected_idx) + reflected_escape
+      else
+        reflected_credit(reflected_idx) = reflected_credit(reflected_idx) + &
+                                          partner_charge - min(partner_escape_charge, partner_charge)
+      end if
+    end if
   end subroutine attribute_tracked_escape
 
   !> 吸収（帰還）channel の重みを目標へ合わせる。追跡した源の種（tracked_source）は raw channel が空でも止めず、
@@ -374,11 +396,11 @@ contains
     else
       target_charge = target_charge - partner_charge
     end if
-    if (allocated(current_model%absorbed_target_credits_tracked_escape)) then
-      if (current_model%absorbed_target_credits_tracked_escape(species_idx)) then
-        ! 外部障壁を越えて脱出した反射電子は壁に届かないので、根の流入から差し引く（吸収目標は帯電符号で小さくなる）。
-        target_charge = target_charge - workspace%fixed_current_charge_values(species_idx, fixed_charge_escaped)
-      end if
+    if (credits_reflected(species_idx)) then
+      ! 外部障壁を越えて脱出した反射電子は壁に届かないので、根の流入から差し引く（吸収目標は帯電符号で小さくなる）。
+      ! 差し引くのは追跡した脱出ではなく、放出電子側の目標が反射電子の分として差し引いた量である。
+      ! 追跡した脱出が根の脱出束を超えたときに超過まで差し引くと、その分だけ毎バッチ正味電荷が残る（#93）。
+      target_charge = target_charge + reflected_credit(species_idx)
     end if
     ! 差し引きで目標の符号が粒子電荷と逆になれば、吸収なしまで縮める。
     if (target_charge*charge_sign < 0.0_dp) target_charge = 0.0_dp
@@ -468,6 +490,31 @@ contains
     workspace%photo_emission_dq(:, species_idx) = &
       weight_scale*workspace%photo_emission_dq(:, species_idx)
   end subroutine close_emission_channel
+
+  !> 全 species の表面正味電荷（raw と closure 後）と、closure 後の各項の絶対値和を記録する。
+  !! 外部根（zero_current）の closure 後の正味は、追跡した SEE の脱出が根の脱出束を超えるなど
+  !! 目標を置けない batch を除き、丸め誤差の範囲で 0 になる。
+  subroutine record_surface_budget()
+    integer(i32) :: s
+    real(dp) :: absorbed, emission
+
+    workspace%fixed_surface_raw_charge = 0.0_dp
+    workspace%fixed_surface_net_charge = 0.0_dp
+    workspace%fixed_surface_charge_scale = 0.0_dp
+    if (.not. any(workspace%fixed_channel_active)) return
+    do s = 1_i32, n
+      workspace%fixed_surface_raw_charge = workspace%fixed_surface_raw_charge + &
+                                           workspace%fixed_current_charge_values(s, fixed_charge_absorbed) + &
+                                           workspace%fixed_current_charge_values(s, fixed_charge_emission)
+      ! 目標を適用した channel は目標、それ以外は raw の電荷が表面に置かれる。
+      absorbed = workspace%fixed_current_charge_values(s, fixed_charge_absorbed)
+      if (workspace%fixed_channel_active(1, s)) absorbed = workspace%fixed_absorbed_target_charge(s)
+      emission = workspace%fixed_current_charge_values(s, fixed_charge_emission)
+      if (workspace%fixed_channel_active(2, s)) emission = workspace%fixed_emission_target_charge(s)
+      workspace%fixed_surface_net_charge = workspace%fixed_surface_net_charge + absorbed + emission
+      workspace%fixed_surface_charge_scale = workspace%fixed_surface_charge_scale + abs(absorbed) + abs(emission)
+    end do
+  end subroutine record_surface_budget
 
   !> 脱出 channel の目標（partner・反射電子に充てた分を除いた根の脱出）と raw との差を補正として記録する。
   subroutine close_escape_channel()

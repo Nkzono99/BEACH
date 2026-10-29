@@ -141,7 +141,8 @@ module bem_output_writer
     end subroutine open_fixed_current_history_writer
 
     module subroutine write_fixed_current_history_rows( &
-      unit_id, batch_idx, simulated_time_s, window_batches, channel_active, tracked_charge_c, target_charge_c &
+      unit_id, batch_idx, simulated_time_s, window_batches, channel_active, tracked_charge_c, target_charge_c, &
+      surface_charge_c &
       )
       integer, intent(in) :: unit_id
       integer(i32), intent(in) :: batch_idx, window_batches
@@ -149,6 +150,8 @@ module bem_output_writer
       !> (channel, species)。channel は 1=吸収、2=放出、3=脱出。
       logical, intent(in) :: channel_active(:, :)
       real(dp), intent(in) :: tracked_charge_c(:, :), target_charge_c(:, :)
+      !> 全 species の表面正味電荷の窓合計。1=raw、2=closure 後。
+      real(dp), intent(in) :: surface_charge_c(2)
     end subroutine write_fixed_current_history_rows
 
     module subroutine write_summary_file( &

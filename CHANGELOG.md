@@ -13,9 +13,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `kind = "disk"`, `"annulus"`, `"cylinder"`（キャップ）に `tessellation = "uniform"` を追加した。各リングの点数を
   半径に比例させ、要素面積の最大/最小比を分割数によらず約 1.5 に保つ。円柱のキャップは `n_r` で半径方向に分割できる。
   既定の `"polar"` は従来の極座標格子（要素面積が半径に比例）のまま。
+- `fixed_current_history.csv` に、全 species の表面正味電荷を closure 前後で記録する `surface_net` 行（`species_idx = 0`）を
+  追加した。`zero_current` の run で closure 後の正味が 0 にならない batch があると警告する。
 
 ### Fixed
 
+- 反射電子を外部源に含めた `zero_current` の固定電流 closure で、追跡した反射電子の脱出が根の脱出束を超えた
+  batch に、超過分の正の正味電荷が残っていた（#93）。PE の脱出目標は根の脱出束で 0 に止まるのに、電子の吸収目標へは
+  追跡した脱出の全量を足し戻していた。電子へは放出電子側が実際に差し引いた量だけを足し戻す。
 - 正方形の `plate_hole` で `n_theta` が 4 の倍数のとき（既定の 1×1、`n_theta = 48` を含む）、角に当たる放射線の
   交点が丸め誤差で角とずれ、面積が丸め誤差程度の三角形が角に生成されていた。角に当たる交点を角に一致させ、
   その要素を生成しないようにした。該当する設定では要素数が減る（1×1、`n_theta = 48`、`n_r = 4` では 386 から 384）。

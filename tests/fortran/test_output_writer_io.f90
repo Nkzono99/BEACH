@@ -551,7 +551,7 @@ contains
     logical :: opened, active(3, 3)
     integer :: unit_id, read_ios, row_count
     real(dp) :: tracked(3, 3), target(3, 3)
-    character(len=512) :: rows(5)
+    character(len=512) :: rows(6)
 
     call default_app_config(cfg)
     call load_app_config('examples/zero_current_refresh.toml', cfg)
@@ -577,7 +577,7 @@ contains
     tracked(2, 3) = 4.0e-12_dp
     target(2, 3) = 4.0e-12_dp
     target(3, 3) = -1.0e-13_dp
-    call write_fixed_current_history_rows(unit_id, 3_i32, 6.0_dp, 2_i32, active, tracked, target)
+    call write_fixed_current_history_rows(unit_id, 3_i32, 6.0_dp, 2_i32, active, tracked, target, [2.0_dp, 0.0_dp])
     close (unit_id)
 
     open (newunit=unit_id, file=out_dir_matching//'/fixed_current_history.csv', status='old', action='read')
@@ -589,8 +589,8 @@ contains
       if (row_count <= size(rows)) rows(row_count) = line
     end do
     close (unit_id)
-    call assert_equal_i32(int(row_count, i32), 5_i32, 'header plus one row per active channel expected')
-    if (row_count /= 5) return
+    call assert_equal_i32(int(row_count, i32), 6_i32, 'header, one row per active channel, and the surface_net row expected')
+    if (row_count /= 6) return
     call assert_true( &
       trim(rows(1)) == 'batch,simulated_time_s,window_batches,species_idx,channel,tracked_charge_C,target_charge_C,'// &
       'target_over_tracked', 'fixed-current history header mismatch' &
@@ -602,6 +602,11 @@ contains
     call assert_true( &
       index(rows(5), ',2,3,escape,') > 0 .and. rows(5) (len_trim(rows(5)) - 3:len_trim(rows(5))) == ',nan', &
       'PE escape row with no tracked charge must write nan' &
+      )
+    ! The closed surface net is 0 against a raw net of 2, so the ratio column is 0.
+    call assert_true( &
+      index(rows(6), ',2,0,surface_net,') > 0 .and. index(rows(6), ',0.0000000000000000E+00', back=.true.) > 0, &
+      'surface_net row must carry the raw and closed surface charge' &
       )
   end subroutine test_fixed_current_history_rows
 

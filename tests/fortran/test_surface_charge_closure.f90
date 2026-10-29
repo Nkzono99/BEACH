@@ -794,6 +794,23 @@ contains
     ! 収支: 電子 −0.8 + イオン +0.5（根の J_i = J_e − J_esc）+ PE 正味 (1.0 − 0.7) = 0。
     call assert_close_dp(workspace%fixed_absorbed_target_charge(1) + 0.5_dp + workspace%fixed_emission_target_charge(2) + &
                          workspace%fixed_absorbed_target_charge(2), 0.0_dp, 1.0e-12_dp, 'plate budget closes with the root')
+    call assert_close_dp(workspace%fixed_surface_net_charge, -0.8_dp + 0.3_dp, 1.0e-12_dp, &
+                         'surface net sums the electron and PE deposits')
+
+    ! 追跡した反射電子の脱出 0.2 が根の脱出 0.1 を超えると、PE の脱出目標は 0 で止まり帰還が放出全量になる。
+    ! 電子へは PE 側が実際に減らした 0.1 だけを足し戻すので、板の収支は閉じたまま（#93）。
+    model%absorbed_current_a = [-1.0_dp, -0.9_dp]
+    model%escaped_particle_current_a = [0.0_dp, -0.1_dp]
+    call prepare_reflected_fixture(workspace)
+    call apply_fixed_surface_current_closure(app, model, batch, 4_i32, workspace, mpi)
+    call assert_close_dp(workspace%fixed_escape_target_charge(2), 0.0_dp, 1.0e-12_dp, 'PE escape target stops at zero')
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(2), -1.0_dp, 1.0e-12_dp, 'PE return is the whole emission')
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(1), -0.9_dp, 1.0e-12_dp, &
+                         'electron is credited only with the reflected escape the PE targets took off')
+    ! 収支: 電子 −0.9 + イオン +0.9（根の J_i = J_e − J_esc = 1.0 − 0.1）+ PE 正味 (1.0 − 1.0) = 0。
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(1) + 0.9_dp + workspace%fixed_emission_target_charge(2) + &
+                         workspace%fixed_absorbed_target_charge(2), 0.0_dp, 1.0e-12_dp, &
+                         'plate budget closes when the reflected escape exceeds the root escape')
 
     ! 追跡した源の種（PE なしの SEE）では、反射電子の脱出・帰還・外向きを脱出・帰還・放出の目標から外す。
     model%emission_target_from_tracked_source(2) = .true.

@@ -469,7 +469,9 @@ class FixedCurrentHistoryEntry:
     """Tracked and target charge over a history window for one species/channel.
 
     ``target_over_tracked`` is NaN when the tracked charge is zero, as written by
-    the simulator. This diagnostic does not participate in restart state.
+    the simulator. The ``surface_net`` row (``species_idx`` 0) holds the net
+    surface charge of all species before and after the closure. This diagnostic
+    does not participate in restart state.
     """
 
     batch: int
