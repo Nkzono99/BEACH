@@ -8,8 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 
 - `kind = "sphere"` に `tessellation = "icosphere"` と `subdivisions` を追加した。正二十面体を再帰分割した
-  `20 * 4**subdivisions` 要素の球面で、要素面積の最大/最小比は約 1.3 に収まる。既定の `"uv"` は従来どおり
-  `n_lon`, `n_lat` を使う。`beachx model close-pack` は `--sphere-subdivisions` で icosphere の球を生成する。
+  `20 * 4**subdivisions` 要素の球面で、要素面積の最大/最小比は約 1.3 に収まる。`beachx model close-pack` は
+  `--sphere-subdivisions` で icosphere の球を生成する。
 - `kind = "disk"`, `"annulus"`, `"cylinder"`（キャップ）に `tessellation = "uniform"` を追加した。各リングの点数を
   半径に比例させ、要素面積の最大/最小比を分割数によらず約 1.5 に保つ。円柱のキャップは `n_r` で半径方向に分割できる。
   既定の `"polar"` は従来の極座標格子（要素面積が半径に比例）のまま。
@@ -24,6 +24,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- `kind = "sphere"` の既定の分割を icosphere（`subdivisions = 2`、320 要素）にした。`n_lon` または `n_lat` を書いた球は
+  従来どおり UV 球になる。どちらも書いていない球は、従来の UV 球（24×12、528 要素）から icosphere に変わる。
+  従来のメッシュを保つには `tessellation = "uv"` を書く。
 - 通常の開発テストから周期検証 workflow の全ケースを分離し、代表 3 ケースを残した。
   全ケースは `make test-validation-workflow` と CI で実行する。
 - L2 で共有 field kernel を build して Python/native 数値比較を実行し、lint CLI の native 設定契約も確認する。

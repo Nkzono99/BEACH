@@ -4385,7 +4385,7 @@
             "polar",
             "uniform"
           ],
-          "description": "Element layout. sphere: \"uv\" (default, n_lon/n_lat) or \"icosphere\" (subdivisions); disk/annulus/cylinder caps: \"polar\" (default) or \"uniform\" (ring point counts proportional to radius)."
+          "description": "Element layout. sphere: \"icosphere\" (subdivisions; default unless n_lon/n_lat is set) or \"uv\" (n_lon/n_lat); disk/annulus/cylinder caps: \"polar\" (default) or \"uniform\" (ring point counts proportional to radius)."
         },
         "subdivisions": {
           "type": "integer",

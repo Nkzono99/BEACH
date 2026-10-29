@@ -178,7 +178,19 @@ contains
         error stop path//'.kind is unknown.'
       end select
       if (.not. cfg%mesh_parts(i)%enabled) cycle
-      ! An empty tessellation selects each kind's default (uv for sphere, polar for disk/annulus/cylinder).
+      ! An empty tessellation selects each kind's default: polar for disk/annulus/cylinder; for sphere, uv when
+      ! n_lon or n_lat is given and icosphere otherwise.
+      if (trim(cfg%mesh_parts(i)%kind) == 'sphere') then
+        select case (trim(cfg%mesh_parts(i)%tessellation))
+        case ('')
+          if (cfg%mesh_parts(i)%has_n_lon_lat .and. cfg%mesh_parts(i)%has_subdivisions) &
+            error stop path//'.tessellation is required when both n_lon/n_lat and subdivisions are set.'
+        case ('uv')
+          if (cfg%mesh_parts(i)%has_subdivisions) error stop path//'.subdivisions is only valid for tessellation="icosphere".'
+        case ('icosphere')
+          if (cfg%mesh_parts(i)%has_n_lon_lat) error stop path//'.n_lon and n_lat are only valid for tessellation="uv".'
+        end select
+      end if
       if (len_trim(cfg%mesh_parts(i)%tessellation) > 0) then
         select case (trim(cfg%mesh_parts(i)%kind))
         case ('sphere')

@@ -237,6 +237,7 @@ program test_templates_importers_runtime
   cfg%mesh_parts(2)%center = [0.0_dp, 0.0_dp, 1.0_dp]
   cfg%mesh_parts(2)%n_lon = 8_i32
   cfg%mesh_parts(2)%n_lat = 4_i32
+  cfg%mesh_parts(2)%has_n_lon_lat = .true.
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32( &
     int(count(mesh%elem_mesh_id == 1_i32), i32), 2_i32, &
@@ -308,10 +309,15 @@ program test_templates_importers_runtime
 
   cfg%mesh_parts(1)%enabled = .true.
   cfg%mesh_parts(1)%kind = 'sphere'
-  cfg%mesh_parts(1)%tessellation = 'icosphere'
   cfg%mesh_parts(1)%subdivisions = 1_i32
   call build_mesh_from_config(cfg, mesh)
-  call assert_equal_i32(mesh%nelem, 80_i32, 'template parts icosphere element count mismatch')
+  call assert_equal_i32(mesh%nelem, 80_i32, 'a sphere without n_lon/n_lat must default to the icosphere')
+  ! Given n_lon/n_lat, an unset tessellation keeps the UV sphere those keys describe.
+  cfg%mesh_parts(1)%n_lon = 8_i32
+  cfg%mesh_parts(1)%n_lat = 4_i32
+  cfg%mesh_parts(1)%has_n_lon_lat = .true.
+  call build_mesh_from_config(cfg, mesh)
+  call assert_equal_i32(mesh%nelem, 48_i32, 'a sphere with n_lon/n_lat must default to the UV sphere')
 
   call default_app_config(cfg)
 

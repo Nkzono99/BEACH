@@ -209,13 +209,16 @@ contains
       spec%has_cap_bottom = .true.
     case ('n_lon')
       call get_toml_int(table, keys(ikey), spec%n_lon, mesh_part_config_path(part_idx)//'.n_lon')
+      spec%has_n_lon_lat = .true.
     case ('n_lat')
       call get_toml_int(table, keys(ikey), spec%n_lat, mesh_part_config_path(part_idx)//'.n_lat')
+      spec%has_n_lon_lat = .true.
     case ('tessellation')
       call get_toml_string(table, keys(ikey), spec%tessellation, mesh_part_config_path(part_idx)//'.tessellation')
       spec%tessellation = lower_ascii(trim(spec%tessellation))
     case ('subdivisions')
       call get_toml_int(table, keys(ikey), spec%subdivisions, mesh_part_config_path(part_idx)//'.subdivisions')
+      spec%has_subdivisions = .true.
     case ('group')
       call get_toml_string(table, keys(ikey), auth%group, mesh_part_config_path(part_idx)//'.group')
       auth%has_group = .true.

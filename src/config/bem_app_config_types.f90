@@ -127,6 +127,8 @@ module bem_app_config_types
     integer(i32) :: n_lat = 12
     character(len=16) :: tessellation = ''
     integer(i32) :: subdivisions = 2
+    logical :: has_n_lon_lat = .false.
+    logical :: has_subdivisions = .false.
   end type template_spec
 
   !> 実行条件・メッシュ入力・粒子注入・出力設定を一元管理する。

@@ -467,6 +467,9 @@ def test_photo_raycast_inputs_are_owned_by_preflight(edit, diagnostic, native_ch
     ({"kind": "plane", "scale": 1.0}, "scale"),
     ({"kind": "plane", "rotation": [0, 0, 0]}, "rotation"),
     ({"kind": "sphere", "tessellation": "uniform"}, "tessellation"),
+    ({"kind": "sphere", "tessellation": "icosphere", "n_lon": 8}, "n_lon"),
+    ({"kind": "sphere", "tessellation": "uv", "subdivisions": 2}, "subdivisions"),
+    ({"kind": "sphere", "n_lat": 4, "subdivisions": 2}, "tessellation"),
     ({"kind": "disk", "tessellation": "icosphere"}, "tessellation"),
     ({"kind": "plane", "tessellation": "uniform"}, "tessellation"),
 ])

@@ -207,10 +207,10 @@ contains
         uniform_cap=trim(spec%tessellation) == 'uniform', n_r=spec%n_r &
         )
     case ('sphere')
-      if (trim(spec%tessellation) == 'icosphere') then
-        call make_icosphere(mesh, radius=spec%radius, subdivisions=spec%subdivisions, center=spec%center)
-      else
+      if (trim(spec%tessellation) == 'uv' .or. (len_trim(spec%tessellation) == 0 .and. spec%has_n_lon_lat)) then
         call make_sphere(mesh, radius=spec%radius, n_lon=spec%n_lon, n_lat=spec%n_lat, center=spec%center)
+      else
+        call make_icosphere(mesh, radius=spec%radius, subdivisions=spec%subdivisions, center=spec%center)
       end if
     case default
       error stop 'Unknown template kind in config.'
