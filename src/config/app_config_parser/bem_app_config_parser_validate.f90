@@ -1,6 +1,7 @@
 !> lint 済みの設定から電場・流束・粒子重みを導出し、計算結果を検査する。
 submodule(bem_app_config_parser) bem_app_config_parser_validate
-  use bem_config_helpers, only: resolve_inward_normal, species_number_density_m3, species_temperature_k
+  use bem_config_helpers, only: resolve_inward_normal, species_number_density_m3, species_temperature_k, &
+                                boundary_face_name, boundary_inflow_face_enabled
   implicit none
 contains
 
@@ -48,7 +49,7 @@ contains
   end procedure resolve_external_e_field
 
   !> 有効な box 面からの総流入率を求め、粒子重みを導出する。
-  module procedure validate_boundary_inflow_species
+  module procedure resolve_boundary_inflow_weight
   type(particle_species_spec) :: spec
   real(dp) :: physical_rate, area, inward_normal(3), gamma_in
   integer :: face
@@ -70,10 +71,10 @@ contains
   end do
   call resolve_flux_driven_weight(cfg, spec, physical_rate, species_idx)
   cfg%particle_species(species_idx) = spec
-  end procedure validate_boundary_inflow_species
+  end procedure resolve_boundary_inflow_weight
 
   !> photo_raycast の面積と正規化した入射方向を確定する。
-  module procedure validate_photo_raycast_species
+  module procedure resolve_photo_raycast_direction
   real(dp) :: area, direction_norm, inward_dot
   real(dp) :: inward_normal(3)
   type(particle_species_spec) :: spec
@@ -107,7 +108,7 @@ contains
   if (species_temperature_k(spec) < 0.0_dp) error stop "temperature [K] must be >= 0"
 
   cfg%particle_species(species_idx) = spec
-  end procedure validate_photo_raycast_species
+  end procedure resolve_photo_raycast_direction
 
   subroutine validate_flux_driven_parameters(cfg, species_idx, spec)
     type(app_config), intent(in) :: cfg
@@ -158,38 +159,5 @@ contains
     end if
     spec%has_w_particle = .true.
   end subroutine resolve_flux_driven_weight
-
-  pure logical function boundary_inflow_face_enabled(spec, face) result(enabled)
-    type(particle_species_spec), intent(in) :: spec
-    integer, intent(in) :: face
-
-    if (mod(face, 2) == 1) then
-      enabled = spec%boundary_inflow_low((face + 1)/2) == particle_inflow_reservoir
-    else
-      enabled = spec%boundary_inflow_high(face/2) == particle_inflow_reservoir
-    end if
-  end function boundary_inflow_face_enabled
-
-  pure subroutine boundary_face_name(face, name)
-    integer, intent(in) :: face
-    character(len=*), intent(out) :: name
-
-    select case (face)
-    case (1)
-      name = 'x_low'
-    case (2)
-      name = 'x_high'
-    case (3)
-      name = 'y_low'
-    case (4)
-      name = 'y_high'
-    case (5)
-      name = 'z_low'
-    case (6)
-      name = 'z_high'
-    case default
-      error stop 'invalid boundary face index.'
-    end select
-  end subroutine boundary_face_name
 
 end submodule bem_app_config_parser_validate

@@ -7,211 +7,18 @@ submodule(bem_app_config_parser) bem_app_config_parser_preflight_surface
   implicit none
 contains
 
+  !> 表面電流モデルの設定を、値域、モデルの選択と組合せ、Zhao のモデル入力、種の役割、流入境界、種の物理条件、
+  !! 壁電位 gauge と外部根の更新条件の順に検査する。`none` では値域と選択だけを見て戻る。
   module procedure validate_surface_current_model_config
-  integer :: electron_idx, ion_idx, photo_idx, secondary_idx
-  integer(i32) :: effective_boundary_low(3), effective_boundary_high(3)
-  real(dp) :: electron_temperature, ion_temperature, ion_entry_energy_ev, ion_pressure_energy_ev
+  integer :: electron_idx, ion_idx, photo_idx
   logical :: photoelectron_active, secondary_active
 
-  if (cfg%surface_current%outflow_refresh_batches < 0_i32) then
-    error stop 'sheath.coupling.outflow_refresh_batches must be >= 0.'
-  end if
-  if (.not. (cfg%surface_current%zhao_upstream_band_tolerance >= 0.0_dp .and. &
-             cfg%surface_current%zhao_upstream_band_tolerance < 1.0_dp)) then
-    error stop 'sheath.zhao.upstream_band_tolerance must be >= 0 and < 1.'
-  end if
-  if (.not. (cfg%surface_current%zhao_upstream_field_floor_v_m >= 0.0_dp) .or. &
-      .not. ieee_is_finite(cfg%surface_current%zhao_upstream_field_floor_v_m)) then
-    error stop 'sheath.zhao.upstream_field_floor_v_m must be finite and >= 0.'
-  end if
-  if (.not. (cfg%surface_current%zhao_ion_pressure_factor > 0.0_dp) .or. &
-      .not. ieee_is_finite(cfg%surface_current%zhao_ion_pressure_factor)) then
-    error stop 'sheath.zhao.ion_pressure_factor must be finite and > 0.'
-  end if
-  if (trim(cfg%periodic2%lower_boundary_model) == 'e_top_from_sheath' .and. &
-      trim(lower_ascii(cfg%surface_current%model)) /= 'zhao_stationary') then
-    call stop_config_error('e_top_from_sheath requires zhao_stationary (sheath.closure="zero_current").')
-  end if
-  if (trim(lower_ascii(cfg%surface_current%model)) == 'zhao_stationary' .and. &
-      cfg%periodic2%upper_fourier_switch == 'off') then
-    write (error_unit, '(a)') 'WARNING: zhao_stationary with upper Fourier switch off may retain k/=0 errors near H.'
-  end if
-  select case (trim(lower_ascii(cfg%surface_current%model)))
-  case ('none')
-    if (cfg%surface_current%outflow_refresh_batches /= 0_i32) then
-      error stop 'sheath.coupling.outflow_refresh_batches requires sheath.closure="zero_current".'
-    end if
-    if (cfg%surface_current%has_include_reflected_electrons) then
-      error stop 'sheath.coupling.include_reflected_electrons requires sheath.closure="zero_current".'
-    end if
-    if (cfg%surface_current%zhao_upstream_band_tolerance /= 0.0_dp) then
-      error stop 'sheath.zhao.upstream_band_tolerance requires sheath.closure="zero_current".'
-    end if
-    if (cfg%surface_current%zhao_upstream_field_floor_v_m /= 0.0_dp) then
-      error stop 'sheath.zhao.upstream_field_floor_v_m requires sheath.closure="zero_current".'
-    end if
-    if (cfg%surface_current%zhao_ion_pressure_factor /= 1.0_dp) then
-      error stop 'sheath.zhao.ion_pressure_factor requires sheath.closure="zero_current".'
-    end if
-    return
-  case ('zhao_stationary')
-    continue
-  case default
-    error stop 'sheath.closure must be "none" or "zero_current".'
-  end select
-  if (any(cfg%sim%b0 /= 0.0_dp)) then
-    error stop 'sheath.closure="zero_current" requires fields.external.magnetic_t=[0,0,0] for its unmagnetized sheath closure.'
-  end if
-  if (trim(lower_ascii(cfg%sim%reservoir_potential_model)) /= 'none') then
-    error stop 'Zhao kinetic inflow cannot be combined with the generic reservoir potential model.'
-  end if
-  if (.not. ieee_is_finite(cfg%surface_current%photoelectron_source_scale) .or. &
-      cfg%surface_current%photoelectron_source_scale < 0.0_dp) then
-    error stop 'sheath.photoelectrons.source_scale must be finite and >= 0.'
-  end if
-  photoelectron_active = cfg%surface_current%photoelectron_source_scale > 0.0_dp
-  secondary_active = len_trim(cfg%surface_current%secondary_electron_species) > 0
-  if (.not. photoelectron_active .and. &
-      trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto' .and. &
-      trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'c') then
-    error stop 'sheath.photoelectrons.source_scale=0 requires sheath.zhao.branch="auto" or "c".'
-  end if
-  if (photoelectron_active) then
-    if (.not. ieee_is_finite(cfg%surface_current%solar_elevation_deg) .or. &
-        cfg%surface_current%solar_elevation_deg <= 0.0_dp .or. cfg%surface_current%solar_elevation_deg > 90.0_dp) then
-      error stop 'sheath.photoelectrons.solar_elevation_deg must satisfy 0 < elevation <= 90.'
-    end if
-    if (.not. ieee_is_finite(cfg%surface_current%photoelectron_ref_density_m3) .or. &
-        cfg%surface_current%photoelectron_ref_density_m3 <= 0.0_dp) then
-      error stop 'sheath.photoelectrons.ref_density_m3 must be finite and > 0.'
-    end if
-  else if (len_trim(cfg%surface_current%photoelectron_species) > 0 .or. &
-           cfg%surface_current%solar_elevation_deg /= 0.0_dp .or. &
-           cfg%surface_current%photoelectron_ref_density_m3 /= 0.0_dp) then
-    error stop 'sheath.photoelectrons.source_scale=0 requires omitting all photoelectron-specific Zhao settings.'
-  end if
-  if (.not. cfg%surface_current%has_reference_area_m2 .and. &
-      (.not. cfg%sim%use_box .or. any(cfg%sim%box_max(1:2) <= cfg%sim%box_min(1:2)))) then
-    error stop 'sheath requires sheath.reference_area_m2 or a finite x-y domain area.'
-  end if
-
-  electron_idx = find_species_index(cfg, cfg%surface_current%electron_species)
-  ion_idx = find_species_index(cfg, cfg%surface_current%ion_species)
-  photo_idx = 0
-  if (photoelectron_active) photo_idx = find_species_index(cfg, cfg%surface_current%photoelectron_species)
-  if (electron_idx == ion_idx .or. &
-      (photoelectron_active .and. (electron_idx == photo_idx .or. ion_idx == photo_idx))) then
-    error stop 'sheath species references must be distinct.'
-  end if
-  call validate_automatic_current_species(cfg, electron_idx, 'electron')
-  call validate_automatic_current_species(cfg, ion_idx, 'ion')
-  if (photoelectron_active) call validate_automatic_current_species(cfg, photo_idx, 'photoelectron')
-  if (cfg%particle_species(electron_idx)%q_particle >= 0.0_dp .or. &
-      cfg%particle_species(ion_idx)%q_particle <= 0.0_dp) then
-    error stop 'Zhao current species must be negative electron and positive ion.'
-  end if
-  if (abs(abs(cfg%particle_species(electron_idx)%q_particle) - qe) > 1.0e-6_dp*qe .or. &
-      abs(abs(cfg%particle_species(ion_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
-    error stop 'Zhao stationary current model currently requires singly charged electron and ion species.'
-  end if
-  if (photoelectron_active) then
-    if (cfg%particle_species(photo_idx)%q_particle >= 0.0_dp) then
-      error stop 'Zhao photoelectron species must have negative charge.'
-    end if
-    if (abs(abs(cfg%particle_species(photo_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
-      error stop 'Zhao stationary current model currently requires singly charged photoelectrons.'
-    end if
-    if (abs(cfg%particle_species(photo_idx)%m_particle - cfg%particle_species(electron_idx)%m_particle) > &
-        1.0e-6_dp*cfg%particle_species(electron_idx)%m_particle) then
-      error stop 'Zhao stationary current model requires matching ambient-electron and photoelectron masses.'
-    end if
-    if (trim(cfg%particle_species(photo_idx)%source_mode) /= 'photo_raycast' .or. &
-        .not. cfg%particle_species(photo_idx)%deposit_opposite_charge_on_emit) then
-      error stop 'Zhao photoelectron current requires photo_raycast with opposite-charge emission deposit.'
-    end if
-  end if
-  if (secondary_active) then
-    secondary_idx = find_species_index(cfg, cfg%surface_current%secondary_electron_species)
-    if (trim(cfg%particle_species(secondary_idx)%source_mode) /= 'secondary_emission' .or. &
-        abs(cfg%particle_species(secondary_idx)%q_particle + qe) > 1.0e-6_dp*qe .or. &
-        abs(cfg%particle_species(secondary_idx)%m_particle - cfg%particle_species(electron_idx)%m_particle) > &
-        1.0e-6_dp*cfg%particle_species(electron_idx)%m_particle) then
-      call stop_config_error('Zhao secondary_electron requires a secondary_emission species '// &
-                             'with charge -e and ambient electron mass.')
-    end if
-    call resolve_particle_boundaries(cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, &
-                                     cfg%particle_species(secondary_idx), effective_boundary_low, effective_boundary_high)
-    if (effective_boundary_high(3) /= bc_open) then
-      call stop_config_error('Zhao secondary-electron kinetic closure requires an open z-high particle boundary.')
-    end if
-  end if
-  ! 壁・法線の実行時表現は bem_irradiation_cell_contract。ここは製品の接続面を制限する preflight 規則。
-  if (.not. is_z_high_reservoir(cfg%particle_species(electron_idx)) .or. &
-      .not. is_z_high_reservoir(cfg%particle_species(ion_idx))) then
-    error stop 'Zhao ambient electron and ion species require z-high reservoir inflow.'
-  end if
-  if (photoelectron_active) then
-    if (trim(lower_ascii(cfg%particle_species(photo_idx)%inject_face)) /= 'z_high') then
-      error stop species_config_path(photo_idx)//'.source.inject_face must be "z_high" for Zhao photoelectrons.'
-    end if
-  end if
-  call resolve_particle_boundaries( &
-    cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(electron_idx), &
-    effective_boundary_low, effective_boundary_high &
-    )
-  if (effective_boundary_high(3) /= bc_open) then
-    error stop 'Zhao ambient-electron kinetic closure requires an open z-high particle boundary.'
-  end if
-  call resolve_particle_boundaries( &
-    cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(ion_idx), &
-    effective_boundary_low, effective_boundary_high &
-    )
-  if (effective_boundary_high(3) /= bc_open) then
-    error stop 'Zhao ion kinetic closure requires an open z-high particle boundary.'
-  end if
-  if (photoelectron_active) then
-    call resolve_particle_boundaries( &
-      cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(photo_idx), &
-      effective_boundary_low, effective_boundary_high &
-      )
-    if (effective_boundary_high(3) /= bc_open) then
-      error stop 'Zhao photoelectron kinetic closure requires an open z-high particle boundary.'
-    end if
-  end if
-  if (-cfg%particle_species(electron_idx)%drift_velocity(3) < 0.0_dp .or. &
-      -cfg%particle_species(ion_idx)%drift_velocity(3) <= 0.0_dp) then
-    error stop 'Zhao ambient species require nonnegative electron and positive ion inward drift at z-high.'
-  end if
-  if (species_number_density_m3(cfg%particle_species(ion_idx)) <= 0.0_dp) then
-    error stop 'Zhao ion species requires a positive number density.'
-  end if
-  ! 電子とイオンのnumber densityは同じ無限遠の太陽風密度を表す。注入する電子の密度は外部根が決める。
-  if (abs(species_number_density_m3(cfg%particle_species(electron_idx)) - &
-          species_number_density_m3(cfg%particle_species(ion_idx))) > &
-      1.0e-9_dp*species_number_density_m3(cfg%particle_species(ion_idx))) then
-    error stop 'Zhao ambient electron and ion species must share the solar-wind number density; '// &
-      'the injected electron reservoir density is derived from the Zhao root.'
-  end if
-  electron_temperature = species_temperature_k(cfg%particle_species(electron_idx))
-  ion_temperature = species_temperature_k(cfg%particle_species(ion_idx))
-  if (electron_temperature <= 0.0_dp) then
-    error stop 'Zhao electron temperature must be positive.'
-  end if
-  if (photoelectron_active) then
-    if (species_temperature_k(cfg%particle_species(photo_idx)) <= 0.0_dp) then
-      error stop 'Zhao photoelectron temperature must be positive.'
-    end if
-  end if
-  ! 外部根のイオン流体 (Sana & Mishra 2026) は、入口が音速より速い場合だけ上流へ接続する。
-  ion_entry_energy_ev = 0.5_dp*cfg%particle_species(ion_idx)%m_particle* &
-                        cfg%particle_species(ion_idx)%drift_velocity(3)**2/qe
-  ion_pressure_energy_ev = cfg%surface_current%zhao_ion_pressure_factor*ion_temperature*k_boltzmann/qe
-  if (.not. ieee_is_finite(ion_temperature) .or. ion_temperature < 0.0_dp) then
-    error stop 'Zhao ion temperature must be finite and nonnegative.'
-  end if
-  if (.not. (2.0_dp*ion_entry_energy_ev > ion_pressure_energy_ev)) then
-    error stop 'Zhao ion entry must be supersonic: m_i u_z^2/e must exceed sheath.zhao.ion_pressure_factor*T_i.'
-  end if
+  call validate_surface_current_ranges(cfg)
+  if (.not. zhao_closure_selected(cfg)) return
+  call validate_zhao_model_inputs(cfg, photoelectron_active, secondary_active)
+  call resolve_zhao_species_roles(cfg, photoelectron_active, secondary_active, electron_idx, ion_idx, photo_idx)
+  call validate_zhao_inflow_boundaries(cfg, photoelectron_active, electron_idx, ion_idx, photo_idx)
+  call validate_zhao_species_physics(cfg, photoelectron_active, electron_idx, ion_idx, photo_idx)
   if (photoelectron_active) call warn_photoelectron_source_mismatch(cfg, photo_idx)
   call validate_zhao_wall_gauge_config(cfg, periodic2_split_explicit)
   if (cfg%surface_current%outflow_refresh_batches > 0_i32 .and. &
@@ -224,6 +31,254 @@ contains
     error stop 'sheath.coupling.include_reflected_electrons requires sheath.coupling.outflow_refresh_batches > 0.'
   end if
   end procedure validate_surface_current_model_config
+
+  !> 下端境界モデルとの組合せと sheath.closure の値を検査し、Zhao の zero-current closure を選んだかを返す。
+  !! `none` では Zhao 専用の設定が既定値のままであることを確かめる。
+  logical function zhao_closure_selected(cfg) result(selected)
+    type(app_config), intent(in) :: cfg
+
+    if (trim(cfg%periodic2%lower_boundary_model) == 'e_top_from_sheath' .and. &
+        trim(lower_ascii(cfg%surface_current%model)) /= 'zhao_stationary') then
+      call stop_config_error('e_top_from_sheath requires zhao_stationary (sheath.closure="zero_current").')
+    end if
+    if (trim(lower_ascii(cfg%surface_current%model)) == 'zhao_stationary' .and. &
+        cfg%periodic2%upper_fourier_switch == 'off') then
+      write (error_unit, '(a)') 'WARNING: zhao_stationary with upper Fourier switch off may retain k/=0 errors near H.'
+    end if
+    select case (trim(lower_ascii(cfg%surface_current%model)))
+    case ('none')
+      if (cfg%surface_current%outflow_refresh_batches /= 0_i32) then
+        error stop 'sheath.coupling.outflow_refresh_batches requires sheath.closure="zero_current".'
+      end if
+      if (cfg%surface_current%has_include_reflected_electrons) then
+        error stop 'sheath.coupling.include_reflected_electrons requires sheath.closure="zero_current".'
+      end if
+      if (cfg%surface_current%zhao_upstream_band_tolerance /= 0.0_dp) then
+        error stop 'sheath.zhao.upstream_band_tolerance requires sheath.closure="zero_current".'
+      end if
+      if (cfg%surface_current%zhao_upstream_field_floor_v_m /= 0.0_dp) then
+        error stop 'sheath.zhao.upstream_field_floor_v_m requires sheath.closure="zero_current".'
+      end if
+      if (cfg%surface_current%zhao_ion_pressure_factor /= 1.0_dp) then
+        error stop 'sheath.zhao.ion_pressure_factor requires sheath.closure="zero_current".'
+      end if
+      selected = .false.
+      return
+    case ('zhao_stationary')
+      selected = .true.
+    case default
+      error stop 'sheath.closure must be "none" or "zero_current".'
+    end select
+  end function zhao_closure_selected
+
+  !> モデルによらない表面電流設定の値域を検査する。
+  subroutine validate_surface_current_ranges(cfg)
+    type(app_config), intent(in) :: cfg
+
+    if (cfg%surface_current%outflow_refresh_batches < 0_i32) then
+      error stop 'sheath.coupling.outflow_refresh_batches must be >= 0.'
+    end if
+    if (.not. (cfg%surface_current%zhao_upstream_band_tolerance >= 0.0_dp .and. &
+               cfg%surface_current%zhao_upstream_band_tolerance < 1.0_dp)) then
+      error stop 'sheath.zhao.upstream_band_tolerance must be >= 0 and < 1.'
+    end if
+    if (.not. (cfg%surface_current%zhao_upstream_field_floor_v_m >= 0.0_dp) .or. &
+        .not. ieee_is_finite(cfg%surface_current%zhao_upstream_field_floor_v_m)) then
+      error stop 'sheath.zhao.upstream_field_floor_v_m must be finite and >= 0.'
+    end if
+    if (.not. (cfg%surface_current%zhao_ion_pressure_factor > 0.0_dp) .or. &
+        .not. ieee_is_finite(cfg%surface_current%zhao_ion_pressure_factor)) then
+      error stop 'sheath.zhao.ion_pressure_factor must be finite and > 0.'
+    end if
+  end subroutine validate_surface_current_ranges
+
+  !> Zhao の外部根が成立する場の条件と、光電子・参照面積の入力を検査する。
+  subroutine validate_zhao_model_inputs(cfg, photoelectron_active, secondary_active)
+    type(app_config), intent(in) :: cfg
+    logical, intent(out) :: photoelectron_active, secondary_active
+
+    if (any(cfg%sim%b0 /= 0.0_dp)) then
+      error stop 'sheath.closure="zero_current" requires fields.external.magnetic_t=[0,0,0] for its unmagnetized sheath closure.'
+    end if
+    if (trim(lower_ascii(cfg%sim%reservoir_potential_model)) /= 'none') then
+      error stop 'Zhao kinetic inflow cannot be combined with the generic reservoir potential model.'
+    end if
+    if (.not. ieee_is_finite(cfg%surface_current%photoelectron_source_scale) .or. &
+        cfg%surface_current%photoelectron_source_scale < 0.0_dp) then
+      error stop 'sheath.photoelectrons.source_scale must be finite and >= 0.'
+    end if
+    photoelectron_active = cfg%surface_current%photoelectron_source_scale > 0.0_dp
+    secondary_active = len_trim(cfg%surface_current%secondary_electron_species) > 0
+    if (.not. photoelectron_active .and. &
+        trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto' .and. &
+        trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'c') then
+      error stop 'sheath.photoelectrons.source_scale=0 requires sheath.zhao.branch="auto" or "c".'
+    end if
+    if (photoelectron_active) then
+      if (.not. ieee_is_finite(cfg%surface_current%solar_elevation_deg) .or. &
+          cfg%surface_current%solar_elevation_deg <= 0.0_dp .or. cfg%surface_current%solar_elevation_deg > 90.0_dp) then
+        error stop 'sheath.photoelectrons.solar_elevation_deg must satisfy 0 < elevation <= 90.'
+      end if
+      if (.not. ieee_is_finite(cfg%surface_current%photoelectron_ref_density_m3) .or. &
+          cfg%surface_current%photoelectron_ref_density_m3 <= 0.0_dp) then
+        error stop 'sheath.photoelectrons.ref_density_m3 must be finite and > 0.'
+      end if
+    else if (len_trim(cfg%surface_current%photoelectron_species) > 0 .or. &
+             cfg%surface_current%solar_elevation_deg /= 0.0_dp .or. &
+             cfg%surface_current%photoelectron_ref_density_m3 /= 0.0_dp) then
+      error stop 'sheath.photoelectrons.source_scale=0 requires omitting all photoelectron-specific Zhao settings.'
+    end if
+    if (.not. cfg%surface_current%has_reference_area_m2 .and. &
+        (.not. cfg%sim%use_box .or. any(cfg%sim%box_max(1:2) <= cfg%sim%box_min(1:2)))) then
+      error stop 'sheath requires sheath.reference_area_m2 or a finite x-y domain area.'
+    end if
+
+  end subroutine validate_zhao_model_inputs
+
+  !> 電子・イオン・光電子・二次電子の種参照を index へ解決し、それぞれの電荷・質量・粒子源の役割を検査する。
+  subroutine resolve_zhao_species_roles(cfg, photoelectron_active, secondary_active, electron_idx, ion_idx, photo_idx)
+    type(app_config), intent(in) :: cfg
+    logical, intent(in) :: photoelectron_active, secondary_active
+    integer, intent(out) :: electron_idx, ion_idx, photo_idx
+    integer :: secondary_idx
+    integer(i32) :: effective_boundary_low(3), effective_boundary_high(3)
+
+    electron_idx = find_species_index(cfg, cfg%surface_current%electron_species)
+    ion_idx = find_species_index(cfg, cfg%surface_current%ion_species)
+    photo_idx = 0
+    if (photoelectron_active) photo_idx = find_species_index(cfg, cfg%surface_current%photoelectron_species)
+    if (electron_idx == ion_idx .or. &
+        (photoelectron_active .and. (electron_idx == photo_idx .or. ion_idx == photo_idx))) then
+      error stop 'sheath species references must be distinct.'
+    end if
+    call validate_automatic_current_species(cfg, electron_idx, 'electron')
+    call validate_automatic_current_species(cfg, ion_idx, 'ion')
+    if (photoelectron_active) call validate_automatic_current_species(cfg, photo_idx, 'photoelectron')
+    if (cfg%particle_species(electron_idx)%q_particle >= 0.0_dp .or. &
+        cfg%particle_species(ion_idx)%q_particle <= 0.0_dp) then
+      error stop 'Zhao current species must be negative electron and positive ion.'
+    end if
+    if (abs(abs(cfg%particle_species(electron_idx)%q_particle) - qe) > 1.0e-6_dp*qe .or. &
+        abs(abs(cfg%particle_species(ion_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
+      error stop 'Zhao stationary current model currently requires singly charged electron and ion species.'
+    end if
+    if (photoelectron_active) then
+      if (cfg%particle_species(photo_idx)%q_particle >= 0.0_dp) then
+        error stop 'Zhao photoelectron species must have negative charge.'
+      end if
+      if (abs(abs(cfg%particle_species(photo_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
+        error stop 'Zhao stationary current model currently requires singly charged photoelectrons.'
+      end if
+      if (abs(cfg%particle_species(photo_idx)%m_particle - cfg%particle_species(electron_idx)%m_particle) > &
+          1.0e-6_dp*cfg%particle_species(electron_idx)%m_particle) then
+        error stop 'Zhao stationary current model requires matching ambient-electron and photoelectron masses.'
+      end if
+      if (trim(cfg%particle_species(photo_idx)%source_mode) /= 'photo_raycast' .or. &
+          .not. cfg%particle_species(photo_idx)%deposit_opposite_charge_on_emit) then
+        error stop 'Zhao photoelectron current requires photo_raycast with opposite-charge emission deposit.'
+      end if
+    end if
+    if (secondary_active) then
+      secondary_idx = find_species_index(cfg, cfg%surface_current%secondary_electron_species)
+      if (trim(cfg%particle_species(secondary_idx)%source_mode) /= 'secondary_emission' .or. &
+          abs(cfg%particle_species(secondary_idx)%q_particle + qe) > 1.0e-6_dp*qe .or. &
+          abs(cfg%particle_species(secondary_idx)%m_particle - cfg%particle_species(electron_idx)%m_particle) > &
+          1.0e-6_dp*cfg%particle_species(electron_idx)%m_particle) then
+        call stop_config_error('Zhao secondary_electron requires a secondary_emission species '// &
+                               'with charge -e and ambient electron mass.')
+      end if
+      call resolve_particle_boundaries(cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, &
+                                       cfg%particle_species(secondary_idx), effective_boundary_low, effective_boundary_high)
+      if (effective_boundary_high(3) /= bc_open) then
+        call stop_config_error('Zhao secondary-electron kinetic closure requires an open z-high particle boundary.')
+      end if
+    end if
+  end subroutine resolve_zhao_species_roles
+
+  !> 電子・イオンの z-high reservoir 流入と、各種の z-high 粒子境界が開いていることを検査する。
+  subroutine validate_zhao_inflow_boundaries(cfg, photoelectron_active, electron_idx, ion_idx, photo_idx)
+    type(app_config), intent(in) :: cfg
+    logical, intent(in) :: photoelectron_active
+    integer, intent(in) :: electron_idx, ion_idx, photo_idx
+    integer(i32) :: effective_boundary_low(3), effective_boundary_high(3)
+
+    ! 壁・法線の実行時表現は bem_irradiation_cell_contract。ここは製品の接続面を制限する preflight 規則。
+    if (.not. is_z_high_reservoir(cfg%particle_species(electron_idx)) .or. &
+        .not. is_z_high_reservoir(cfg%particle_species(ion_idx))) then
+      error stop 'Zhao ambient electron and ion species require z-high reservoir inflow.'
+    end if
+    if (photoelectron_active) then
+      if (trim(lower_ascii(cfg%particle_species(photo_idx)%inject_face)) /= 'z_high') then
+        error stop species_config_path(photo_idx)//'.source.inject_face must be "z_high" for Zhao photoelectrons.'
+      end if
+    end if
+    call resolve_particle_boundaries( &
+      cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(electron_idx), &
+      effective_boundary_low, effective_boundary_high &
+      )
+    if (effective_boundary_high(3) /= bc_open) then
+      error stop 'Zhao ambient-electron kinetic closure requires an open z-high particle boundary.'
+    end if
+    call resolve_particle_boundaries( &
+      cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(ion_idx), &
+      effective_boundary_low, effective_boundary_high &
+      )
+    if (effective_boundary_high(3) /= bc_open) then
+      error stop 'Zhao ion kinetic closure requires an open z-high particle boundary.'
+    end if
+    if (photoelectron_active) then
+      call resolve_particle_boundaries( &
+        cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(photo_idx), &
+        effective_boundary_low, effective_boundary_high &
+        )
+      if (effective_boundary_high(3) /= bc_open) then
+        error stop 'Zhao photoelectron kinetic closure requires an open z-high particle boundary.'
+      end if
+    end if
+  end subroutine validate_zhao_inflow_boundaries
+
+  !> 流入ドリフト・密度・温度とイオン入口の超音速条件を検査する。
+  subroutine validate_zhao_species_physics(cfg, photoelectron_active, electron_idx, ion_idx, photo_idx)
+    type(app_config), intent(in) :: cfg
+    logical, intent(in) :: photoelectron_active
+    integer, intent(in) :: electron_idx, ion_idx, photo_idx
+    real(dp) :: electron_temperature, ion_temperature, ion_entry_energy_ev, ion_pressure_energy_ev
+
+    if (-cfg%particle_species(electron_idx)%drift_velocity(3) < 0.0_dp .or. &
+        -cfg%particle_species(ion_idx)%drift_velocity(3) <= 0.0_dp) then
+      error stop 'Zhao ambient species require nonnegative electron and positive ion inward drift at z-high.'
+    end if
+    if (species_number_density_m3(cfg%particle_species(ion_idx)) <= 0.0_dp) then
+      error stop 'Zhao ion species requires a positive number density.'
+    end if
+    ! 電子とイオンのnumber densityは同じ無限遠の太陽風密度を表す。注入する電子の密度は外部根が決める。
+    if (abs(species_number_density_m3(cfg%particle_species(electron_idx)) - &
+            species_number_density_m3(cfg%particle_species(ion_idx))) > &
+        1.0e-9_dp*species_number_density_m3(cfg%particle_species(ion_idx))) then
+      error stop 'Zhao ambient electron and ion species must share the solar-wind number density; '// &
+        'the injected electron reservoir density is derived from the Zhao root.'
+    end if
+    electron_temperature = species_temperature_k(cfg%particle_species(electron_idx))
+    ion_temperature = species_temperature_k(cfg%particle_species(ion_idx))
+    if (electron_temperature <= 0.0_dp) then
+      error stop 'Zhao electron temperature must be positive.'
+    end if
+    if (photoelectron_active) then
+      if (species_temperature_k(cfg%particle_species(photo_idx)) <= 0.0_dp) then
+        error stop 'Zhao photoelectron temperature must be positive.'
+      end if
+    end if
+    ! 外部根のイオン流体 (Sana & Mishra 2026) は、入口が音速より速い場合だけ上流へ接続する。
+    ion_entry_energy_ev = 0.5_dp*cfg%particle_species(ion_idx)%m_particle* &
+                          cfg%particle_species(ion_idx)%drift_velocity(3)**2/qe
+    ion_pressure_energy_ev = cfg%surface_current%zhao_ion_pressure_factor*ion_temperature*k_boltzmann/qe
+    if (.not. ieee_is_finite(ion_temperature) .or. ion_temperature < 0.0_dp) then
+      error stop 'Zhao ion temperature must be finite and nonnegative.'
+    end if
+    if (.not. (2.0_dp*ion_entry_energy_ev > ion_pressure_energy_ev)) then
+      error stop 'Zhao ion entry must be supersonic: m_i u_z^2/e must exceed sheath.zhao.ion_pressure_factor*T_i.'
+    end if
+  end subroutine validate_zhao_species_physics
 
   !> 表面放出の生の束と照射幾何が、外部シースへ渡す放出源 $e\,s\,n_{ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$ と
   !! 一致しないときに警告する。固定電流の倍率が差を吸収するので停止はしない。
