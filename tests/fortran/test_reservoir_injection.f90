@@ -24,10 +24,9 @@ program test_reservoir_injection
   character(len=*), parameter :: cfg_fixed_path = 'test_reservoir_injection_fixed_tmp.toml'
   character(len=*), parameter :: cfg_auto_path = 'test_reservoir_injection_auto_tmp.toml'
   character(len=*), parameter :: cfg_boundary_path = 'test_boundary_inflow_tmp.toml'
-  integer(i32) :: n_macro, i, n1, n2
-  integer(i32) :: sum1, sum2
+  integer(i32) :: n_macro, n1, n2
   real(dp) :: residual
-  real(dp) :: residual1, residual2, ratio
+  real(dp) :: residual1, residual2
   real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
@@ -107,28 +106,27 @@ program test_reservoir_injection
   call test_end()
 
   call test_begin('species_ratio')
+  ! Both species share the weight that puts 300 macro particles of species 1 on the face per batch, so the
+  ! quarter-density species 2 gets exactly 75. The budget is an integer, so one batch fixes the absolute counts
+  ! and leaves no residual; the fractional carry is covered by deterministic_batches.
   call default_app_config(cfg_auto)
   call load_app_config(cfg_auto_path, cfg_auto)
   residual1 = 0.0d0
   residual2 = 0.0d0
-  sum1 = 0_i32
-  sum2 = 0_i32
-  do i = 1_i32, 100_i32
-    call compute_macro_particles_for_batch( &
-      1000.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
-      'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
-      cfg_auto%sim%batch_duration, cfg_auto%particle_species(1)%w_particle, residual1, n1 &
-      )
-    call compute_macro_particles_for_batch( &
-      250.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
-      'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
-      cfg_auto%sim%batch_duration, cfg_auto%particle_species(2)%w_particle, residual2, n2 &
-      )
-    sum1 = sum1 + n1
-    sum2 = sum2 + n2
-  end do
-  ratio = real(sum2, dp)/real(sum1, dp)
-  call assert_close_dp(ratio, 0.25d0, 1.0d-12, 'reservoir species ratio mismatch')
+  call compute_macro_particles_for_batch( &
+    1000.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
+    'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
+    cfg_auto%sim%batch_duration, cfg_auto%particle_species(1)%w_particle, residual1, n1 &
+    )
+  call compute_macro_particles_for_batch( &
+    250.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
+    'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
+    cfg_auto%sim%batch_duration, cfg_auto%particle_species(2)%w_particle, residual2, n2 &
+    )
+  call assert_equal_i32(n1, 300_i32, 'reservoir species-1 macro count mismatch')
+  call assert_equal_i32(n2, 75_i32, 'reservoir species-2 macro count mismatch')
+  call assert_close_dp(residual1, 0.0d0, 1.0d-9, 'integer species-1 budget must leave no residual')
+  call assert_close_dp(residual2, 0.0d0, 1.0d-9, 'integer species-2 budget must leave no residual')
   call test_end()
 
   call delete_file_if_exists(cfg_fixed_path)

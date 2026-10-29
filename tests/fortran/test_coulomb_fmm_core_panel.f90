@@ -97,6 +97,10 @@ program test_coulomb_fmm_core_panel
     call direct_panel_sum(v0, v1, v2, q, targets(:, target_idx), phi_ref, field_ref)
     field_ref = field_ref/k_coulomb
     phi_ref = phi_ref/k_coulomb
+    ! MAX may drop a NaN argument, so the per-target values are checked before they are folded in.
+    call assert_true(all(ieee_is_finite(field_single)) .and. ieee_is_finite(phi_single) .and. &
+                     all(ieee_is_finite(field)) .and. ieee_is_finite(phi), &
+                     'single/double precision panel FMM returned a non-finite value')
     max_field_error = max(max_field_error, &
                           sqrt(sum((field_single - field_ref)**2))/max(1.0e-14_dp, sqrt(sum(field_ref*field_ref))))
     max_potential_error = max(max_potential_error, abs(phi_single - phi_ref)/max(1.0e-14_dp, abs(phi_ref)))

@@ -328,8 +328,13 @@ program test_panel_kernel
 contains
 
   !> Deterministic uniform deviate in [0, 1) from a 64-bit linear congruential generator.
+  !> Park-Miller minimal standard generator (multiplier 48271, modulus 2**31 - 1). The product of a
+  !! 16-bit multiplier and a state below 2**31 stays far inside int64, so the sample sequence never
+  !! depends on signed overflow. Returns a value in (0, 1).
   real(dp) function lcg_uniform() result(value)
-    lcg_state = modulo(6364136223846793005_i64*lcg_state + 1442695040888963407_i64, 2_i64**62)
-    value = real(lcg_state/2_i64**9, dp)/real(2_i64**53, dp)
+    integer(i64), parameter :: modulus = 2147483647_i64
+
+    lcg_state = modulo(48271_i64*lcg_state, modulus)
+    value = real(lcg_state, dp)/real(modulus, dp)
   end function lcg_uniform
 end program test_panel_kernel

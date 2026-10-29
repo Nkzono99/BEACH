@@ -11,9 +11,10 @@ program test_step_growth
   implicit none
 
   character(len=*), parameter :: config_path = 'test_step_growth_tmp.toml'
+  real(dp), parameter :: detector_cell = 4.0e-5_dp
   type(app_config) :: cfg, cfg_explicit, cfg_off
 
-  call test_init(4)
+  call test_init(5)
 
   call test_begin('step_growth_sets_a_default_threshold')
   call write_grouped_config(config_path, 'step_growth = true')
@@ -40,6 +41,10 @@ program test_step_growth
   call test_begin('charged_surface_limits_growth_but_keeps_absorption')
   ! The field of the element changes by 5% per dt step at the start height, so growth is refused there.
   call run_growth_simulation_test(-1.0e-12_dp, .false.)
+  call test_end()
+
+  call test_begin('adaptive_substeps_match_fine_step_impact')
+  call test_adaptive_substeps_match_fine_steps()
   call test_end()
 
   call test_begin('adaptive_substeps_refine_near_charged_panel')
@@ -78,6 +83,106 @@ contains
     write (*, '(a,i0,a,i0)') 'adaptive sub-steps: halved steps=', stats_on%adaptive_substep_halved_steps, &
       ' sub-steps=', stats_on%adaptive_substeps
   end subroutine test_adaptive_substeps
+
+  !> The adaptive run must land where a run with 1024 times smaller fixed steps lands. The unsplit 100 ps step
+  !! jumps past the panel's field and lands three detector cells away, so a run that counts halvings but
+  !! advances with the undivided step fails. Element centroids within one cell diagonal count as the same impact.
+  subroutine test_adaptive_substeps_match_fine_steps()
+    type(mesh_type) :: mesh_off, mesh_on, mesh_fine
+    type(app_config) :: cfg_off, cfg_on, cfg_fine
+    type(sim_stats) :: stats_off, stats_on, stats_fine
+    real(dp) :: impact_off(3), impact_on(3), impact_fine(3)
+
+    call configure_detector_fixture(mesh_off, cfg_off)
+    call run_absorption_insulator(mesh_off, cfg_off, stats_off)
+    impact_off = detector_impact(mesh_off)
+
+    call configure_detector_fixture(mesh_on, cfg_on)
+    cfg_on%sim%substep_field_change_max = 0.2_dp
+    cfg_on%sim%substep_max_halvings = 10_i32
+    call run_absorption_insulator(mesh_on, cfg_on, stats_on)
+    impact_on = detector_impact(mesh_on)
+
+    call configure_detector_fixture(mesh_fine, cfg_fine)
+    cfg_fine%sim%dt = cfg_fine%sim%dt/1024.0_dp
+    cfg_fine%sim%max_step = 1024_i32*cfg_fine%sim%max_step
+    call run_absorption_insulator(mesh_fine, cfg_fine, stats_fine)
+    impact_fine = detector_impact(mesh_fine)
+
+    call assert_true(stats_on%adaptive_substep_halved_steps > 0_i64, 'the fixture must exercise sub-step halving')
+    call assert_equal_i64(stats_fine%absorbed, 1_i64, 'the fine-step electron must reach the detector')
+    call assert_equal_i64(stats_on%absorbed, 1_i64, 'the adaptive electron must reach the detector')
+    call assert_true(norm2(impact_on - impact_fine) <= sqrt(2.0_dp)*detector_cell, &
+                     'adaptive sub-steps must reproduce the fine-step impact on the detector')
+    call assert_true(norm2(impact_off - impact_fine) > 2.0_dp*detector_cell, &
+                     'the unsplit coarse step must miss the fine-step impact (fixture sensitivity)')
+  end subroutine test_adaptive_substeps_match_fine_steps
+
+  !> Centroid of the detector element that took the electron, or a point 1 m away when none did.
+  function detector_impact(fixture_mesh) result(impact)
+    type(mesh_type), intent(in) :: fixture_mesh
+    real(dp) :: impact(3)
+    integer :: elem
+
+    impact = 1.0_dp
+    if (.not. any(fixture_mesh%q_elem(2:) /= 0.0_dp)) return
+    elem = maxloc(abs(fixture_mesh%q_elem(2:)), dim=1) + 1
+    impact = fixture_mesh%centers(:, elem)
+  end function detector_impact
+
+  !> The charged triangle of the sub-step fixture plus an uncharged 10 x 10 detector plane at x = 0 behind
+  !! the start point. The electron starts 6 um off axis, is turned back by the panel and lands on the detector.
+  subroutine configure_detector_fixture(fixture_mesh, fixture_cfg)
+    type(mesh_type), intent(out) :: fixture_mesh
+    type(app_config), intent(out) :: fixture_cfg
+    integer, parameter :: nd = 10
+    real(dp) :: v0(3, 1 + 2*nd*nd), v1(3, 1 + 2*nd*nd), v2(3, 1 + 2*nd*nd), q0(1 + 2*nd*nd), d
+    integer :: iy, iz, n
+
+    v0(:, 1) = [1.0e-4_dp, -1.0e-5_dp, -1.0e-5_dp]
+    v1(:, 1) = [1.0e-4_dp, 1.0e-5_dp, -1.0e-5_dp]
+    v2(:, 1) = [1.0e-4_dp, 0.0_dp, 1.0e-5_dp]
+    d = detector_cell
+    n = 1
+    do iy = 0, nd - 1
+      do iz = 0, nd - 1
+        n = n + 1
+        v0(:, n) = [0.0_dp, -2.0e-4_dp + d*iy, -2.0e-4_dp + d*iz]
+        v1(:, n) = [0.0_dp, -2.0e-4_dp + d*(iy + 1), -2.0e-4_dp + d*iz]
+        v2(:, n) = [0.0_dp, -2.0e-4_dp + d*(iy + 1), -2.0e-4_dp + d*(iz + 1)]
+        n = n + 1
+        v0(:, n) = [0.0_dp, -2.0e-4_dp + d*iy, -2.0e-4_dp + d*iz]
+        v1(:, n) = [0.0_dp, -2.0e-4_dp + d*(iy + 1), -2.0e-4_dp + d*(iz + 1)]
+        v2(:, n) = [0.0_dp, -2.0e-4_dp + d*iy, -2.0e-4_dp + d*(iz + 1)]
+      end do
+    end do
+    q0 = 0.0_dp
+    q0(1) = -2.0e-14_dp
+    call init_mesh(fixture_mesh, v0, v1, v2, q0=q0)
+    fixture_mesh%elem_vacuum_sign = 1_i32
+    fixture_mesh%vacuum_normals = fixture_mesh%normals
+    call default_app_config(fixture_cfg)
+    fixture_cfg%sim%rng_seed = 996_i32
+    fixture_cfg%sim%batch_count = 1_i32
+    fixture_cfg%sim%dt = 1.0e-10_dp
+    fixture_cfg%sim%max_step = 400_i32
+    fixture_cfg%sim%field_solver = 'direct'
+    fixture_cfg%sim%use_box = .true.
+    fixture_cfg%sim%box_min = [-2.0e-4_dp, -2.0e-4_dp, -2.0e-4_dp]
+    fixture_cfg%sim%box_max = [2.0e-4_dp, 2.0e-4_dp, 2.0e-4_dp]
+    fixture_cfg%n_particle_species = 1_i32
+    fixture_cfg%particle_species(1) = species_from_defaults()
+    fixture_cfg%particle_species(1)%source_mode = 'volume_seed'
+    fixture_cfg%particle_species(1)%npcls_per_step = 1_i32
+    fixture_cfg%particle_species(1)%q_particle = -1.602176634e-19_dp
+    fixture_cfg%particle_species(1)%m_particle = 9.1093837015e-31_dp
+    fixture_cfg%particle_species(1)%w_particle = 1.0_dp
+    fixture_cfg%particle_species(1)%pos_low = [2.0e-5_dp, 6.0e-6_dp, 3.0e-6_dp]
+    fixture_cfg%particle_species(1)%pos_high = fixture_cfg%particle_species(1)%pos_low
+    fixture_cfg%particle_species(1)%drift_velocity = [1.45e6_dp, 0.0_dp, 0.0_dp]
+    fixture_cfg%particle_species(1)%temperature_k = 0.0_dp
+    call seed_particles_from_config(fixture_cfg)
+  end subroutine configure_detector_fixture
 
   !> One electron starts 80 um from a 20 um triangle carrying -2e-14 C and moves toward it with 6 eV;
   !! dt gives 20 um steps, longer than the panel's field scale.

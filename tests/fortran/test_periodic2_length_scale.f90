@@ -1,5 +1,6 @@
 !> periodic2 の cached_kneq0 が µm 単位の形状で長さの尺度に従い、k≠0 成分に面平均を漏らさないことを確かめる。
 program test_periodic2_length_scale
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb, eps0
   use bem_types, only: mesh_type
@@ -198,6 +199,8 @@ contains
         end do
       end do
       call eval_potential_points(plan, state, plane_points, plane_phi)
+      ! A NaN potential would make the plane mean NaN, which MAX may drop.
+      call assert_true(all(ieee_is_finite(plane_phi)), 'uniform-sheet potential is not finite')
       leak = abs(sum(plane_phi))/real(nplane*nplane, dp)/scale
       write (*, '(a,f5.2,a,es10.3)') 'z/L=', heights(k), ' relative plane-mean leak=', leak
       worst = max(worst, leak)

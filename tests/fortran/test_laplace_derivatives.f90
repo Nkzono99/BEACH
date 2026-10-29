@@ -1,5 +1,6 @@
 !> Laplace 核の偏微分表を独立した多項式展開と全次数で比較する。
 program test_laplace_derivatives
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_coulomb_fmm_types, only: fmm_plan_type
   use bem_coulomb_fmm_basis, only: initialize_basis_tables, compute_laplace_derivatives, &
@@ -37,6 +38,11 @@ program test_laplace_derivatives
         r = points(:, point)
         call compute_laplace_derivatives(plan, r, fast)
         call compute_laplace_derivatives_reference(plan, r, reference)
+        ! A NaN or Inf would make every relative comparison below false, so reject it first.
+        if (.not. (all(ieee_is_finite(fast)) .and. all(ieee_is_finite(reference)))) then
+          ok = .false.
+          cycle
+        end if
         ! Each derivative is compared on its own scale; magnitudes span dozens of decades across degrees.
         do idx = 1_i32, plan%nderiv
           scale = max(abs(reference(idx)), abs(fast(idx)))

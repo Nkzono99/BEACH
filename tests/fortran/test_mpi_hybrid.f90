@@ -120,7 +120,11 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(10)
+  call test_init(12)
+
+  call test_begin('mpi_rank_count_matches_launcher_request')
+  call check_requested_rank_count(mpi)
+  call test_end()
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
@@ -197,6 +201,11 @@ program test_mpi_hybrid
 
   call test_begin('mpi_static_slots_rank_independent')
   call run_mpi_shared_pool_test(mpi, 'static')
+  call test_end()
+
+  call test_begin('mpi_checkpoint_continues_on_one_rank')
+  call run_mpi_rank_change_continuation_test(mpi, 'shared')
+  call run_mpi_rank_change_continuation_test(mpi, 'static')
   call test_end()
 
   call test_begin('mpi_history')
@@ -561,6 +570,27 @@ contains
       )
   end subroutine run_mpi_neutral_return_layout_test
 
+  !> `make test-mpi` exports the launcher rank count. The rank-layout comparisons below hold trivially on one
+  !! rank, so the gate must fail when the run did not get the ranks it asked for (for example a one-rank
+  !! MPI_RUNNER override). A plain `fpm test` run has no request and reports that it ran on one rank.
+  subroutine check_requested_rank_count(mpi)
+    type(mpi_context), intent(in) :: mpi
+    character(len=32) :: requested_text
+    integer :: requested, env_status, ios
+
+    call get_environment_variable('BEACH_TEST_MPI_RANKS', requested_text, status=env_status)
+    if (env_status /= 0 .or. len_trim(requested_text) == 0) then
+      if (mpi_is_root(mpi)) then
+        write (*, '(a,i0,a)') '  (no BEACH_TEST_MPI_RANKS request; multi-rank checks ran on ', mpi%size, ' rank(s))'
+      end if
+      return
+    end if
+    read (requested_text, *, iostat=ios) requested
+    call assert_true(ios == 0, 'BEACH_TEST_MPI_RANKS must be an integer')
+    call assert_true(requested >= 2, 'the MPI gate must request at least two ranks')
+    call assert_equal_i32(mpi%size, int(requested, i32), 'MPI world size differs from the requested rank count')
+  end subroutine check_requested_rank_count
+
   !> shared pool: 全 rank で slot を取り合った結果が、root だけで同じ pool を処理した結果と一致する。
   !! さらにその checkpoint を別の rank 数で読み戻せる。
   subroutine run_mpi_shared_pool_test(mpi, distribution)
@@ -641,9 +671,103 @@ contains
     call assert_equal_i32(resume_stats%batches, 1_i32, 'shared pool resumed batch count mismatch')
     call assert_equal_i64(resume_stats%processed_particles, pool_stats%processed_particles, &
                           'shared pool resumed processed_particles mismatch')
+
     call mpi_world_barrier(mpi)
     call cleanup_pool_dir(mpi, pool_dir)
   end subroutine run_mpi_shared_pool_test
+
+  !> A checkpoint written by all ranks after batch 1 is continued for batch 2 on one rank and compared with an
+  !! uninterrupted two-batch run. Batch 2 draws new rays keyed on the global batch and slot and adds their
+  !! charge to the restored one, so a replayed batch key, a rank-dependent slot key or a lost charge or ledger
+  !! separates the two runs. The emission current is so small that the batch-1 charge cannot push a batch-2
+  !! orbit out through a side of the box, which neutral_return does not accept.
+  subroutine run_mpi_rank_change_continuation_test(mpi, distribution)
+    type(mpi_context), intent(in) :: mpi
+    character(len=*), intent(in) :: distribution
+    integer(i32), parameter :: signature_size = 13_i32
+    character(len=*), parameter :: continue_dir = 'test_mpi_hybrid_continue_tmp'
+    type(mesh_type) :: reference_mesh, split_mesh, continued_mesh
+    type(app_config) :: reference_cfg, split_cfg, continued_cfg
+    type(sim_stats) :: reference_stats, split_stats, resume_stats, continued_stats
+    type(charge_ledger_type) :: reference_ledger, split_ledger, continued_ledger
+    type(injection_state) :: continued_state
+    real(dp) :: reference_signature(signature_size), continued_signature(signature_size), charge_scale, tolerance
+    integer(i64) :: reference_counts(4), continued_counts(4)
+    integer(i32) :: value_index
+    logical :: has_restart
+    character(len=128) :: assertion_message
+    character(len=1024) :: checkpoint_dir
+
+    call cleanup_pool_dir(mpi, continue_dir)
+    if (mpi_is_root(mpi)) call ensure_directory(continue_dir)
+    call mpi_world_barrier(mpi)
+
+    call setup_continuation_fixture(split_mesh, split_cfg, distribution, 1_i32)
+    split_cfg%output_dir = continue_dir
+    split_cfg%checkpoint_stride = 1_i32
+    call seed_particles_from_config(split_cfg, mpi=mpi)
+    call run_absorption_insulator(split_mesh, split_cfg, split_stats, mpi=mpi, charge_ledger=split_ledger)
+    call mpi_world_barrier(mpi)
+
+    if (mpi_is_root(mpi)) then
+      call setup_continuation_fixture(reference_mesh, reference_cfg, distribution, 2_i32)
+      call seed_particles_from_config(reference_cfg)
+      call run_absorption_insulator(reference_mesh, reference_cfg, reference_stats, charge_ledger=reference_ledger)
+      call pack_neutral_return_signature(reference_mesh, reference_ledger, reference_signature)
+      reference_counts = [reference_ledger%emitted_count(1), reference_ledger%absorbed_count(1), &
+                          reference_ledger%discarded_unresolved_count(1), reference_stats%processed_particles]
+
+      call resolve_latest_checkpoint_dir(continue_dir, checkpoint_dir)
+      call setup_continuation_fixture(continued_mesh, continued_cfg, distribution, 2_i32)
+      allocate (continued_state%macro_residual(1), continued_state%boundary_macro_residual(6, 1))
+      continued_state%macro_residual = 0.0_dp
+      continued_state%boundary_macro_residual = 0.0_dp
+      call load_restart_checkpoint( &
+        trim(checkpoint_dir), continued_mesh, resume_stats, has_restart, continued_state, mpi_rank=0_i32, &
+        mpi_size=1_i32, app=continued_cfg, charge_ledger=continued_ledger &
+        )
+      call assert_true(has_restart, 'multi-rank checkpoint must load on a single rank')
+      call assert_equal_i32(resume_stats%batches, 1_i32, 'continuation must start after the checkpointed batch')
+      call run_absorption_insulator(continued_mesh, continued_cfg, continued_stats, initial_stats=resume_stats, &
+                                    inject_state=continued_state, charge_ledger=continued_ledger)
+      call assert_equal_i32(continued_stats%batches, 2_i32, 'single-rank continuation batch count')
+      call pack_neutral_return_signature(continued_mesh, continued_ledger, continued_signature)
+      continued_counts = [continued_ledger%emitted_count(1), continued_ledger%absorbed_count(1), &
+                          continued_ledger%discarded_unresolved_count(1), continued_stats%processed_particles]
+
+      ! Charges are about 1e-18 C while scales and fractions are of order one, so each value is compared on
+      ! its own magnitude with the element charge scale as the floor.
+      charge_scale = maxval(abs(reference_signature(1:4)))
+      call assert_true(charge_scale > 0.0_dp, 'continuation fixture must charge the surface')
+      do value_index = 1_i32, signature_size
+        tolerance = 1.0e-10_dp*max(abs(reference_signature(value_index)), charge_scale)
+        write (assertion_message, '(a,a,a,i0)') 'continued ', distribution, &
+          ' run differs from the uninterrupted run: signature index ', value_index
+        call assert_close_dp(continued_signature(value_index), reference_signature(value_index), tolerance, &
+                             trim(assertion_message))
+      end do
+      do value_index = 1_i32, 4_i32
+        write (assertion_message, '(a,a,a,i0)') 'continued ', distribution, &
+          ' run differs from the uninterrupted run: count index ', value_index
+        call assert_equal_i64(continued_counts(value_index), reference_counts(value_index), trim(assertion_message))
+      end do
+    end if
+    call mpi_world_barrier(mpi)
+    call cleanup_pool_dir(mpi, continue_dir)
+  end subroutine run_mpi_rank_change_continuation_test
+
+  subroutine setup_continuation_fixture(fixture_mesh, fixture_cfg, distribution, batches)
+    type(mesh_type), intent(out) :: fixture_mesh
+    type(app_config), intent(out) :: fixture_cfg
+    character(len=*), intent(in) :: distribution
+    integer(i32), intent(in) :: batches
+
+    call setup_mpi_neutral_return_fixture(fixture_mesh, fixture_cfg, 2048_i32)
+    fixture_cfg%sim%particle_distribution = distribution
+    fixture_cfg%sim%particle_pool_chunk = 5_i32
+    fixture_cfg%sim%batch_count = batches
+    fixture_cfg%particle_species(1)%emit_current_density_a_m2 = 1.0e-18_dp
+  end subroutine setup_continuation_fixture
 
   subroutine cleanup_pool_dir(mpi, pool_dir)
     type(mpi_context), intent(in) :: mpi

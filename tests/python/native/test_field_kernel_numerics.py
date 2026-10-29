@@ -15,7 +15,32 @@ from beach import (
 from beach.analysis.field_kernel import field_kernel_from_result
 from beach.analysis.panel_quadrature import panel_target_quadrature
 from beach.cli.main import main as beachx_main
+from beach.io.constants import K_COULOMB
 from beach.io.types import RunField, RunMesh, RunSummary
+
+
+def _uniform_triangle_field(
+    vertices: np.ndarray, charge_C: float, target: np.ndarray
+) -> np.ndarray:
+    """Field of a uniformly charged triangle by tensor Gauss-Legendre on the Duffy square."""
+
+    nodes, weights = np.polynomial.legendre.leggauss(64)
+    s = 0.5 * (nodes + 1.0)
+    w = 0.5 * weights
+    a, b, c = vertices
+    twice_area = float(np.linalg.norm(np.cross(b - a, c - a)))
+    # x(s, t) = a + s (b - a) + s t (c - b) has Jacobian s * twice_area on [0, 1]^2.
+    points = (
+        a[None, None, :]
+        + s[:, None, None] * (b - a)[None, None, :]
+        + (s[:, None] * s[None, :])[:, :, None] * (c - b)[None, None, :]
+    )
+    weight = (w[:, None] * w[None, :]) * s[:, None] * twice_area
+    separation = target[None, None, :] - points
+    distance = np.linalg.norm(separation, axis=2)
+    density = charge_C / (0.5 * twice_area)
+    integrand = separation / distance[:, :, None] ** 3
+    return K_COULOMB * density * np.sum(weight[:, :, None] * integrand, axis=(0, 1))
 
 
 def test_field_kernel_eval_e_matches_exact_panel_direct(field_kernel_library: Path) -> None:
@@ -155,6 +180,10 @@ def test_field_kernel_from_result_uses_triangle_geometry(
         direct_field = panel_kernel.eval_e_direct(target)
 
     np.testing.assert_allclose(panel_field, direct_field, rtol=2.0e-14, atol=1.0e-14)
+    # Both paths share the factory geometry, so the saved triangle is also checked against an
+    # independent quadrature of the uniformly charged surface.
+    expected = _uniform_triangle_field(triangles[0], charges[0], target[0])
+    np.testing.assert_allclose(panel_field[0], expected, rtol=1.0e-9)
 
 
 def test_panel_direct_and_ordinary_use_same_principal_value_at_target_quadrature(

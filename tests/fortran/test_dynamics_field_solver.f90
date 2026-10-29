@@ -1,5 +1,6 @@
 !> treecode/FMM ソルバモード自動選択とパラメータチューニングの検証テスト。
 program test_dynamics_field_solver
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, sim_config
@@ -114,66 +115,59 @@ contains
   end subroutine test_field_solver_auto_mode
 
   subroutine test_field_solver_explicit_mode_autotune()
-    type(mesh_type) :: mesh_large
+    type(mesh_type) :: mesh_small
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
+    ! Explicit tree modes autotune from the element count even below tree_min_nelem, and an explicitly
+    ! set theta or leaf_max overrides only its own tuned value. The table is checked through the pure
+    ! resolver that init uses; two inits check the wiring for each tree backend.
+    character(len=8), parameter :: mode_cases(8) = [character(len=8) :: &
+                                                    'treecode', 'treecode', 'treecode', 'treecode', &
+                                                    'fmm', 'fmm', 'fmm', 'fmm']
+    logical, parameter :: has_theta_cases(8) = [.false., .true., .true., .false., .false., .true., .true., .false.]
+    logical, parameter :: has_leaf_cases(8) = [.false., .true., .false., .true., .false., .true., .false., .true.]
+    real(dp), parameter :: theta_expected(8) = [0.40d0, 0.95d0, 0.95d0, 0.40d0, 0.50d0, 0.95d0, 0.95d0, 0.50d0]
+    integer(i32), parameter :: leaf_expected(8) = [12_i32, 3_i32, 12_i32, 3_i32, 16_i32, 3_i32, 16_i32, 3_i32]
+    integer(i32), parameter :: nelem_cases(8) = [528_i32, 528_i32, 528_i32, 528_i32, &
+                                                 2000_i32, 2000_i32, 2000_i32, 2000_i32]
+    real(dp) :: theta
+    integer(i32) :: leaf_max, k
 
-    call make_sphere(mesh_large, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    call mark_normal_plus(mesh_large)
+    do k = 1, size(mode_cases)
+      sim = sim_config()
+      sim%field_solver = mode_cases(k)
+      sim%tree_min_nelem = 100000_i32
+      sim%tree_theta = 0.95d0
+      sim%tree_leaf_max = 3_i32
+      sim%has_tree_theta = has_theta_cases(k)
+      sim%has_tree_leaf_max = has_leaf_cases(k)
+      call resolve_field_solver_tree_params(nelem_cases(k), sim, theta, leaf_max)
+      call assert_close_dp(theta, theta_expected(k), 1.0d-12, 'explicit tree mode theta resolution mismatch')
+      call assert_equal_i32(leaf_max, leaf_expected(k), 'explicit tree mode leaf_max resolution mismatch')
+    end do
 
-    sim = sim_config()
-    sim%field_solver = 'treecode'
-    sim%tree_theta = 0.95d0
-    sim%tree_leaf_max = 3_i32
-    call solver%init(mesh_large, sim)
-    call assert_true(trim(solver%mode) == 'treecode', 'treecode mode mismatch')
-    call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'treecode autotune theta mismatch')
-    call assert_equal_i32(solver%leaf_max, 12_i32, 'treecode autotune leaf_max mismatch')
-
-    sim = sim_config()
-    sim%field_solver = 'treecode'
-    sim%tree_theta = 0.95d0
-    sim%tree_leaf_max = 3_i32
-    sim%has_tree_theta = .true.
-    sim%has_tree_leaf_max = .true.
-    call solver%init(mesh_large, sim)
-    call assert_close_dp(solver%theta, 0.95d0, 1.0d-12, 'treecode explicit theta override mismatch')
-    call assert_equal_i32(solver%leaf_max, 3_i32, 'treecode explicit leaf_max override mismatch')
+    call make_plane(mesh_small, size_x=1.0d0, size_y=1.0d0, nx=2_i32, ny=2_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_small)
 
     sim = sim_config()
     sim%field_solver = 'treecode'
     sim%tree_theta = 0.93d0
+    sim%tree_leaf_max = 3_i32
     sim%has_tree_theta = .true.
-    call solver%init(mesh_large, sim)
-    call assert_close_dp(solver%theta, 0.93d0, 1.0d-12, 'treecode theta-only override mismatch')
-    call assert_equal_i32(solver%leaf_max, 12_i32, 'treecode theta-only autotune leaf_max mismatch')
-
-    sim = sim_config()
-    sim%field_solver = 'treecode'
-    sim%tree_leaf_max = 7_i32
-    sim%has_tree_leaf_max = .true.
-    call solver%init(mesh_large, sim)
-    call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'treecode leaf-only autotune theta mismatch')
-    call assert_equal_i32(solver%leaf_max, 7_i32, 'treecode leaf-only override mismatch')
+    call solver%init(mesh_small, sim)
+    call assert_true(trim(solver%mode) == 'treecode', 'treecode mode mismatch')
+    call assert_close_dp(solver%theta, 0.93d0, 1.0d-12, 'treecode init must keep the explicit theta')
+    call assert_equal_i32(solver%leaf_max, 12_i32, 'treecode init must autotune the unset leaf_max')
 
     sim = sim_config()
     sim%field_solver = 'fmm'
     sim%tree_theta = 0.92d0
     sim%tree_leaf_max = 5_i32
-    call solver%init(mesh_large, sim)
+    sim%has_tree_leaf_max = .true.
+    call solver%init(mesh_small, sim)
     call assert_true(trim(solver%mode) == 'fmm', 'fmm mode mismatch')
-    call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'fmm autotune theta mismatch')
-    call assert_equal_i32(solver%leaf_max, 12_i32, 'fmm autotune leaf_max mismatch')
-
-    sim = sim_config()
-    sim%field_solver = 'fmm'
-    sim%tree_theta = 0.92d0
-    sim%tree_leaf_max = 5_i32
-    sim%has_tree_theta = .true.
-    sim%has_tree_leaf_max = .true.
-    call solver%init(mesh_large, sim)
-    call assert_close_dp(solver%theta, 0.92d0, 1.0d-12, 'fmm explicit theta override mismatch')
-    call assert_equal_i32(solver%leaf_max, 5_i32, 'fmm explicit leaf_max override mismatch')
+    call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'fmm init must autotune the unset theta')
+    call assert_equal_i32(solver%leaf_max, 5_i32, 'fmm init must keep the explicit leaf_max')
   end subroutine test_field_solver_explicit_mode_autotune
 
   subroutine test_treecode_field_accuracy()
@@ -222,6 +216,8 @@ contains
 
       e_direct = panel_sum_field(mesh_tree, r)
       call solver%eval_e(mesh_tree, r, e_tree)
+      ! MAX may drop a NaN argument, so the treecode field is checked before its error is folded in.
+      call assert_true(all(ieee_is_finite(e_tree)), 'treecode returned a non-finite field')
 
       norm_direct = sqrt(sum(e_direct*e_direct))
       if (norm_direct <= 1.0d-12) cycle
@@ -425,7 +421,9 @@ contains
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
-    real(dp) :: r(3), e_direct(3), e_fmm(3), norm_direct, rel_err
+    real(dp) :: targets(3, 2), r(3), e_direct(3), e_fmm(3), norm_direct, rel_err
+    real(dp) :: phi_direct, phi_fmm
+    integer(i32) :: k
 
     call make_sphere(mesh_fmm, radius=2.0d-5, n_lon=16_i32, n_lat=8_i32, center=[1.05d-3, 2.05d-3, -0.95d-3])
     call mark_normal_plus(mesh_fmm)
@@ -443,13 +441,24 @@ contains
     call solver%init(mesh_fmm, sim)
     call solver%refresh(mesh_fmm)
 
-    r = [1.08d-3, 1.94d-3, -0.93d-3]
-    e_direct = panel_sum_field(mesh_fmm, r)
-    call solver%eval_e(mesh_fmm, r, e_fmm)
+    ! The first target lies below box_min(2) and takes the direct fallback. The second lies inside the
+    ! box, about five sphere radii from the charge, so it is evaluated through the target tree and the
+    ! translated local expansions of the nonzero-origin box.
+    targets(:, 1) = [1.08d-3, 1.94d-3, -0.93d-3]
+    targets(:, 2) = [1.09d-3, 2.08d-3, -0.86d-3]
+    do k = 1_i32, 2_i32
+      r = targets(:, k)
+      e_direct = panel_sum_field(mesh_fmm, r)
+      call solver%eval_e(mesh_fmm, r, e_fmm)
+      phi_direct = panel_sum_potential(mesh_fmm, r)
+      call solver%eval_potential(mesh_fmm, sim, r, phi_fmm)
 
-    norm_direct = sqrt(sum(e_direct*e_direct))
-    rel_err = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))/norm_direct
-    call assert_true(rel_err <= 5.0d-3, 'box-normalized FMM E relative error exceeds 5e-3')
+      norm_direct = sqrt(sum(e_direct*e_direct))
+      rel_err = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))/norm_direct
+      call assert_true(rel_err <= 5.0d-3, 'box-normalized FMM E relative error exceeds 5e-3')
+      call assert_close_dp(phi_fmm, phi_direct, abs(phi_direct)*5.0d-3, &
+                           'box-normalized FMM potential relative error exceeds 5e-3')
+    end do
   end subroutine test_fmm_field_box_normalization_origin
 
   subroutine test_direct_triangle_panel_contract()

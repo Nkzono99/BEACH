@@ -18,7 +18,9 @@ program test_output_writer_io
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, remove_empty_directory
+                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists, &
+                          remove_empty_directory
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_nan
   implicit none
 
   type(mesh_type) :: mesh
@@ -606,10 +608,14 @@ contains
   !> 外部源スペクトルは更新ごとに正の bin だけを history へ書き、summary へは全 bin を 1 行で書く。
   subroutine test_secondary_and_legacy_history()
     integer(i64) :: counts(3, 2)
-    real(dp) :: values(2, 2)
+    real(dp) :: values(2, 2), see_values(3), legacy_values(21), new_values(21)
+    integer(i64) :: see_counts(3)
     logical :: opened
-    integer :: unit_id, reader, comma, j
+    integer :: unit_id, reader, comma, quote_end
     character(len=2048) :: header, legacy_header, row
+    character(len=*), parameter :: legacy_row = '1,1,0,0,1,1,0,0,0,2,2,0,0,1,1,1,0'
+    real(dp), parameter :: legacy_numbers(17) = [1.0_dp, 1.0_dp, 0.0_dp, 0.0_dp, 1.0_dp, 1.0_dp, 0.0_dp, 0.0_dp, &
+                                                 0.0_dp, 2.0_dp, 2.0_dp, 0.0_dp, 0.0_dp, 1.0_dp, 1.0_dp, 1.0_dp, 0.0_dp]
 
     call default_app_config(cfg)
     cfg%output_dir = out_dir_matching
@@ -630,8 +636,15 @@ contains
     read (reader, '(a)') header
     read (reader, '(a)') row
     close (reader)
-    call assert_true(index(header, 'generation_capped_count') > 0, 'SEE history columns')
-    call assert_true(index(row, '"incident,electron"') > 0, 'SEE history quotes incident species')
+    call assert_true(trim(header) == 'batch,incident_species,hits,emitted_count,emitted_charge_c,mean_yield,'// &
+                     'generation_capped_count', 'SEE history column order')
+    call assert_true(row(:22) == '1,"incident,electron",', 'SEE history quotes incident species')
+    ! hits, emitted count, emitted charge, mean yield (sum of yields / hits) and capped count, in that order.
+    quote_end = index(row, '",')
+    read (row(quote_end + 2:), *) see_counts(1:2), see_values(1:2), see_counts(3)
+    call assert_true(all(see_counts == [1_i64, 2_i64, 3_i64]), 'SEE history counts')
+    call assert_close_dp(see_values(1), -2.0_dp*qe, 1.0e-15_dp*2.0_dp*qe, 'SEE history emitted charge')
+    call assert_close_dp(see_values(2), 1.5_dp, 1.0e-15_dp, 'SEE history mean yield')
 
     cfg%history_stride = 1_i32
     cfg%surface_current%model = 'zhao_stationary'
@@ -645,31 +658,55 @@ contains
     legacy_header = header(:comma - 1)
     open (newunit=unit_id, file=out_dir_matching//'/matching_plane_history.csv', status='replace', action='write')
     write (unit_id, '(a)') trim(legacy_header)
-    write (unit_id, '(a)') '1,1,0,0,1,1,0,0,0,2,2,0,0,1,1,1,0'
+    write (unit_id, '(a)') legacy_row
     close (unit_id)
     call open_matching_plane_history_writer(cfg, .true., opened, unit_id)
+    ! Every written field gets a distinct value so a dropped, zeroed or swapped column is visible.
     stats = sim_stats()
     stats%matching_plane%state_valid = .true.
+    stats%matching_plane%displacement_c_m2 = 3.0_dp
+    stats%matching_plane%phi_v = -4.0_dp
+    stats%matching_plane%response = [99.0_dp, 5.0_dp, 6.0_dp, 7.0_dp, 8.0_dp, 9.0_dp]
+    stats%matching_plane%feedback = [10.0_dp, 11.0_dp, 12.0_dp, 13.0_dp]
+    stats%matching_plane%photoelectron_return_flux_m2_s = 14.0_dp
+    stats%matching_plane%photoelectron_escape_flux_m2_s = 15.0_dp
+    stats%matching_plane%iterations = 16_i32
+    stats%matching_plane%residual = 1.7e-2_dp
     stats%matching_plane%secondary_share = 0.25_dp
     stats%matching_plane%secondary_budget_residual_a_m2 = -1.0e-8_dp
+    stats%matching_plane%top_field_v_m = 18.0_dp
+    stats%matching_plane%top_cell_mean_v_m = 19.0_dp
     call write_matching_plane_history_snapshot(unit_id, 2_i32, 2.0_dp, stats)
     close (unit_id)
     open (newunit=reader, file=out_dir_matching//'/matching_plane_history.csv', status='old', action='read')
     read (reader, '(a)') row
     call assert_true(trim(row) == trim(header), 'legacy header must upgrade to the 21-column contract')
-    do j = 1, 2
-      read (reader, '(a)') row
-      comma = 0
-      block
-        integer :: k
-        do k = 1, len_trim(row)
-          if (row(k:k) == ',') comma = comma + 1
-        end do
-      end block
-      call assert_equal_i32(int(comma, i32), 20_i32, 'legacy and new matching rows must have 21 columns')
-    end do
+    read (reader, '(a)') row
+    call assert_true(count_commas(row) == 20, 'legacy matching row must have 21 columns')
+    read (row, *) legacy_values
+    read (reader, '(a)') row
+    call assert_true(count_commas(row) == 20, 'new matching row must have 21 columns')
+    read (row, *) new_values
     close (reader)
+    ! The legacy row keeps its 17 values and gains zero secondary columns and NaN top-field columns.
+    call assert_allclose_1d(legacy_values(1:17), legacy_numbers, 0.0_dp, 'legacy matching values must be preserved')
+    call assert_allclose_1d(legacy_values(18:19), [0.0_dp, 0.0_dp], 0.0_dp, 'legacy secondary columns default to zero')
+    call assert_true(all(ieee_is_nan(legacy_values(20:21))), 'legacy top-field columns default to NaN')
+    call assert_allclose_1d(new_values, [2.0_dp, 2.0_dp, 3.0_dp, -4.0_dp, 5.0_dp, 6.0_dp, 7.0_dp, 8.0_dp, 9.0_dp, &
+                                         10.0_dp, 11.0_dp, 12.0_dp, 13.0_dp, 14.0_dp, 15.0_dp, 16.0_dp, 1.7e-2_dp, &
+                                         0.25_dp, -1.0e-8_dp, 18.0_dp, 19.0_dp], 1.0e-15_dp, &
+                            'new matching row values or column order mismatch')
   end subroutine test_secondary_and_legacy_history
+
+  integer function count_commas(text) result(n)
+    character(len=*), intent(in) :: text
+    integer :: k
+
+    n = 0
+    do k = 1, len_trim(text)
+      if (text(k:k) == ',') n = n + 1
+    end do
+  end function count_commas
 
   subroutine test_matching_plane_spectrum_outputs()
     logical :: opened, found

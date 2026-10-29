@@ -1,4 +1,5 @@
 program benchmark_periodic2_runtime
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, update_state, &
                                   eval_point, destroy_plan, destroy_state
@@ -62,7 +63,7 @@ program benchmark_periodic2_runtime
   call cpu_time(shell_end)
 
   if (cached_end <= cached_start .or. shell_end <= shell_start) error stop 'benchmark timing is not measurable'
-  if (abs(accumulator) >= huge(1.0_dp)) error stop 'benchmark accumulator is not finite'
+  if (.not. ieee_is_finite(accumulator)) error stop 'benchmark accumulator is not finite'
   write (*, '(a,i0)') 'periodic benchmark repeats=', repeat_count
   write (*, '(a,3(es12.5,1x))') 'periodic eval timing(cached,shell,ratio)=', &
     cached_end - cached_start, shell_end - shell_start, &

@@ -33,7 +33,7 @@ program test_injection_sampling
                          7.550262411946499e-17_dp, 7.474560254589328e-25_dp, 1.4605201169845548e-34_dp &
                          ]
 
-  call test_init(19)
+  call test_init(20)
 
   call seed_rng()
 
@@ -79,6 +79,10 @@ program test_injection_sampling
     all(v(:, 9:16) == spread([10.0d0, -5.0d0, 2.0d0], dim=2, ncopies=8)), &
     'explicit zero thermal_speed should override temperature_k' &
     )
+  call test_end()
+
+  call test_begin('legacy_samplers_fill_box_and_match_maxwellian_moments')
+  call check_legacy_sampler_moments()
   call test_end()
 
   call test_begin('rare_tail_inflow_flux')
@@ -320,6 +324,70 @@ program test_injection_sampling
   call test_summary()
 
 contains
+
+  !> 公開 sampler が箱全体・Maxwell 分布の各軸モーメントを再現することを独立な期待値で確かめる。
+  !! 全標本を箱の中心や drift に置く実装、温度から sigma への換算や cutoff の取り違えを検出する。
+  subroutine check_legacy_sampler_moments()
+    integer, parameter :: n = 4000
+    real(dp), parameter :: low(3) = [-2.0_dp, 1.0_dp, 4.0_dp], high(3) = [3.0_dp, 2.0_dp, 6.0_dp]
+    real(dp), parameter :: drift(3) = [10.0_dp, -5.0_dp, 2.0_dp]
+    ! Variance of a standard normal truncated to [-0.5, 0.5]: 1 - 2 a phi(a) / (2 Phi(a) - 1) at a = 0.5.
+    real(dp), parameter :: truncated_variance = 8.0589e-2_dp
+    real(dp), allocatable :: samples(:, :)
+    real(dp) :: width(3), mean(3), variance(3), sigma
+    integer :: axis
+
+    allocate (samples(3, n))
+    call seed_rng([20261029_i32])
+
+    call sample_uniform_positions(low, high, samples)
+    width = high - low
+    call sample_moments(samples, mean, variance)
+    do axis = 1, 3
+      call assert_true(all(samples(axis, :) >= low(axis) .and. samples(axis, :) <= high(axis)), &
+                       'uniform position left the box')
+      ! Standard errors are width/sqrt(12 n) for the mean and about 1.4 % for the variance.
+      call assert_close_dp(mean(axis), 0.5_dp*(low(axis) + high(axis)), 0.05_dp*width(axis), &
+                           'uniform position mean is not the box centre')
+      call assert_close_dp(variance(axis), width(axis)**2/12.0_dp, 0.1_dp*width(axis)**2/12.0_dp, &
+                           'uniform position variance is not width**2/12')
+    end do
+
+    ! m = k_B makes sigma = sqrt(T); the default 6-sigma cutoff changes the variance by ~1e-7.
+    sigma = 2.0_dp
+    call sample_shifted_maxwell_velocities(drift, k_boltzmann, samples, temperature_k=sigma**2)
+    call sample_moments(samples, mean, variance)
+    do axis = 1, 3
+      call assert_close_dp(mean(axis), drift(axis), 5.0_dp*sigma/sqrt(real(n, dp)), &
+                           'Maxwellian velocity mean is not the drift')
+      call assert_close_dp(variance(axis), sigma**2, 0.15_dp*sigma**2, &
+                           'Maxwellian velocity variance is not k_B T / m')
+    end do
+
+    sigma = 3.0_dp
+    call sample_shifted_maxwell_velocities(drift, 1.0_dp, samples, thermal_speed=sigma, sigma_cutoff=0.5_dp)
+    call sample_moments(samples, mean, variance)
+    do axis = 1, 3
+      call assert_true(all(abs(samples(axis, :) - drift(axis)) <= 0.5_dp*sigma), &
+                       'truncated Maxwellian sample exceeds sigma_cutoff')
+      call assert_close_dp(mean(axis), drift(axis), 5.0_dp*sigma*sqrt(truncated_variance/real(n, dp)), &
+                           'truncated Maxwellian mean is not the drift')
+      call assert_close_dp(variance(axis), sigma**2*truncated_variance, 0.1_dp*sigma**2*truncated_variance, &
+                           'truncated Maxwellian variance mismatch')
+    end do
+  end subroutine check_legacy_sampler_moments
+
+  !> 各軸の標本平均と（母集団）分散を返す。
+  subroutine sample_moments(samples, mean, variance)
+    real(dp), intent(in) :: samples(:, :)
+    real(dp), intent(out) :: mean(3), variance(3)
+    integer :: axis
+
+    do axis = 1, 3
+      mean(axis) = sum(samples(axis, :))/real(size(samples, 2), dp)
+      variance(axis) = sum((samples(axis, :) - mean(axis))**2)/real(size(samples, 2), dp)
+    end do
+  end subroutine sample_moments
 
   !> box [-1, 1]^3 の面から、slot k = 1..size(x, 2) の counter で reservoir 粒子を生成する。
   subroutine sample_reservoir_slots(face, pos_low, pos_high, drift, m_particle, temperature_k, barrier, vmin, x, v)
