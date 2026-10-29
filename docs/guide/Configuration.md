@@ -73,6 +73,7 @@ beachx lint run.toml --beach /path/to/beach
 `--schema` は同梱の BEACH スキーマに追加の制約を課します。指定したスキーマは正規化前後の設定に適用され、
 通常の BEACH 検証を無効化したり、その制約を緩めたりすることはできません。
 `beach` 実行ファイルは `--beach`、環境変数 `BEACH_CONFIG_CHECK_EXE`、`PATH` の順に探します。見つからない場合は失敗します。
+`--beach ./build/beach` や環境変数に指定した相対パスは、コマンドを起動したディレクトリから解決します。
 
 ### 2.3 `beach --check-config`
 

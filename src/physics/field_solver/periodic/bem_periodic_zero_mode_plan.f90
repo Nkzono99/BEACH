@@ -257,29 +257,61 @@ contains
 
   pure integer(i32) function nearest_break(break_z, value) result(index)
     real(dp), intent(in) :: break_z(:), value
-    integer(i32) :: i
+    integer(i32) :: low, high, middle
 
-    index = 1_i32
-    do i = 2, size(break_z)
-      if (abs(break_z(i) - value) < abs(break_z(index) - value)) index = i
+    ! break_z is sorted and nonempty; only the two neighbors can be nearest.
+    low = 1_i32
+    high = size(break_z)
+    do while (low < high)
+      middle = low + (high - low)/2_i32
+      if (break_z(middle) < value) then
+        low = middle + 1_i32
+      else
+        high = middle
+      end if
     end do
+    index = low
+    if (index > 1_i32) then
+      ! Preserve the previous linear scan's preference for the lower index on ties.
+      if (abs(break_z(index - 1_i32) - value) <= abs(break_z(index) - value)) index = index - 1_i32
+    end if
   end function nearest_break
 
   subroutine sort_real(values)
     real(dp), intent(inout) :: values(:)
     real(dp) :: key
-    integer :: i, j
+    integer :: start, last
 
-    do i = 2, size(values)
-      key = values(i)
-      j = i - 1
-      do while (j >= 1)
-        if (values(j) <= key) exit
-        values(j + 1) = values(j)
-        j = j - 1
-      end do
-      values(j + 1) = key
+    ! In-place heapsort bounds plan construction by O(N log N), including reversed heights.
+    last = size(values)
+    do start = last/2, 1, -1
+      call sift_down(start, last)
     end do
+    do last = size(values), 2, -1
+      key = values(last)
+      values(last) = values(1)
+      values(1) = key
+      call sift_down(1, last - 1)
+    end do
+  contains
+    subroutine sift_down(first, limit)
+      integer, intent(in) :: first, limit
+      integer :: root, child
+      real(dp) :: key
+
+      root = first
+      key = values(root)
+      do while (root <= limit/2)
+        child = 2*root
+        if (child < limit) then
+          if (values(child) < values(child + 1)) child = child + 1
+        end if
+        if (key >= values(child)) exit
+        values(root) = values(child)
+        root = child
+      end do
+      values(root) = key
+    end subroutine sift_down
   end subroutine sort_real
 
   pure subroutine sort_three(values)

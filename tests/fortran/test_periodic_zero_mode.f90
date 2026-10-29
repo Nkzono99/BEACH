@@ -6,7 +6,7 @@ program test_periodic_zero_mode
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type, &
                                          build_periodic_zero_mode_plan, refresh_periodic_zero_mode_state, &
                                          build_periodic_zero_mode_height_plan, &
-                                         symmetric_vacuum_bottom_field, periodic_zero_mode_ok
+                                         symmetric_vacuum_bottom_field, periodic_zero_mode_ok, periodic_zero_mode_invalid
   use bem_periodic_zero_mode_eval, only: zero_mode_trace_minus, zero_mode_trace_principal_value, &
                                          zero_mode_trace_plus, eval_periodic_zero_mode
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_close_dp, assert_equal_i32
@@ -27,7 +27,7 @@ program test_periodic_zero_mode
   real(dp) :: heights(3, 9), charges(9), z, expected_field, expected_potential
   integer(i32) :: i, j, gauge, offset, trace
 
-  call test_init(7)
+  call test_init(8)
 
   call test_begin('horizontal_sheet_jumps_superposition_and_gauge')
   v0(:, 1) = [0.0_dp, 0.0_dp, 0.5_dp]
@@ -159,9 +159,54 @@ program test_periodic_zero_mode
   call check_breakpoint_translation()
   call test_end()
 
+  call test_begin('reordered_and_duplicate_sheets_preserve_superposition')
+  call check_sheet_ordering()
+  call test_end()
+
   call test_summary()
 
 contains
+
+  subroutine check_sheet_ordering()
+    integer, parameter :: counts(4) = [1, 2, 17, 128]
+    real(dp) :: source_heights(3, 128), q(128), target, expected_e, expected_phi
+    integer :: count_index, count, ordering, source, height_index, sample
+
+    do count_index = 1, size(counts)
+      count = counts(count_index)
+      do ordering = 1, 3
+        do source = 1, count
+          select case (ordering)
+          case (1)
+            height_index = source
+          case (2)
+            height_index = count + 1 - source
+          case (3)
+            height_index = modulo(7*source, 11)
+          end select
+          source_heights(:, source) = 0.125_dp*real(height_index, dp) - 1.0_dp
+          q(source) = charge*real(modulo(source, 3) - 1, dp)
+        end do
+        call build_periodic_zero_mode_height_plan(source_heights(:, :count), 2.0_dp, plan, status, message)
+        call assert_equal_i32(status, periodic_zero_mode_ok, 'reordered sheet plan status')
+        call refresh_periodic_zero_mode_state(plan, q(:count), 0.0_dp, -2.0_dp, 0.0_dp, state)
+        do sample = 0, 16
+          target = -1.0_dp + real(sample, dp)
+          expected_e = 0.0_dp
+          expected_phi = 0.0_dp
+          do source = 1, count
+            if (target >= source_heights(1, source)) expected_e = expected_e + q(source)/(2.0_dp*eps0)
+            expected_phi = expected_phi - q(source)*max(target - source_heights(1, source), 0.0_dp)/(2.0_dp*eps0)
+          end do
+          call eval_periodic_zero_mode(plan, state, target, zero_mode_trace_plus, potential, field)
+          call assert_close_dp(field, expected_e, 1.0e-12_dp, 'reordered sheet Gauss field')
+          call assert_close_dp(potential, expected_phi, 1.0e-12_dp, 'reordered sheet potential')
+        end do
+      end do
+    end do
+    call build_periodic_zero_mode_height_plan(source_heights(:, :0), 2.0_dp, plan, status, message)
+    call assert_equal_i32(status, periodic_zero_mode_invalid, 'empty zero-mode plan remains invalid')
+  end subroutine check_sheet_ordering
 
   !> 一様面密度の panel を上端より上（下）から見ると、累積電荷の積分は q*(z-mean(頂点高さ)) になる。
   !! 薄い panel 群を z 方向へ平行移動しても、この一次モーメントと Gauss 則が保たれることを確認する。

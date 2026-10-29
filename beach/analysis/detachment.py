@@ -318,9 +318,11 @@ class ObjectForcePath:
         extra = extra[(extra > h[0]) & (extra < h[-1])]
         mechanics_grid = np.unique(np.concatenate((h, extra)))
         critical = list(mechanics_grid)
-        for left, right in zip(mechanics_grid[:-1], mechanics_grid[1:]):
-            middle = 0.5 * (left + right)
-            e0, em, e1 = available_at(np.array([left, middle, right]))
+        lefts, rights = mechanics_grid[:-1], mechanics_grid[1:]
+        # Evaluate all intervals together so the cumulative integrals are built
+        # once, rather than once per interval.
+        energies = available_at(np.stack((lefts, 0.5 * (lefts + rights), rights)))
+        for left, right, e0, em, e1 in zip(lefts, rights, *energies):
             a = 2.0 * (e1 + e0 - 2.0 * em)
             b = e1 - e0 - a
             scale = max(abs(e0), abs(em), abs(e1), np.finfo(float).tiny)

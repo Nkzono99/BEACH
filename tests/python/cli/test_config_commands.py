@@ -10,9 +10,24 @@ from config_fixtures import (
 )
 
 from beach.cli.main import main as beachx_main
+from beach.cli.lint import resolve_native_checker, run_native_check
 from beach.config import (
     load_config_file,
 )
+
+
+@pytest.mark.parametrize("use_environment", [False, True])
+def test_lint_runs_relative_checker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, use_environment: bool,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    checker = tmp_path / "local-checker"
+    checker.write_text('#!/bin/sh\n[ "$1" = --check-config ] && printf "status=ok\\n"\n')
+    checker.chmod(0o755)
+    if use_environment:
+        monkeypatch.setenv("BEACH_CONFIG_CHECK_EXE", "./local-checker")
+    selected = resolve_native_checker(None if use_environment else Path("./local-checker"))
+    run_native_check(selected, Path("input.toml"))
 
 
 def _write_high_level_authoring_config(path: Path) -> None:

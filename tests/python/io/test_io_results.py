@@ -945,6 +945,24 @@ def test_load_run_model_contract_and_charge_ledger(tmp_path: Path) -> None:
             "charge values must be finite",
             id="nonfinite-charge",
         ),
+        pytest.param(
+            f"{_CHARGE_LEDGER_REQUIRED_HEADER},fixed_current_correction_C\n"
+            f"{_charge_ledger_row()},\n",
+            "could not convert string to float",
+            id="blank-optional-value",
+        ),
+        pytest.param(
+            f"{_CHARGE_LEDGER_REQUIRED_HEADER},fixed_current_correction_C\n"
+            f"{_charge_ledger_row()}\n",
+            "invalid column count",
+            id="truncated-row",
+        ),
+        pytest.param(
+            f"{_CHARGE_LEDGER_REQUIRED_HEADER}\n"
+            f"{_charge_ledger_row()},0.0\n",
+            "invalid column count",
+            id="extra-value",
+        ),
     ],
 )
 def test_load_run_rejects_corrupt_charge_ledger(
@@ -959,6 +977,22 @@ def test_load_run_rejects_corrupt_charge_ledger(
 
     with pytest.raises(ValueError, match=match):
         load_run(out)
+
+
+def test_load_run_legacy_charge_ledger_defaults(tmp_path: Path) -> None:
+    _write_minimal_result_fixture(tmp_path)
+    (tmp_path / "charge_ledger.csv").write_text(
+        f"{_CHARGE_LEDGER_REQUIRED_HEADER},fixed_absorbed_target_charge_C\n"
+        f"{_charge_ledger_row()},-4.0\n",
+        encoding="utf-8",
+    )
+
+    result = load_run(tmp_path)
+
+    assert result.ledger is not None
+    assert result.ledger[0].fixed_absorbed_applied_charge_c == -4.0
+    assert result.ledger[0].neutral_return_weight_scale == 1.0
+    assert result.ledger[0].fixed_current_correction_c == 0.0
 
 
 def test_free_field_reconstruction_receipt_rejects_periodic_far_model(

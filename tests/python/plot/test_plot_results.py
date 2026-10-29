@@ -1,6 +1,7 @@
 """Result plot contracts."""
 
 from dataclasses import replace
+import json
 
 from beach.io.types import RunField, RunHistory, RunMesh, RunSummary
 
@@ -20,6 +21,7 @@ from beach import (
     compute_potential_mesh,
 )
 from beach.plot.animation import _select_frame_columns
+from beach.cli.main import main as beachx_main
 from result_fixtures import (
     _make_history,
     _write_complete_free_field_config,
@@ -480,6 +482,26 @@ def test_beach_plot_mesh_source_boxplot_uses_mesh_source_labels(tmp_path: Path) 
 
 def _force_x(beach: Beach, target: int, sources: list[int]) -> float:
     return float(calc_coulomb(beach, target=target, source=sources).force_on_a_N[0])
+
+
+def test_coulomb_cli_reports_source_forces_for_each_target(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+    out = tmp_path / "run"
+    out.mkdir()
+    _write_coulomb_matrix_fixture(out)
+    beachx_main(["coulomb", str(out), "--component", "x", "--target-kinds", "plane", "--json"])
+    report = json.loads(capsys.readouterr().out)
+    assert report["targets"] == ["plane"]
+    assert report["sources"] == ["plane", "sphere1", "sphere2", "net"]
+    assert len(report["force_matrix"]) == 1
+    row = report["force_matrix"][0]
+    assert row["target"] == "plane"
+    with Beach(out) as beach:
+        expected = [0.0, _force_x(beach, 1, [2]), _force_x(beach, 1, [3]), _force_x(beach, 1, [2, 3])]
+    np.testing.assert_allclose(row["force_x_N"], expected, rtol=1.0e-12, atol=0.0)
 
 
 def test_plot_coulomb_force_matrix_auto_labels_targets_from_config(

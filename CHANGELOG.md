@@ -26,6 +26,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   その要素を生成しないようにした。該当する設定では要素数が減る（1×1、`n_theta = 48`、`n_r = 4` では 386 から 384）。
 - `cylinder` の側面最上段の頂点の z 座標を上面キャップと同じ式で計算し、側面と上面キャップが外周の頂点を
   ビット一致で共有するようにした（従来は丸め誤差で 1 ulp ずれる場合があった）。
+- 再開時の `charges.csv`、`macro_residuals.csv`、`charge_ledger.csv` を Fortran の自由形式入力で読んでいたため、
+  空欄、`/`、繰り返し指定（`3*0.0` など）や次行の値を受理し、前行の値を再利用する場合があった。各行が所定数の
+  数値だけからなることを確認してから変換する。空白、`D` 指数、旧 2 列の残差ファイルは従来どおり読める。
+- Python の `charge_ledger.csv` reader が、旧版で存在しない列と、存在する列の空欄・欠けた行を区別せず既定値で
+  補っていた。既定値は列がない場合だけに使い、空欄や列数の合わない行はエラーにする。
+- `FieldKernelOptions` の `box_min` / `box_max` に 3 成分でない配列を渡すと、そのまま共有ライブラリへ渡っていた。
+  有限な 3 成分であることと、両方が指定されていることを確認する。
+- 粒子種ごとの `sampling.volume_macro_particles_per_batch` が範囲内でも、合計が 32 bit 整数を超えると誤った
+  粒子数になっていた。合計が上限を超える設定は停止する。
+- `beachx coulomb --json` の `force_matrix` が source 行 × target 列の行列を target 名と行で対応させていたため、
+  source と target の数が異なると値が誤対応・欠落していた。target ごとに全 source の力を報告する。
+- `beachx lint --beach ./checker` の相対パスが `PATH` 上で探されていた。起動ディレクトリから解決する。
+- `tools/golden_regression.py --rtol nan` が数値差を常に合格させていた。NaN・Inf・負の `--rtol` は終了コード 2 で拒否する。
 
 ### Changed
 
@@ -66,6 +79,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   directory に分けた。周期検証 tool の test は工程別の 8 file に分けた。Fortran parser test と同じ preflight 規則を
   Python 側で再検査していた case は、lint が Fortran の判定と診断文をそのまま返すことを示す代表 case に絞った。
 - `dev` extra に `runops>=2.0,<3` を追加し、runops adapter の test を CI で実行する。
+- periodic2 zero-mode plan の高さのソートと区切り探索を O(N log N) にした（10000 panel で約 6 s から 0.01 s）。
+  `mesh.parts` の結合は各 part を一度だけ copy する。box target FMM の target tree は深さの上限から決まる
+  4681 node だけを確保する。MPI の配列集約は `MPI_IN_PLACE` で作業配列を使わない。
+- `ObjectForcePath.evaluate_release` は全区間の評価点をまとめて積分し、鉛直経路の box 検査は変位の最小・最大だけを
+  使う。結果は変わらない。
 
 ### Removed
 

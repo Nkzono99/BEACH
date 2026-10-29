@@ -254,50 +254,50 @@ def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] |
             raise ValueError("charge_ledger.csv is missing required columns.")
         rows: list[ChargeLedgerEntry] = []
         for row in reader:
+            if None in row or any(value is None for value in row.values()):
+                raise ValueError("charge_ledger.csv row has an invalid column count.")
             batch = int(row["batch"])
             species_idx = int(row["species_idx"])
             charges = [float(row[name]) for name in charge_fields]
             counts = [int(row[name]) for name in count_fields]
             neutral_return_correction_c = float(
-                row.get("neutral_return_correction_C") or 0.0
+                row.get("neutral_return_correction_C", 0.0)
             )
             neutral_return_weight_scale = float(
-                row.get("neutral_return_weight_scale") or 1.0
+                row.get("neutral_return_weight_scale", 1.0)
             )
             neutral_return_unresolved_fraction = float(
-                row.get("neutral_return_unresolved_fraction") or 0.0
+                row.get("neutral_return_unresolved_fraction", 0.0)
             )
             fixed_absorbed_target_charge_c = float(
-                row.get("fixed_absorbed_target_charge_C") or 0.0
+                row.get("fixed_absorbed_target_charge_C", 0.0)
             )
             fixed_absorbed_applied_charge_c = float(
-                row.get("fixed_absorbed_applied_charge_C")
-                or fixed_absorbed_target_charge_c
+                row.get("fixed_absorbed_applied_charge_C", fixed_absorbed_target_charge_c)
             )
             fixed_absorbed_weight_scale = float(
-                row.get("fixed_absorbed_weight_scale") or 1.0
+                row.get("fixed_absorbed_weight_scale", 1.0)
             )
             fixed_emission_target_charge_c = float(
-                row.get("fixed_emission_target_charge_C") or 0.0
+                row.get("fixed_emission_target_charge_C", 0.0)
             )
             fixed_emission_applied_charge_c = float(
-                row.get("fixed_emission_applied_charge_C")
-                or fixed_emission_target_charge_c
+                row.get("fixed_emission_applied_charge_C", fixed_emission_target_charge_c)
             )
             fixed_emission_weight_scale = float(
-                row.get("fixed_emission_weight_scale") or 1.0
+                row.get("fixed_emission_weight_scale", 1.0)
             )
             fixed_escape_target_charge_c = float(
-                row.get("fixed_escape_target_charge_C") or 0.0
+                row.get("fixed_escape_target_charge_C", 0.0)
             )
             fixed_escape_applied_charge_c = float(
-                row.get("fixed_escape_applied_charge_C") or 0.0
+                row.get("fixed_escape_applied_charge_C", 0.0)
             )
             fixed_escape_correction_c = float(
-                row.get("fixed_escape_correction_C") or 0.0
+                row.get("fixed_escape_correction_C", 0.0)
             )
             fixed_current_correction_c = float(
-                row.get("fixed_current_correction_C") or 0.0
+                row.get("fixed_current_correction_C", 0.0)
             )
             if batch < 0 or species_idx < 1 or any(count < 0 for count in counts):
                 raise ValueError("charge_ledger.csv indices and counts are invalid.")

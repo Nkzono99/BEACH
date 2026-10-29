@@ -6,6 +6,34 @@ submodule(bem_restart) bem_restart_records
   implicit none
 contains
 
+  !> Read one complete numeric CSV record before list-directed conversion. Null fields, slash termination,
+  !! repetition syntax and cross-record reads must never reuse a previous checkpoint value.
+  module procedure read_checkpoint_csv_record
+  integer :: length, first, last, column, comma
+
+  read (unit, '(a)', advance='no', size=length, iostat=ios) line
+  if (ios == iostat_end .and. length == 0) return
+  if (ios /= iostat_eor) then
+    ios = 1
+    return
+  end if
+  ios = 1
+  first = 1
+  do column = 1, columns
+    comma = index(line(first:length), ',')
+    if (column < columns) then
+      if (comma == 0) return
+      last = first + comma - 2
+    else
+      if (comma /= 0) return
+      last = length
+    end if
+    if (.not. is_decimal_real_token(trim(adjustl(line(first:last))))) return
+    first = last + 2
+  end do
+  ios = 0
+  end procedure read_checkpoint_csv_record
+
   !> `summary.txt` を読み込み、必須キーの存在と要素数整合を検証する。
   !! 欠落キーやメッシュ要素数不一致は再開不能として停止する。
   !! @param[in] path `summary.txt` のファイルパス。
@@ -152,7 +180,7 @@ contains
   integer :: u, ios
   integer(i32) :: elem_idx, n_loaded
   real(dp) :: charge
-  character(len=512) :: header
+  character(len=512) :: header, record
   logical, allocatable :: seen(:)
 
   if (.not. allocated(mesh%q_elem)) error stop 'Mesh charges are not allocated.'
@@ -169,9 +197,10 @@ contains
   if (ios /= 0) error stop 'Failed to read charges.csv header.'
 
   do
-    read (u, *, iostat=ios) elem_idx, charge
+    call read_checkpoint_csv_record(u, record, 2, ios)
     if (ios < 0) exit
-    if (ios > 0) error stop 'Failed to parse charges.csv during resume.'
+    if (ios == 0) read (record, *, iostat=ios) elem_idx, charge
+    if (ios /= 0) error stop 'Failed to parse charges.csv during resume.'
     if (elem_idx < 1_i32 .or. elem_idx > mesh%nelem) then
       error stop 'Resume checkpoint charges.csv has an invalid element index.'
     end if
@@ -194,12 +223,13 @@ contains
 
   !> summary stock と species 別 CSV flux/count から累積 charge ledger を復元する。
   module procedure load_charge_ledger_checkpoint
-  integer :: u, ios, pos
+  integer :: u, ios, pos, columns
   integer(i32) :: nspecies, batch_count, row_batch, species_idx, loaded
   integer(i64) :: count_values(5)
   real(dp) :: charge_values(18), fixed_charge_values(13), legacy_charge_values(8), stock_values(6)
   character(len=512) :: line
   character(len=2048) :: header
+  character(len=2048) :: record
   character(len=96) :: key
   character(len=256) :: value
   logical :: found_nspecies, found_batch, found_stocks(6), has_fixed_current_columns, has_current_budget_columns
@@ -275,26 +305,31 @@ contains
   if (ios /= 0) error stop 'Failed to read charge_ledger.csv header.'
   has_fixed_current_columns = index(header, 'fixed_current_correction_C') > 0
   has_current_budget_columns = index(header, 'fixed_escape_correction_C') > 0
+  columns = 15
+  if (has_fixed_current_columns) columns = 20
+  if (has_current_budget_columns) columns = 25
   do
+    call read_checkpoint_csv_record(u, record, columns, ios)
+    if (ios < 0) exit
+    if (ios > 0) error stop 'Failed to parse charge_ledger.csv during resume.'
     charge_values = [ &
                     0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 1.0_dp, 0.0_dp, &
                     0.0_dp, 1.0_dp, 0.0_dp, 1.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp &
                     ]
     if (has_current_budget_columns) then
-      read (u, *, iostat=ios) row_batch, species_idx, charge_values, count_values
+      read (record, *, iostat=ios) row_batch, species_idx, charge_values, count_values
     else if (has_fixed_current_columns) then
-      read (u, *, iostat=ios) row_batch, species_idx, fixed_charge_values, count_values
+      read (record, *, iostat=ios) row_batch, species_idx, fixed_charge_values, count_values
       if (ios == 0) then
         charge_values(1:13) = fixed_charge_values
         charge_values(14) = fixed_charge_values(9)
         charge_values(15) = fixed_charge_values(11)
       end if
     else
-      read (u, *, iostat=ios) row_batch, species_idx, legacy_charge_values, count_values
+      read (record, *, iostat=ios) row_batch, species_idx, legacy_charge_values, count_values
       if (ios == 0) charge_values(1:8) = legacy_charge_values
     end if
-    if (ios < 0) exit
-    if (ios > 0) error stop 'Failed to parse charge_ledger.csv during resume.'
+    if (ios /= 0) error stop 'Failed to parse charge_ledger.csv during resume.'
     if (row_batch /= batch_count) error stop 'Resume charge ledger batch count mismatch.'
     if (species_idx < 1_i32 .or. species_idx > nspecies) error stop 'Resume charge ledger species index is invalid.'
     if (seen(species_idx)) error stop 'Resume charge ledger contains duplicate species rows.'

@@ -1,6 +1,6 @@
 !> 平面/穴あき平面/円板/リング/箱/円柱/球（UV・icosphere）テンプレートから三角形メッシュを生成するユーティリティ。
 module bem_templates
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
   implicit none
@@ -815,7 +815,7 @@ contains
         i = 0; k = 0
         do while (i < m .or. k < n)
           ! Advance on the ring whose next vertex comes first in angle (k+1)/n <= (i+1)/m.
-          if (k < n .and. (i == m .or. (k + 1)*m <= (i + 1)*n)) then
+          if (k < n .and. (i == m .or. (int(k, i64) + 1_i64)*m <= (int(i, i64) + 1_i64)*n)) then
             call push_oriented(inner(:, i), outer(:, k), outer(:, k + 1))
             k = k + 1
           else

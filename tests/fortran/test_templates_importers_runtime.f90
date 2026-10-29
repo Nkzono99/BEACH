@@ -5,14 +5,17 @@ program test_templates_importers_runtime
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere, &
                            make_icosphere
   use bem_importers, only: load_obj_mesh
-  use bem_app_config, only: app_config, default_app_config, build_mesh_from_config
+  use bem_app_config, only: app_config, template_spec, default_app_config, build_mesh_from_config
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
+                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists, &
+                          run_self_probe, file_contains
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
   type(mesh_type) :: mesh
   type(app_config) :: cfg
+  integer :: i, first, last, part_id, probe_exit
+  character(len=64) :: run_mode
   real(dp), allocatable :: outward_dot(:)
   real(dp), parameter :: shift(3) = [0.3_dp, -1.2_dp, 2.5_dp]
 
@@ -21,7 +24,58 @@ program test_templates_importers_runtime
 
   character(len=*), parameter :: crlf_obj_path = 'test_templates_runtime_crlf.obj'
 
-  call test_init(9)
+  call get_command_argument(1, run_mode)
+  if (trim(run_mode) == '--empty-mesh-probe') then
+    call default_app_config(cfg)
+    cfg%mesh_parts(1)%enabled = .false.
+    call build_mesh_from_config(cfg, mesh)
+    error stop 'empty mesh probe unexpectedly completed'
+  end if
+
+  call test_init(11)
+
+  call test_begin('uniform_annulus_large_ring_angle_order')
+  ! Ring counts fit int32; their angle-comparison cross products exceed it.
+  call make_annulus(mesh, radius=1.0_dp, inner_radius=0.99_dp, n_theta=50000_i32, n_r=1_i32, uniform=.true.)
+  call assert_equal_i32(mesh%nelem, 99500_i32, 'large uniform ring count')
+  call assert_true(all(mesh%normals(3, :) > 0.0_dp), 'all ring triangles keep positive orientation')
+  call assert_close_dp(sum(mesh%panel_area), polygon_area(50000, 1.0_dp) - polygon_area(49500, 0.99_dp), &
+                       1.0e-11_dp, 'large ring exactly covers the polygon annulus')
+  call test_end()
+
+  call test_begin('many_parts_preserve_order_attributes_and_empty_rejection')
+  call default_app_config(cfg)
+  deallocate (cfg%mesh_parts)
+  allocate (cfg%mesh_parts(33))
+  cfg%n_mesh_parts = 33_i32
+  do i = 1, cfg%n_mesh_parts
+    cfg%mesh_parts(i) = template_spec()
+    cfg%mesh_parts(i)%kind = 'plane'
+    cfg%mesh_parts(i)%enabled = mod(i, 4) /= 0
+    cfg%mesh_parts(i)%center(3) = real(i, dp)
+    cfg%mesh_parts(i)%ny = 1 + mod(i, 3)
+    cfg%mesh_parts(i)%epsilon_r = real(i, dp)
+    cfg%mesh_parts(i)%surface_side_policy = 'normal_plus'
+  end do
+  call build_mesh_from_config(cfg, mesh)
+  first = 1
+  part_id = 0
+  do i = 1, cfg%n_mesh_parts
+    if (.not. cfg%mesh_parts(i)%enabled) cycle
+    part_id = part_id + 1
+    last = first + 2*cfg%mesh_parts(i)%ny - 1
+    call assert_true(all(mesh%elem_mesh_id(first:last) == part_id), 'enabled part order')
+    call assert_true(all(mesh%v0(3, first:last) == real(i, dp)), 'part height')
+    call assert_true(all(mesh%elem_epsilon_r(first:last) == real(i, dp)), 'part permittivity')
+    call assert_close_dp(sum(mesh%panel_area(first:last)), 1.0_dp, 1.0e-12_dp, 'unit plane area')
+    first = last + 1
+  end do
+  call assert_equal_i32(mesh%nelem, int(first - 1, i32), 'no unused capacity in final mesh')
+  call run_self_probe('--empty-mesh-probe', 'test_empty_mesh_tmp.log', probe_exit)
+  call assert_true(probe_exit /= 0, 'empty mesh is rejected')
+  call assert_true(file_contains('test_empty_mesh_tmp.log', 'No enabled mesh.parts'), 'empty mesh diagnostic')
+  call delete_file_if_exists('test_empty_mesh_tmp.log')
+  call test_end()
 
   call test_begin('template_shapes')
   ! Each shape is built off-centre with non-default sizes. Besides count/finiteness, its bounding box

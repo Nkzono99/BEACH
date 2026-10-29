@@ -45,9 +45,15 @@ program test_restart
     call load_restart_checkpoint(out_dir, mesh, stats, has_restart, mpi_rank=0_i32, mpi_size=1_i32)
     stop 0
   end if
+  if (trim(run_mode) == '--numeric-csv-probe') then
+    call build_test_mesh(mesh)
+    allocate (state%macro_residual(2))
+    call load_restart_checkpoint(out_dir, mesh, stats, has_restart, state=state, charge_ledger=restored_ledger)
+    stop 0
+  end if
 
   call cleanup_restart_fixture(out_dir)
-  call test_init(10)
+  call test_init(12)
 
   call test_begin('missing_checkpoint')
   call build_test_mesh(mesh)
@@ -66,6 +72,10 @@ program test_restart
 
   call test_begin('schema_v9_matching_keys_are_required_and_unique')
   call test_matching_summary_key_contract()
+  call test_end()
+
+  call test_begin('checkpoint_csv_requires_complete_numeric_records')
+  call test_numeric_csv_records()
   call test_end()
 
   call test_begin('checkpoint_contract_and_ledger_restore')
@@ -387,6 +397,67 @@ program test_restart
   call test_summary()
 
 contains
+
+  subroutine test_numeric_csv_records()
+    character(len=24), parameter :: bad_charge_rows(*) = [character(len=24) :: &
+                                                          '2,/', '2,', '2,1*0.25', '2,0.25,9', '2']
+    character(len=24), parameter :: bad_residual_rows(*) = [character(len=24) :: &
+                                                            '2,0,/', '2,0,', '2,0,1*0.25', '2,0,0.25,9', '2,0']
+    integer :: u, i, exit_status
+    type(charge_ledger_type) :: source_ledger
+    type(injection_state) :: legacy_state
+    type(sim_stats) :: saved_stats
+    type(app_config) :: saved_app
+
+    call cleanup_restart_fixture(out_dir)
+    call ensure_directory(out_dir)
+    call write_summary_fixture(out_dir)
+    call touch_file(out_dir//'/rng_state.txt')
+    do i = 1, size(bad_charge_rows)
+      open (newunit=u, file=out_dir//'/charges.csv', status='replace')
+      write (u, '(a)') 'elem_idx,charge_C', '1,0.25', trim(bad_charge_rows(i))
+      close (u)
+      call run_self_probe('--numeric-csv-probe', matching_probe_log, exit_status)
+      call assert_true(exit_status /= 0, 'malformed charge CSV must fail')
+      call assert_true(file_contains(matching_probe_log, 'Failed to parse charges.csv'), 'charge CSV diagnostic')
+    end do
+    call write_charges_fixture(out_dir)
+    do i = 1, size(bad_residual_rows)
+      open (newunit=u, file=out_dir//'/macro_residuals.csv', status='replace')
+      write (u, '(a)') 'species_idx,face,residual', '1,0,0.25', trim(bad_residual_rows(i))
+      close (u)
+      call run_self_probe('--numeric-csv-probe', matching_probe_log, exit_status)
+      call assert_true(exit_status /= 0, 'malformed residual CSV must fail')
+      call assert_true(file_contains(matching_probe_log, 'Failed to parse macro_residuals.csv'), 'residual CSV diagnostic')
+    end do
+    ! The released two-column residual format, D exponents and surrounding spaces remain readable.
+    open (newunit=u, file=out_dir//'/macro_residuals.csv', status='replace')
+    write (u, '(a)') 'species_idx,residual', ' 1 , 2.5D-1 ', '2,0.75'
+    close (u)
+    call build_test_mesh(mesh)
+    allocate (legacy_state%macro_residual(2))
+    call load_restart_checkpoint(out_dir, mesh, saved_stats, has_restart, state=legacy_state)
+    call assert_true(has_restart, 'legacy numeric CSV was rejected')
+    call assert_allclose_1d(legacy_state%macro_residual, [0.25_dp, 0.75_dp], 0.0_dp, 'legacy residual values')
+
+    ! Ledger fields must not retain defaults after slash termination either.
+    call build_test_mesh(mesh)
+    call default_app_config(saved_app)
+    saved_stats = sim_stats()
+    saved_stats%batches = 2_i32
+    saved_stats%last_rel_change = 0.0_dp
+    call source_ledger%init(2_i32)
+    call source_ledger%reset(2_i32)
+    call write_result_files(out_dir, mesh, saved_stats, saved_app, charge_ledger=source_ledger)
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .true., .true.)
+    open (newunit=u, file=out_dir//'/charge_ledger.csv', status='replace')
+    write (u, '(a)') 'batch,species_idx,fixed_escape_correction_C', '2,1,/'
+    close (u)
+    call run_self_probe('--numeric-csv-probe', matching_probe_log, exit_status)
+    call assert_true(exit_status /= 0, 'malformed ledger CSV must fail')
+    call assert_true(file_contains(matching_probe_log, 'Failed to parse charge_ledger.csv'), 'ledger CSV diagnostic')
+    call cleanup_restart_fixture(out_dir)
+  end subroutine test_numeric_csv_records
 
   !> ledger を持たない checkpoint を charge_ledger 付きで読むとき、app の有無で ledger の扱いが決まる（#69）。
   !! app を省略しても読込は成功し、ledger は未初期化のまま残る。app があれば species 数で新しく初期化する。

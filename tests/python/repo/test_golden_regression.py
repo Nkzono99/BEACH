@@ -126,3 +126,14 @@ def test_positive_rtol_fails_on_text_difference(tmp_path: Path) -> None:
     new = {"g1/summary.txt": "status=failed\n"}
 
     assert _compare(tmp_path, base, new, rtol=1.0e-6) == 1
+
+
+@pytest.mark.parametrize("rtol", ["nan", "inf", "-inf", "-0.1"])
+def test_invalid_tolerance_is_rejected_at_comparison_entry(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], rtol: str
+) -> None:
+    base = _tree(tmp_path / "base", {"g1/charges.csv": BASE_CHARGES})
+    new = _tree(tmp_path / "new", {"g1/charges.csv": "elem,charge\n1,99.0\n2,99.0\n"})
+
+    assert golden.main(["compare", str(base), str(new), f"--rtol={rtol}"]) == 2
+    assert "rtol must be finite and nonnegative" in capsys.readouterr().err

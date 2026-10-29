@@ -70,7 +70,7 @@ def resolve_native_checker(explicit: Path | None = None) -> Path:
         path = Path(found)
     if not path.is_file():
         raise SystemExit(f"{NATIVE_CHECKER_NAME} executable not found: {path}")
-    return path
+    return path.resolve()
 
 
 def run_native_check(checker: Path, config_path: Path) -> None:
