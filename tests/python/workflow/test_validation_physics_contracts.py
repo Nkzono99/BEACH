@@ -719,32 +719,33 @@ def test_geometry_comparison_allows_declared_roundoff_not_order_change() -> None
         receipts=RunReceipts(),
         diagnostics=RunDiagnostics(),
     )
-    preliminary = tool._geometry_comparison(left, left)
-    perturbed = triangles.copy()
-    perturbed[0, 0, 0] += 0.5 * preliminary["coordinate_tolerance_m"]
-    within = tool._geometry_comparison(
-        left,
-        SimpleNamespace(
-            mesh=RunMesh(mesh_ids=np.array([6, 7]), triangles=perturbed),
-            history=RunHistory(),
-            field=RunField(),
-            receipts=RunReceipts(),
-            diagnostics=RunDiagnostics(),
-        ),
-    )
-    reordered = tool._geometry_comparison(
-        left,
-        SimpleNamespace(
-            mesh=RunMesh(mesh_ids=np.array([7, 6]), triangles=triangles),
-            history=RunHistory(),
-            field=RunField(),
-            receipts=RunReceipts(),
-            diagnostics=RunDiagnostics(),
-        ),
-    )
+
+    def compare_to(mesh_ids: np.ndarray, right_triangles: np.ndarray) -> dict:
+        return tool._geometry_comparison(
+            left,
+            SimpleNamespace(
+                mesh=RunMesh(mesh_ids=mesh_ids, triangles=right_triangles),
+                history=RunHistory(),
+                field=RunField(),
+                receipts=RunReceipts(),
+                diagnostics=RunDiagnostics(),
+            ),
+        )
+
+    # Fixed offsets for the 1 mm mesh, independent of the tolerance the tool reports: 1e-18 m is
+    # roundoff (a few ulp at the 1e-3 m scale); 1e-12 m (1e-9 of the mesh size) is a real change.
+    roundoff = triangles.copy()
+    roundoff[0, 0, 0] += 1.0e-18
+    moved = triangles.copy()
+    moved[0, 0, 0] += 1.0e-12
+    within = compare_to(np.array([6, 7]), roundoff)
+    outside = compare_to(np.array([6, 7]), moved)
+    reordered = compare_to(np.array([7, 6]), triangles)
 
     assert within["status"] == "match"
-    assert within["max_coordinate_difference_m"] > 0.0
+    assert within["max_coordinate_difference_m"] == 1.0e-18
+    assert outside["status"] == "coordinate_mismatch"
+    assert outside["max_coordinate_difference_m"] == 1.0e-12
     assert reordered["status"] == "mesh_id_order_mismatch"
 
 

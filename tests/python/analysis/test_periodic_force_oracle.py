@@ -569,40 +569,47 @@ def test_finite_shell_exposes_analytic_bottom_zero_closure(
     assert shell.selected is shell.e_bottom_zero
 
 
+@pytest.mark.parametrize(
+    ("forces", "max_layers", "expected_increments", "expected_layer"),
+    [
+        # A failed first increment followed by two passing ones selects the second of them.
+        ([1.0, 2.0, 2.0, 2.0], 3, [False, True, True], 3),
+        # A failed increment between two passing ones restarts the count.
+        ([1.0, 1.0, 2.0, 2.0], 3, [True, False, True], None),
+        # A single passing increment is not enough.
+        ([1.0, 1.0], 1, [True], None),
+    ],
+    ids=["fail-pass-pass", "pass-fail-pass", "single-pass"],
+)
 def test_finite_shell_convergence_requires_two_successive_increments(
-    tmp_path: Path, field_kernel_library: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    forces: list[float],
+    max_layers: int,
+    expected_increments: list[bool],
+    expected_layer: int | None,
 ) -> None:
-    config = tmp_path / "beach.toml"
-    _write_config(config)
-    with ObjectInteractionSnapshot.from_result(
-        _result(tmp_path, np.zeros(2)),
-        step=None,
-        config_path=config,
-        library_path=field_kernel_library,
-    ) as snapshot:
-        probe = snapshot.object_probe(1)
-        converged = finite_shell_convergence(
-            snapshot,
-            probe,
-            np.array([0.0, 0.1]),
-            max_layers=2,
-        )
-        unresolved = finite_shell_convergence(
-            snapshot,
-            probe,
-            np.array([0.0, 0.1]),
-            max_layers=1,
-            relative_tolerance=0.0,
-            force_floor_N=0.0,
-            work_floor_J=0.0,
-        )
+    paths = [_constant_path(force) for force in forces]
+    _install_fake_shell_paths(monkeypatch, paths)
 
-    assert converged.status == "converged"
-    assert converged.selected_image_layers == 2
-    assert converged.selected_path is converged.corrected_paths[-1]
-    assert unresolved.status == "not_converged"
-    assert unresolved.selected_image_layers is None
-    assert unresolved.selected_path is None
+    result = finite_shell_convergence(
+        SimpleNamespace(periodic_model="configured"),
+        _PathProbe(_constant_path(99.0)),  # type: ignore[arg-type]
+        np.array([0.0, 1.0]),
+        max_layers=max_layers,
+        relative_tolerance=1.0e-2,
+        force_floor_N=0.0,
+        work_floor_J=0.0,
+    )
+
+    np.testing.assert_array_equal(result.increment_converged, expected_increments)
+    assert result.selected_image_layers == expected_layer
+    if expected_layer is None:
+        assert result.status == "not_converged"
+        assert result.selected_path is None
+    else:
+        assert result.status == "converged"
+        assert result.selected_path is result.corrected_paths[-1]
+        assert result.selected_path.force_N[0, 2] == forces[expected_layer]
 
 
 def test_finite_shell_convergence_record_freezes_path_sequences() -> None:

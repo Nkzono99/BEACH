@@ -863,15 +863,17 @@ def test_release_parameters_rejects_declared_geometry_radius_mismatch(
     )
     assert within_tolerance["radius_m"] == pytest.approx(3.5e-5)
     assert within_tolerance["geometry_radius_m"] == pytest.approx(3.51e-5)
+    # Mass (~5e-10 kg) and work (~1e-16 J) sit at or below pytest.approx's default 1e-12 absolute
+    # tolerance, so these physical values are compared relative only.
     assert within_tolerance["mass_kg"] == pytest.approx(
-        4.0 * np.pi * 3000.0 * (3.5e-5) ** 3 / 3.0
+        4.0 * np.pi * 3000.0 * (3.5e-5) ** 3 / 3.0, rel=1.0e-12, abs=0.0
     )
     declared_coefficient = 3.0 * 0.1 * 1.0e-19 * (3.5e-5 / 2.0) / 6.0
     assert within_tolerance["adhesion_force_N"] == pytest.approx(
-        declared_coefficient / (0.4e-9) ** 2
+        declared_coefficient / (0.4e-9) ** 2, rel=1.0e-12, abs=0.0
     )
     assert within_tolerance["adhesion_work_J"] == pytest.approx(
-        0.5 * declared_coefficient * (1.0 / 0.4e-9 - 1.0 / 10.0e-9)
+        0.5 * declared_coefficient * (1.0 / 0.4e-9 - 1.0 / 10.0e-9), rel=1.0e-12, abs=0.0
     )
 
     with pytest.raises(tool.ValidationError, match="radius.*mismatch"):

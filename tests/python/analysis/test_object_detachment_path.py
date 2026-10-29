@@ -261,6 +261,15 @@ def test_vertical_path_converges_after_refinement_and_reports_limit(
     assert refined.displacement_m.size > 2
     assert refined.refinement_count > 0
     assert refined.status == "converged"
+    # The refined trapezoid work must reach the closed form phi(0) - phi(z) of the sharp field to the
+    # requested relative tolerance; the unrefined two-point trapezoid is about 50 times too large.
+    z = refined.displacement_m
+    np.testing.assert_allclose(refined.force_N[:, 2], 1.0 / (0.01 + z) ** 2, rtol=1.0e-12)
+    np.testing.assert_allclose(
+        refined.electrostatic_work_J[1:],
+        1.0 / 0.01 - 1.0 / (0.01 + z[1:]),
+        rtol=1.0e-3,
+    )
     assert failed.status == "not_converged"
     assert failed.numerical_metadata["status_reason"] == "max_refinement_reached"
 

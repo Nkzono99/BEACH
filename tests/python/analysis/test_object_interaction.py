@@ -1074,6 +1074,12 @@ def test_triangle_source_is_never_silently_downgraded_to_centroids(
     assert compatibility.numerical_metadata["target_integration"] == (
         "centroid_compatibility"
     )
+    # The snapshot kernel and both probe kernels receive the saved triangles unchanged, so neither
+    # integration mode collapses or moves the source geometry before native evaluation.
+    fake_field, _ = fake_native
+    assert len(fake_field.instances) == 3
+    for instance in fake_field.instances:
+        np.testing.assert_array_equal(instance.source_triangles, result.mesh.triangles)
 
 
 def test_periodic_snapshot_connects_one_mesh_across_the_cell_seam(

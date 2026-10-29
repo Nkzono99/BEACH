@@ -896,7 +896,7 @@ def test_load_run_model_contract_and_charge_ledger(tmp_path: Path) -> None:
     assert result.receipts.model_fingerprint == "0123456789ABCDEF"
     assert result.receipts.mesh_fingerprint == "1111111122222222"
     assert result.receipts.species_fingerprint == "3333333344444444"
-    assert result.diagnostics.charge_ledger_residual_c == pytest.approx(1.0e-18)
+    assert result.diagnostics.charge_ledger_residual_c == 1.0e-18
     assert result.ledger is not None
     assert result.ledger[0].species_idx == 1
     assert result.ledger[0].injected_from_remote_c == pytest.approx(-3.0)
