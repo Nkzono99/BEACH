@@ -23,6 +23,9 @@ contains
   logical :: use_collective_reservoir_count
   type(particle_species_spec) :: face_spec
   real(dp) :: correction_vmin_normal, kinetic_vmin_normal, kinetic_barrier_normal, face_density_m3
+  ! A boundary face spans the whole box side, so its potential statistics are shared by every species.
+  real(dp) :: face_potential(4, 6)
+  logical :: face_potential_ready(6)
 
   layout = batch_injection_layout_type()
   if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
@@ -71,6 +74,7 @@ contains
   layout%photo_emit_current_density = source_plan%photo_emit_current_density
   layout%photo_normal_drift_speed = source_plan%photo_normal_drift_speed
   layout%photo_ray_weight = 0.0_dp
+  face_potential_ready = .false.
 
   do s = 1, cfg%n_particle_species
     if (.not. cfg%particle_species(s)%enabled) cycle
@@ -101,7 +105,8 @@ contains
         call reservoir_face_velocity_correction( &
           cfg, face_spec, correction_vmin_normal, layout%boundary_barrier(face, s), mesh, snapshot, &
           warn_face_variation=local_rank == 0_i32 .and. &
-          (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
+          (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count), &
+          face_potential=face_potential(:, face), face_potential_ready=face_potential_ready(face) &
           )
         layout%boundary_vmin(face, s) = correction_vmin_normal
         face_density_m3 = source_plan%effective_density_m3(s)
@@ -110,7 +115,8 @@ contains
             cfg, face_spec, source_plan%kinetic_reservoir_potential_v(s), &
             source_plan%kinetic_access_potential_v(s), kinetic_vmin_normal, kinetic_barrier_normal, &
             mesh, snapshot, warn_face_variation=local_rank == 0_i32 .and. &
-            (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
+            (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count), &
+            face_potential=face_potential(:, face), face_potential_ready=face_potential_ready(face) &
             )
           layout%boundary_vmin(face, s) = max(layout%boundary_vmin(face, s), kinetic_vmin_normal)
           layout%boundary_barrier(face, s) = kinetic_barrier_normal

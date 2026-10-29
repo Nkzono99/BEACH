@@ -137,7 +137,7 @@ module bem_app_config_particle_runtime
     end subroutine init_particle_batch_from_config
 
     module subroutine reservoir_face_velocity_correction( &
-      cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, warn_face_variation &
+      cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, warn_face_variation, face_potential, face_potential_ready &
       )
       type(app_config), intent(in) :: cfg
       type(particle_species_spec), intent(in) :: spec
@@ -146,11 +146,15 @@ module bem_app_config_particle_runtime
       type(mesh_type), intent(in), optional :: mesh
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
       logical, intent(in), optional :: warn_face_variation
+      !> 面の電位統計 (平均, 標準偏差, 最小, 最大) [V] の cache。`face_potential_ready` が真なら評価せずに使い、
+      !! 偽なら評価して書き込む。box 面全体の統計なので、同じ snapshot の 1 layout 内では種によらず共有できる。
+      real(dp), intent(inout), optional :: face_potential(4)
+      logical, intent(inout), optional :: face_potential_ready
     end subroutine reservoir_face_velocity_correction
 
     module subroutine external_kinetic_face_velocity_correction( &
       cfg, spec, reservoir_potential_v, access_potential_v, vmin_normal, barrier_normal, &
-      mesh, snapshot, warn_face_variation &
+      mesh, snapshot, warn_face_variation, face_potential, face_potential_ready &
       )
       type(app_config), intent(in) :: cfg
       type(particle_species_spec), intent(in) :: spec
@@ -159,6 +163,10 @@ module bem_app_config_particle_runtime
       type(mesh_type), intent(in), optional :: mesh
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
       logical, intent(in), optional :: warn_face_variation
+      !> 面の電位統計 (平均, 標準偏差, 最小, 最大) [V] の cache。`face_potential_ready` が真なら評価せずに使い、
+      !! 偽なら評価して書き込む。box 面全体の統計なので、同じ snapshot の 1 layout 内では種によらず共有できる。
+      real(dp), intent(inout), optional :: face_potential(4)
+      logical, intent(inout), optional :: face_potential_ready
     end subroutine external_kinetic_face_velocity_correction
   end interface
 
