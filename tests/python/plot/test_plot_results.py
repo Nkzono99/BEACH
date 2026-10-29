@@ -1,5 +1,7 @@
 """Result plot contracts."""
 
+from dataclasses import replace
+
 from beach.io.types import RunField, RunHistory, RunMesh, RunSummary
 
 from pathlib import Path
@@ -9,11 +11,13 @@ from beach import (
     Beach,
     RunResult,
     animate_history_mesh,
+    calc_coulomb,
     plot_mesh_source_boxplot,
     plot_charge_mesh,
     plot_coulomb_force_matrix,
     plot_potential_slices,
     plot_potential_mesh,
+    compute_potential_mesh,
 )
 from beach.plot.animation import _select_frame_columns
 from result_fixtures import (
@@ -339,21 +343,28 @@ def test_plot_potential_mesh_accepts_custom_view_angles(tmp_path: Path) -> None:
     fig.clf()
 
 
+def _right_triangle(height: float, z: float) -> list[list[float]]:
+    """Triangle with unit base, so its area is ``height / 2``."""
+
+    return [[0.0, 0.0, z], [1.0, 0.0, z], [0.0, height, z]]
+
+
 def test_plot_mesh_source_boxplot_charge_uses_area_weighted_statistics() -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
 
+    # Areas 1, 1, 0.5, 1, 0.5 put the weighted CDF at 0.25, 0.5, 0.625, 0.875, 1 for
+    # the sorted values 10, 20, 30, 40, 1000. Unweighted quartiles would be 20/30/40.
+    values = np.array([40.0, 10.0, 1000.0, 30.0, 20.0])
+    heights = np.array([2.0, 2.0, 1.0, 1.0, 2.0])
     triangles = np.array(
-        [
-            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
-            [[0.0, 0.0, 1.0], [2.0, 0.0, 1.0], [0.0, 2.0, 1.0]],
-        ]
+        [_right_triangle(height, float(index)) for index, height in enumerate(heights)]
     )
     result = RunResult(
         directory=Path("dummy"),
-        charges=np.array([0.0, 10.0]),
+        charges=values,
         summary=RunSummary(
-            mesh_nelem=2,
+            mesh_nelem=5,
             processed_particles=0,
             absorbed=0,
             escaped=0,
@@ -362,14 +373,17 @@ def test_plot_mesh_source_boxplot_charge_uses_area_weighted_statistics() -> None
             survived_max_step=0,
             last_rel_change=0.0,
         ),
-        mesh=RunMesh(triangles=triangles, mesh_ids=np.array([11, 11], dtype=np.int64)),
+        mesh=RunMesh(triangles=triangles, mesh_ids=np.full(5, 11, dtype=np.int64)),
     )
 
     fig, ax = plot_mesh_source_boxplot(result, quantity="charge")
 
     stats = getattr(ax, "_beach_box_stats")
     assert len(stats) == 1
-    assert stats[0]["med"] == pytest.approx(10.0)
+    assert {key: stats[0][key] for key in ("whislo", "q1", "med", "q3", "whishi")} == (
+        pytest.approx({"whislo": 10.0, "q1": 10.0, "med": 20.0, "q3": 40.0, "whishi": 40.0})
+    )
+    np.testing.assert_array_equal(stats[0]["fliers"], [1000.0])
     fig.clf()
 
 
@@ -399,17 +413,27 @@ def test_plot_mesh_source_boxplot_supports_potential_quantity(
             survived_max_step=0,
             last_rel_change=0.0,
         ),
-        mesh=RunMesh(triangles=triangles, mesh_ids=np.array([1, 2], dtype=np.int64)),
+        mesh=RunMesh(
+            triangles=triangles,
+            mesh_ids=np.array([1, 2], dtype=np.int64),
+            mesh_potential_v=np.array([5.0, -7.0]),
+        ),
     )
 
-    fig, ax = plot_mesh_source_boxplot(
-        result,
-        quantity="potential",
-    )
+    # step=None reads the saved mesh_potential.csv values.
+    fig, ax = plot_mesh_source_boxplot(result, quantity="potential", step=None)
+    saved = getattr(ax, "_beach_box_stats")
+    assert [item["med"] for item in saved] == [5.0, -7.0]
+    assert [(item["q1"], item["q3"]) for item in saved] == [(5.0, 5.0), (-7.0, -7.0)]
+    fig.clf()
 
-    stats = getattr(ax, "_beach_box_stats")
-    assert len(stats) == 2
-    assert all(np.isfinite(float(item["med"])) for item in stats)
+    # A history step recomputes the potential from that step's charges.
+    fig, ax = plot_mesh_source_boxplot(result, quantity="potential")
+    recomputed = getattr(ax, "_beach_box_stats")
+    expected = compute_potential_mesh(result, source="kernel")
+    assert np.all(np.abs(expected) > 1.0)
+    np.testing.assert_allclose([item["med"] for item in recomputed], expected)
+    assert ax.get_ylabel() == "potential [V]"
     fig.clf()
 
 
@@ -454,6 +478,10 @@ def test_beach_plot_mesh_source_boxplot_uses_mesh_source_labels(tmp_path: Path) 
     fig.clf()
 
 
+def _force_x(beach: Beach, target: int, sources: list[int]) -> float:
+    return float(calc_coulomb(beach, target=target, source=sources).force_on_a_N[0])
+
+
 def test_plot_coulomb_force_matrix_auto_labels_targets_from_config(
     tmp_path: Path,
 ) -> None:
@@ -471,12 +499,21 @@ def test_plot_coulomb_force_matrix_auto_labels_targets_from_config(
     assert matrix_info["target_labels"] == ("plane", "sphere1", "sphere2")
     assert matrix_info["source_labels"] == ("plane", "sphere1", "sphere2", "net")
     matrix = matrix_info["matrix"]
-    assert np.all(np.isfinite(matrix))
+    # Rows are sources and columns are targets; each entry is calc_coulomb's Fx.
+    mesh_ids = [1, 2, 3]
+    expected = np.zeros((4, 3))
+    for col, target in enumerate(mesh_ids):
+        others = [mesh_id for mesh_id in mesh_ids if mesh_id != target]
+        for source in others:
+            expected[mesh_ids.index(source), col] = _force_x(beach, target, [source])
+        expected[3, col] = _force_x(beach, target, others)
+    np.testing.assert_allclose(matrix, expected, rtol=1.0e-12, atol=0.0)
+    # Charges +1, +2, -3 nC at x = 0, 1, 2: like charges repel, unlike attract.
+    assert matrix[0, 1] > 0.0 and matrix[1, 0] < 0.0
+    assert matrix[0, 2] < 0.0 and matrix[2, 0] > 0.0
     np.testing.assert_allclose(np.diag(matrix[:3]), np.zeros(3))
-    np.testing.assert_allclose(
-        matrix[-1],
-        np.sum(matrix[:-1], axis=0),
-    )
+    np.testing.assert_allclose(matrix[-1], np.sum(matrix[:-1], axis=0))
+    np.testing.assert_array_equal(np.asarray(ax.images[0].get_array()), matrix)
     fig.clf()
 
     fig, ax = beach.plot_coulomb_force_matrix(component="x", workers=2)
@@ -495,9 +532,10 @@ def test_plot_coulomb_force_matrix_accepts_explicit_target_kinds(
     out = tmp_path / "run_coulomb_matrix_plane"
     out.mkdir()
     _write_coulomb_matrix_fixture(out)
+    beach = Beach(out)
 
     fig, ax = plot_coulomb_force_matrix(
-        Beach(out),
+        beach,
         component="x",
         target_kinds=("plane",),
         annotate=False,
@@ -506,13 +544,10 @@ def test_plot_coulomb_force_matrix_accepts_explicit_target_kinds(
     matrix_info = getattr(ax, "_beach_coulomb_matrix")
     assert matrix_info["target_labels"] == ("plane",)
     assert matrix_info["source_labels"] == ("plane", "sphere1", "sphere2", "net")
-    matrix = matrix_info["matrix"]
-    assert np.all(np.isfinite(matrix))
-    assert matrix[0, 0] == pytest.approx(0.0)
-    np.testing.assert_allclose(
-        matrix[-1, 0],
-        np.sum(matrix[:-1, 0]),
-    )
+    expected = [0.0, _force_x(beach, 1, [2]), _force_x(beach, 1, [3]), _force_x(beach, 1, [2, 3])]
+    np.testing.assert_allclose(matrix_info["matrix"][:, 0], expected, rtol=1.0e-12, atol=0.0)
+    # The +2 nC panel pushes the +1 nC plane toward -x; the -3 nC panel pulls it to +x.
+    assert expected[1] < 0.0 < expected[2]
     fig.clf()
 
 
@@ -691,12 +726,8 @@ def test_animate_history_mesh_rejects_stride_and_total_frames_combination(
         )
 
 
-@pytest.mark.parametrize("quantity", ["charge", "potential"])
-def test_animate_history_mesh_writes_gif(tmp_path: Path, quantity: str) -> None:
-    matplotlib = pytest.importorskip("matplotlib")
-    pytest.importorskip("PIL")
-    matplotlib.use("Agg")
-    _write_complete_free_field_config(tmp_path)
+def _history_result(directory: Path) -> RunResult:
+    """Two unit-area panels whose three history frames all differ."""
 
     triangles = np.array(
         [
@@ -710,8 +741,8 @@ def test_animate_history_mesh_writes_gif(tmp_path: Path, quantity: str) -> None:
             [-2.0e-10, -1.0e-10, -0.5e-10],
         ]
     )
-    result = RunResult(
-        directory=tmp_path,
+    return RunResult(
+        directory=directory,
         charges=charge_history[:, -1],
         summary=RunSummary(
             mesh_nelem=2,
@@ -734,54 +765,101 @@ def test_animate_history_mesh_writes_gif(tmp_path: Path, quantity: str) -> None:
             )
         ),
     )
-    out = tmp_path / f"{quantity}.gif"
+
+
+def _sorted_rows(values: np.ndarray) -> np.ndarray:
+    return values[np.lexsort(values.T[::-1])]
+
+
+def test_animate_history_mesh_writes_gif(tmp_path: Path) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    image_module = pytest.importorskip("PIL.Image")
+    matplotlib.use("Agg")
+    out = tmp_path / "charge.gif"
 
     written = animate_history_mesh(
-        result,
+        _history_result(tmp_path),
         out,
-        quantity=quantity,
+        quantity="charge",
         fps=4,
         frame_stride=1,
     )
 
     assert written == out
-    assert out.exists()
-    assert out.stat().st_size > 0
+    frames = []
+    with image_module.open(out) as image:
+        assert image.format == "GIF"
+        assert image.n_frames == 3
+        for index in range(image.n_frames):
+            image.seek(index)
+            assert image.info["duration"] == 250
+            frames.append(np.asarray(image.convert("RGB")))
+    assert all(
+        not np.array_equal(frames[first], frames[second])
+        for first in range(3)
+        for second in range(first + 1, 3)
+    )
 
 
-def test_animate_history_mesh_omitted_view_uses_mesh_plot_defaults(
-    tmp_path: Path,
+@pytest.mark.parametrize("quantity", ["charge", "potential"])
+def test_animate_history_mesh_frames_follow_history_values(
+    tmp_path: Path, quantity: str
 ) -> None:
     matplotlib = pytest.importorskip("matplotlib")
-    pytest.importorskip("PIL")
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.animation import AbstractMovieWriter
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-    result = RunResult(
-        directory=Path("dummy"),
-        charges=np.array([2.0e-10]),
-        summary=RunSummary(
-            mesh_nelem=1,
-            processed_particles=0,
-            absorbed=0,
-            escaped=0,
-            batches=0,
-            escaped_boundary=0,
-            survived_max_step=0,
-            last_rel_change=0.0,
-        ),
-        mesh=RunMesh(
-            triangles=np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-        ),
-        history=RunHistory(
-            charge=_make_history(mesh_nelem=1, history=np.array([[1.0e-10, 2.0e-10]]))
-        ),
-    )
+    _write_complete_free_field_config(tmp_path)
+    result = _history_result(tmp_path)
+    history = result.history.charge.as_array()
+    if quantity == "charge":
+        expected = history  # unit-area panels: density equals charge
+    else:
+        expected = np.column_stack(
+            [
+                compute_potential_mesh(replace(result, charges=charges), source="kernel")
+                for charges in history.T
+            ]
+        )
+    limit = float(np.max(np.abs(expected)))
+    cmap = matplotlib.colormaps["viridis"]
+    norm = matplotlib.colors.Normalize(vmin=-limit, vmax=limit)
+
+    class _FaceColorRecorder(AbstractMovieWriter):
+        """Record each saved frame's face colors instead of encoding images."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.frames: list[np.ndarray] = []
+
+        def setup(self, fig, outfile, dpi=None) -> None:
+            super().setup(fig, outfile, dpi)
+
+        def grab_frame(self, **_savefig_kwargs) -> None:
+            self.fig.canvas.draw()
+            (mesh,) = [
+                item
+                for item in self.fig.axes[0].collections
+                if isinstance(item, Poly3DCollection)
+            ]
+            self.frames.append(np.asarray(mesh.get_facecolor())[:, :3])
+
+        def finish(self) -> None:
+            pass
+
     _, mesh_ax = plot_charge_mesh(result)
-
-    animation = animate_history_mesh(result)
+    animation = animate_history_mesh(result, quantity=quantity, cmap="viridis")
+    # An omitted view uses the same defaults as the static mesh plot.
     anim_ax = plt.gcf().axes[0]
-
     assert (anim_ax.elev, anim_ax.azim) == (mesh_ax.elev, mesh_ax.azim)
-    animation.save(tmp_path / "view.gif", writer="pillow")
-    plt.close("all")
+    recorder = _FaceColorRecorder()
+    animation.save(tmp_path / "unused.gif", writer=recorder)
+
+    assert len(recorder.frames) == history.shape[1]
+    for frame, colors in enumerate(recorder.frames):
+        # Depth sorting may reorder faces, so compare the face colors as sorted rows.
+        np.testing.assert_allclose(
+            _sorted_rows(colors), _sorted_rows(cmap(norm(expected[:, frame]))[:, :3])
+        )

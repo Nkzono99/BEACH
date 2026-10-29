@@ -38,6 +38,20 @@ from result_fixtures import (
 )
 
 
+
+def _record_potential_kernels(monkeypatch: pytest.MonkeyPatch) -> list[_UnitPanelKernel]:
+    """Install a unit panel kernel that remembers every kernel the potential API builds."""
+
+    built: list[_UnitPanelKernel] = []
+
+    class _RecordingKernel(_UnitPanelKernel):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            built.append(self)
+
+    monkeypatch.setattr(potential_module, "FieldKernel", _RecordingKernel)
+    return built
+
 @pytest.mark.parametrize(
     ("field_source_model", "summary_extra", "expected_source_model"),
     [
@@ -837,6 +851,7 @@ def test_compute_potential_mesh_supports_periodic2_image_sum(
 )
 def test_compute_potential_points_normalizes_periodic2_config_far_correction(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     far_correction: str | None,
 ) -> None:
     out = tmp_path / "run_periodic"
@@ -887,8 +902,9 @@ def test_compute_potential_points_normalizes_periodic2_config_far_correction(
 
     result = load_run(out)
     points = np.array([[0.0, 0.0, 0.5]])
-    potential = compute_potential_points(result, points)
-    explicit = compute_potential_points(
+    built = _record_potential_kernels(monkeypatch)
+    compute_potential_points(result, points)
+    compute_potential_points(
         result,
         points,
         periodic2={
@@ -899,7 +915,9 @@ def test_compute_potential_points_normalizes_periodic2_config_far_correction(
         },
     )
 
-    np.testing.assert_allclose(potential, explicit)
+    configured, explicit = (kernel.options.periodic2 for kernel in built)
+    assert configured.far_correction == "none"
+    assert configured == explicit
 
 
 def test_composed_analyses_normalize_auto_loaded_historical_root_oracle(
@@ -1019,19 +1037,27 @@ def test_compute_potential_points_wraps_periodic2_points_to_fundamental_cell(
     np.testing.assert_allclose(potential[0], potential[1])
 
 
-def test_potential_history_reuses_panel_kernel_with_periodic2() -> None:
+def test_potential_history_reuses_panel_kernel_with_periodic2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
     charges_history = np.array([[2.0e-9, -1.0e-9]])
     periodic2 = coerce_periodic2(
         {"axes": (0, 1), "lengths": (1.0, 1.0), "image_layers": 1}
     )
     assert periodic2 is not None
+    built = _record_potential_kernels(monkeypatch)
 
     potential = _potential_history(
         charges_history,
         triangles,
         periodic2=periodic2,
     )
+
+    # One plan serves every frame and is closed when the history is done.
+    assert len(built) == 1
+    assert built[0].periodic2 == periodic2
+    assert built[0].closed
 
     free = _potential_history(charges_history, triangles)
 
@@ -1042,6 +1068,7 @@ def test_potential_history_reuses_panel_kernel_with_periodic2() -> None:
 
 def test_compute_potential_points_normalizes_auto_far_correction_to_none(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _write_complete_free_field_config(tmp_path)
     result = RunResult(
@@ -1069,14 +1096,17 @@ def test_compute_potential_points_normalizes_auto_far_correction_to_none(
         "far_correction": "auto",
     }
 
-    potential = compute_potential_points(result, points, periodic2=periodic2)
-    expected = compute_potential_points(
+    built = _record_potential_kernels(monkeypatch)
+    compute_potential_points(result, points, periodic2=periodic2)
+    compute_potential_points(
         result,
         points,
         periodic2={**periodic2, "far_correction": "none"},
     )
 
-    np.testing.assert_allclose(potential, expected)
+    auto, explicit = (kernel.options.periodic2 for kernel in built)
+    assert auto.far_correction == "none"
+    assert auto == explicit
 
 
 @pytest.mark.parametrize(
@@ -1182,13 +1212,22 @@ def test_compute_potential_points_validates_shape_and_chunk_size() -> None:
         )
 
 
-def test_compute_potential_slices_returns_xy_yz_xz_grids(tmp_path: Path) -> None:
+class _AffinePotentialKernel(_UnitPanelKernel):
+    """phi = x + 10 y + 100 z, so every sample identifies its own coordinates."""
+
+    def eval_phi(self, points: np.ndarray) -> np.ndarray:
+        return np.asarray(points, dtype=float) @ np.array([1.0, 10.0, 100.0])
+
+
+def test_compute_potential_slices_returns_xy_yz_xz_grids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(potential_module, "FieldKernel", _AffinePotentialKernel)
     _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
-    charge = np.array([2.0e-9])
     result = RunResult(
         directory=tmp_path,
-        charges=charge,
+        charges=np.array([2.0e-9]),
         summary=RunSummary(
             mesh_nelem=1,
             processed_particles=0,
@@ -1201,34 +1240,49 @@ def test_compute_potential_slices_returns_xy_yz_xz_grids(tmp_path: Path) -> None
         ),
         mesh=RunMesh(triangles=triangles),
     )
+    box_min = np.array([-1.0, -2.0, 0.0])
+    box_max = np.array([3.0, 2.0, 8.0])
+    grid_n = 5
 
     slices = compute_potential_slices(
         result,
-        box_min=[-1.0, -1.0, -1.0],
-        box_max=[1.0, 1.0, 1.0],
-        grid_n=5,
-        xy_z=0.5,
-        yz_x=0.5,
-        xz_y=0.5,
+        box_min=box_min,
+        box_max=box_max,
+        grid_n=grid_n,
+        xy_z=6.0,
+        yz_x=-0.5,
+        xz_y=1.5,
     )
 
-    assert set(slices.keys()) == {"xy", "yz", "xz"}
-    for plane in ("xy", "yz", "xz"):
+    gradient = {"x": 1.0, "y": 10.0, "z": 100.0}
+    axes = {
+        name: np.linspace(box_min[index], box_max[index], grid_n)
+        for index, name in enumerate("xyz")
+    }
+    expected_layout = {
+        "xy": ("x", "y", "z", 6.0),
+        "yz": ("y", "z", "x", -0.5),
+        "xz": ("x", "z", "y", 1.5),
+    }
+    assert set(slices) == set(expected_layout)
+    for plane, (axis_u, axis_v, fixed_axis, fixed_value) in expected_layout.items():
         slc = slices[plane]
-        assert slc.potential_V.shape == (5, 5)
-        assert slc.u_values_m.shape == (5,)
-        assert slc.v_values_m.shape == (5,)
-
-    center_values = np.array(
-        [
-            slices["xy"].potential_V[2, 2],
-            slices["yz"].potential_V[2, 2],
-            slices["xz"].potential_V[2, 2],
-        ]
-    )
-    assert np.all(np.isfinite(center_values))
-    assert np.all(center_values > 0.0)
-    assert np.ptp(center_values) > 0.0
+        assert (slc.plane, slc.axis_u, slc.axis_v, slc.fixed_axis) == (
+            plane,
+            axis_u,
+            axis_v,
+            fixed_axis,
+        )
+        assert slc.fixed_value_m == fixed_value
+        np.testing.assert_allclose(slc.u_values_m, axes[axis_u])
+        np.testing.assert_allclose(slc.v_values_m, axes[axis_v])
+        # potential_V has shape (n_v, n_u): rows follow v and columns follow u.
+        expected = (
+            gradient[axis_u] * axes[axis_u][None, :]
+            + gradient[axis_v] * axes[axis_v][:, None]
+            + gradient[fixed_axis] * fixed_value
+        )
+        np.testing.assert_allclose(slc.potential_V, expected)
 
 
 def test_compute_potential_slices_rejects_invalid_grid_or_coordinate() -> None:
