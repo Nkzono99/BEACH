@@ -3528,7 +3528,7 @@ def _history_rows(case: str, paths: Sequence[Path]) -> list[dict[str, Any]]:
         current_batch: int | None = None
         processed = ""
         rel_change = ""
-        charge_sum = 0.0
+        charges: list[float] = []
         with path.open("r", encoding="utf-8", newline="") as stream:
             reader = csv.DictReader(stream)
             required = {"batch", "processed_particles", "rel_change", "charge_C"}
@@ -3547,19 +3547,19 @@ def _history_rows(case: str, paths: Sequence[Path]) -> list[dict[str, Any]]:
                             "batch": current_batch,
                             "processed_particles": processed,
                             "rel_change": rel_change,
-                            "total_charge_C": charge_sum,
+                            "total_charge_C": math.fsum(charges),
                             "source_segment": str(path.parent),
                         }
                     )
                     seen_batches.add(current_batch)
-                    charge_sum = 0.0
+                    charges = []
                 current_batch = batch
                 processed = raw["processed_particles"]
                 rel_change = raw["rel_change"]
                 charge = float(raw["charge_C"])
                 if not math.isfinite(charge):
                     raise ValidationError(f"nonfinite history charge in {path}")
-                charge_sum += charge
+                charges.append(charge)
         if current_batch is not None:
             if current_batch in seen_batches:
                 raise ValidationError(
@@ -3571,7 +3571,7 @@ def _history_rows(case: str, paths: Sequence[Path]) -> list[dict[str, Any]]:
                     "batch": current_batch,
                     "processed_particles": processed,
                     "rel_change": rel_change,
-                    "total_charge_C": charge_sum,
+                    "total_charge_C": math.fsum(charges),
                     "source_segment": str(path.parent),
                 }
             )
