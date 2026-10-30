@@ -2,6 +2,7 @@
 module bem_coulomb_fmm_plan_ops
   use bem_filesystem, only: default_periodic_cache_directory
   use bem_kinds, only: dp, sp, i32
+  use bem_sorting, only: sort_real_ascending
   use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, reset_fmm_plan, &
                                    periodic_source_proxy_half_size, periodic_operator_source_radius_ratio, &
                                    periodic_operator_target_radius_ratio
@@ -1471,7 +1472,7 @@ contains
       do i = 1_i32, nsrc
         pos_sorted(i) = plan%src_pos(axis, i) - lo
       end do
-      call sort_real_ascending(pos_sorted, nsrc)
+      call sort_real_ascending(pos_sorted)
 
       max_gap = 0.0d0
       new_origin = lo
@@ -1500,26 +1501,5 @@ contains
       end do
     end do
   end subroutine build_canonical_src_pos
-
-  !> 実数配列を昇順ソートする（挿入ソート）。
-  !! @param[inout] a ソート対象の配列。
-  !! @param[in] n 配列要素数。
-  pure subroutine sort_real_ascending(a, n)
-    real(dp), intent(inout) :: a(:)
-    integer(i32), intent(in) :: n
-    integer(i32) :: i, j
-    real(dp) :: key
-
-    do i = 2_i32, n
-      key = a(i)
-      j = i - 1_i32
-      do while (j >= 1_i32)
-        if (a(j) <= key) exit
-        a(j + 1_i32) = a(j)
-        j = j - 1_i32
-      end do
-      a(j + 1_i32) = key
-    end do
-  end subroutine sort_real_ascending
 
 end module bem_coulomb_fmm_plan_ops

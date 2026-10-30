@@ -2,6 +2,7 @@ module bem_periodic_zero_mode_plan
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0
   use bem_types, only: mesh_type
+  use bem_sorting, only: sort_real_ascending
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
   private
@@ -106,7 +107,7 @@ contains
     do elem = 1_i32, nelem
       heights(3*elem - 2:3*elem) = source_heights(:, elem)
     end do
-    call sort_real(heights)
+    call sort_real_ascending(heights)
     ! Geometric scale of the problem: the slab height and the lateral cell size. Neither depends on
     ! the absolute z origin or on a 1 m unit; sqrt(area_xy) keeps a flat slab from treating
     ! rounding-level tilts (eps times the lateral coordinates) as inclined panels.
@@ -276,43 +277,6 @@ contains
       if (abs(break_z(index - 1_i32) - value) <= abs(break_z(index) - value)) index = index - 1_i32
     end if
   end function nearest_break
-
-  subroutine sort_real(values)
-    real(dp), intent(inout) :: values(:)
-    real(dp) :: key
-    integer :: start, last
-
-    ! In-place heapsort bounds plan construction by O(N log N), including reversed heights.
-    last = size(values)
-    do start = last/2, 1, -1
-      call sift_down(start, last)
-    end do
-    do last = size(values), 2, -1
-      key = values(last)
-      values(last) = values(1)
-      values(1) = key
-      call sift_down(1, last - 1)
-    end do
-  contains
-    subroutine sift_down(first, limit)
-      integer, intent(in) :: first, limit
-      integer :: root, child
-      real(dp) :: key
-
-      root = first
-      key = values(root)
-      do while (root <= limit/2)
-        child = 2*root
-        if (child < limit) then
-          if (values(child) < values(child + 1)) child = child + 1
-        end if
-        if (key >= values(child)) exit
-        values(root) = values(child)
-        root = child
-      end do
-      values(root) = key
-    end subroutine sift_down
-  end subroutine sort_real
 
   pure subroutine sort_three(values)
     real(dp), intent(inout) :: values(3)
