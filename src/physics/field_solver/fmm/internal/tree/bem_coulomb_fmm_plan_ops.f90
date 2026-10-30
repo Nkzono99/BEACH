@@ -1241,13 +1241,11 @@ contains
 
   subroutine precompute_translation_operators(plan)
     type(fmm_plan_type), intent(inout) :: plan
-    integer(i32) :: alpha_idx, beta_idx, gamma_idx, delta_idx, term_idx
+    integer(i32) :: alpha_idx, beta_idx, gamma_idx, term_idx
     integer(i32) :: node_idx, n_target_nodes, parent_node
     integer(i32) :: delta(3)
     integer(i32) :: max_m2m_terms, max_l2l_terms
     real(dp) :: d(3)
-    real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
-    real(dp) :: zpow(0:max(0_i32, plan%options%order))
 
     if (allocated(plan%m2m_term_count)) deallocate (plan%m2m_term_count)
     if (allocated(plan%m2m_alpha_list)) deallocate (plan%m2m_alpha_list)
@@ -1307,16 +1305,12 @@ contains
     plan%source_shift_monomial = 0.0d0
     if (plan%nnode > 0_i32) plan%source_shift_monomial(1_i32, 1_i32) = 1.0d0
     !$omp parallel do default(none) schedule(static) &
-    !$omp shared(plan) private(node_idx, parent_node, d, xpow, ypow, zpow, delta_idx)
+    !$omp shared(plan) private(node_idx, parent_node, d)
     do node_idx = 1_i32, plan%nnode
       parent_node = plan%source_parent_of(node_idx)
       if (parent_node <= 0_i32) cycle
       d = plan%node_center(:, node_idx) - plan%node_center(:, parent_node)
-      call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
-      do delta_idx = 1_i32, plan%ncoef
-        plan%source_shift_monomial(delta_idx, node_idx) = xpow(plan%alpha(1, delta_idx))*ypow(plan%alpha(2, delta_idx)) &
-                                                          *zpow(plan%alpha(3, delta_idx))/plan%alpha_factorial(delta_idx)
-      end do
+      call fill_shift_monomial(plan, d, plan%source_shift_monomial(:, node_idx))
     end do
     !$omp end parallel do
 
@@ -1326,26 +1320,38 @@ contains
     plan%target_shift_monomial = 0.0d0
     if (n_target_nodes > 0_i32) plan%target_shift_monomial(1_i32, 1_i32) = 1.0d0
     !$omp parallel do default(none) schedule(static) &
-    !$omp shared(plan, n_target_nodes) private(node_idx, parent_node, d, xpow, ypow, zpow, delta_idx)
+    !$omp shared(plan, n_target_nodes) private(node_idx, parent_node, d)
     do node_idx = 1_i32, n_target_nodes
       parent_node = plan%parent_of(node_idx)
       if (parent_node <= 0_i32) cycle
       d = active_tree_node_center(plan, plan%target_tree_ready, node_idx) - &
           active_tree_node_center(plan, plan%target_tree_ready, parent_node)
-      call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
-      do delta_idx = 1_i32, plan%ncoef
-        plan%target_shift_monomial(delta_idx, node_idx) = xpow(plan%alpha(1, delta_idx))*ypow(plan%alpha(2, delta_idx)) &
-                                                          *zpow(plan%alpha(3, delta_idx))/plan%alpha_factorial(delta_idx)
-      end do
+      call fill_shift_monomial(plan, d, plan%target_shift_monomial(:, node_idx))
     end do
     !$omp end parallel do
   end subroutine precompute_translation_operators
+
+  !> Monomials `d^alpha/alpha!` of one parent-to-child offset, shared by the source (M2M) and target (L2L) trees.
+  subroutine fill_shift_monomial(plan, d, monomial)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: d(3)
+    real(dp), intent(out) :: monomial(:)
+    integer(i32) :: delta_idx
+    real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
+    real(dp) :: zpow(0:max(0_i32, plan%options%order))
+
+    call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
+    do delta_idx = 1_i32, plan%ncoef
+      monomial(delta_idx) = xpow(plan%alpha(1, delta_idx))*ypow(plan%alpha(2, delta_idx)) &
+                            *zpow(plan%alpha(3, delta_idx))/plan%alpha_factorial(delta_idx)
+    end do
+  end subroutine fill_shift_monomial
 
   subroutine precompute_m2l_derivatives(plan)
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32) :: pair_idx, img_i, img_j, nshift
     integer(i32) :: axis1, axis2, s_node, t_node, shift_idx1, shift_idx2
-    real(dp) :: base(3), shift1, shift2, rimg(3)
+    real(dp) :: base(3), rimg(3)
     real(dp) :: deriv_tmp(plan%nderiv)
 
     allocate (plan%m2l_deriv(plan%nderiv, max(1_i32, plan%m2l_pair_count)))
@@ -1361,7 +1367,7 @@ contains
     nshift = size(plan%shift_axis1)
     !$omp parallel do default(none) schedule(static) &
     !$omp shared(plan, axis1, axis2, nshift) &
-    !$omp private(pair_idx, img_i, img_j, s_node, t_node, base, shift1, shift2, shift_idx1, shift_idx2) &
+    !$omp private(pair_idx, img_i, img_j, s_node, t_node, base, shift_idx1, shift_idx2) &
     !$omp private(rimg, deriv_tmp)
     do pair_idx = 1_i32, plan%m2l_pair_count
       t_node = plan%m2l_target_nodes(pair_idx)
@@ -1375,30 +1381,14 @@ contains
       shift_idx1 = plan%m2l_shift_idx1(pair_idx)
       shift_idx2 = plan%m2l_shift_idx2(pair_idx)
       if (shift_idx1 > 0_i32 .and. shift_idx2 > 0_i32) then
-        shift1 = plan%shift_axis1(shift_idx1)
-        shift2 = plan%shift_axis2(shift_idx2)
-        rimg = base
-        if (axis1 == 1_i32) rimg(1) = rimg(1) - shift1
-        if (axis1 == 2_i32) rimg(2) = rimg(2) - shift1
-        if (axis1 == 3_i32) rimg(3) = rimg(3) - shift1
-        if (axis2 == 1_i32) rimg(1) = rimg(1) - shift2
-        if (axis2 == 2_i32) rimg(2) = rimg(2) - shift2
-        if (axis2 == 3_i32) rimg(3) = rimg(3) - shift2
+        rimg = periodic_image_offset(base, axis1, axis2, plan%shift_axis1(shift_idx1), plan%shift_axis2(shift_idx2))
         call compute_laplace_derivatives(plan, rimg, deriv_tmp)
         plan%m2l_deriv(:, pair_idx) = plan%m2l_deriv(:, pair_idx) + deriv_tmp
         cycle
       end if
       do img_i = 1_i32, nshift
-        shift1 = plan%shift_axis1(img_i)
         do img_j = 1_i32, nshift
-          shift2 = plan%shift_axis2(img_j)
-          rimg = base
-          if (axis1 == 1_i32) rimg(1) = rimg(1) - shift1
-          if (axis1 == 2_i32) rimg(2) = rimg(2) - shift1
-          if (axis1 == 3_i32) rimg(3) = rimg(3) - shift1
-          if (axis2 == 1_i32) rimg(1) = rimg(1) - shift2
-          if (axis2 == 2_i32) rimg(2) = rimg(2) - shift2
-          if (axis2 == 3_i32) rimg(3) = rimg(3) - shift2
+          rimg = periodic_image_offset(base, axis1, axis2, plan%shift_axis1(img_i), plan%shift_axis2(img_j))
           call compute_laplace_derivatives(plan, rimg, deriv_tmp)
           plan%m2l_deriv(:, pair_idx) = plan%m2l_deriv(:, pair_idx) + deriv_tmp
         end do
@@ -1406,6 +1396,17 @@ contains
     end do
     !$omp end parallel do
   end subroutine precompute_m2l_derivatives
+
+  !> Offset from the source image shifted by (shift1, shift2) along the two periodic axes to the target.
+  pure function periodic_image_offset(base, axis1, axis2, shift1, shift2) result(rimg)
+    real(dp), intent(in) :: base(3), shift1, shift2
+    integer(i32), intent(in) :: axis1, axis2
+    real(dp) :: rimg(3)
+
+    rimg = base
+    rimg(axis1) = rimg(axis1) - shift1
+    rimg(axis2) = rimg(axis2) - shift2
+  end function periodic_image_offset
 
   logical function nodes_well_separated_shifted(plan, target_node, source_node, shift1, shift2)
     type(fmm_plan_type), intent(in) :: plan
