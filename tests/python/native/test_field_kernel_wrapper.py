@@ -1050,6 +1050,16 @@ def test_scene_rotate_keeps_charges_attached_to_mesh_elements(tmp_path: Path) ->
     expected_centers = (scene.centers[mask] - origin) @ rotation.T + origin
     np.testing.assert_allclose(rotated.centers[mask], expected_centers)
     np.testing.assert_allclose(rotated.charges, scene.charges)
+    # The derived scene is immutable and shares no array with its source scene.
+    for name in ("centers_m", "triangles_m", "charges_C", "mesh_ids"):
+        derived = getattr(rotated, name)
+        assert not derived.flags.writeable
+        assert not np.shares_memory(derived, getattr(scene, name))
+    np.testing.assert_array_equal(rotated.triangles[~mask], triangles[~mask])
+    with pytest.raises(ValueError, match="centers_m must contain finite values"):
+        scene.move(2, by=[np.finfo(float).max, 0.0, 0.0]).move(
+            2, by=[np.finfo(float).max, 0.0, 0.0]
+        )
 
 
 def test_source_charge_snapshot_is_owned_after_native_update(monkeypatch: pytest.MonkeyPatch) -> None:
