@@ -127,7 +127,9 @@ class Adapter:
             [*work.glob("stderr.*.log"), *work.glob("*.err")],
             key=lambda p: p.stat().st_mtime,
         )[-1:]
-        if any(any(word in _tail(p).lower() for word in ERROR_WORDS) for p in logs):
+        # Read each log tail once; every keyword is matched against that snapshot.
+        tails = (_tail(p).lower() for p in logs)
+        if any(any(word in tail for word in ERROR_WORDS) for tail in tails):
             return "failed"
         path = _summary_file(run_dir)
         if path is not None:
@@ -343,7 +345,7 @@ def _schema_has_key(schema: dict[str, Any], key: str) -> bool:
             found = [
                 r["properties"][name]
                 for r in rules
-                for name in (step, step.lower())
+                for name in dict.fromkeys((step, step.lower()))
                 if name in r.get("properties", {})
             ]
             if not found:
