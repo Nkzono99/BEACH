@@ -956,18 +956,19 @@ class ObjectProbe:
     ) -> _VerticalSamples:
         nheight = displacement_m.size
         npoint = self._target_points_m.shape[0]
+        # Each native call sees at most _PATH_TARGET_BATCH_LIMIT points: several
+        # heights per call for a small target, and slices of one height's points
+        # for a target whose quadrature alone exceeds the limit.
         height_batch = max(1, _PATH_TARGET_BATCH_LIMIT // max(1, npoint))
-        force = np.empty((nheight, 3), dtype=np.float64)
-        torque = np.empty((nheight, 3), dtype=np.float64)
-        potential = np.empty(nheight, dtype=np.float64)
+        point_batch = min(npoint, _PATH_TARGET_BATCH_LIMIT)
+        names = _PHYSICAL_COMPONENTS if components else ("total_external",)
         component_force = {
-            name: np.empty((nheight, 3), dtype=np.float64)
-            for name in _PHYSICAL_COMPONENTS
+            name: np.empty((nheight, 3), dtype=np.float64) for name in names
         }
         component_torque = {
-            name: np.empty((nheight, 3), dtype=np.float64)
-            for name in _PHYSICAL_COMPONENTS
+            name: np.empty((nheight, 3), dtype=np.float64) for name in names
         }
+        potential = np.empty(nheight, dtype=np.float64)
         if (
             isinstance(torque_origin, str)
             and torque_origin == "geometric_area_centroid"
@@ -989,38 +990,49 @@ class ObjectProbe:
         for start in range(0, nheight, height_batch):
             stop = min(start + height_batch, nheight)
             batch_h = displacement_m[start:stop]
-            points = np.broadcast_to(
-                self._target_points_m,
-                (batch_h.size, npoint, 3),
-            ).copy()
-            points[:, :, 2] += batch_h[:, None]
-            flat_points = points.reshape(-1, 3)
-            peak_target_batch_size = max(peak_target_batch_size, flat_points.shape[0])
-            fields = self._snapshot._evaluate_fields(
-                target_mask=self._target_mask,
-                target_points_m=flat_points,
-                primary=self._primary,
-            )
-            physical_fields = _physical_field_components(fields)
-            for name, (field_values, potential_values) in physical_fields.items():
-                aggregate = _aggregate_wrench_samples(
-                    points,
-                    self._target_charge_weights_C,
-                    field_values.reshape(batch_h.size, npoint, 3),
-                    potential_values.reshape(batch_h.size, npoint),
-                    origins[start:stop],
+            for point_start in range(0, npoint, point_batch):
+                point_stop = min(point_start + point_batch, npoint)
+                count = point_stop - point_start
+                points = np.broadcast_to(
+                    self._target_points_m[point_start:point_stop],
+                    (batch_h.size, count, 3),
+                ).copy()
+                points[:, :, 2] += batch_h[:, None]
+                flat_points = points.reshape(-1, 3)
+                peak_target_batch_size = max(
+                    peak_target_batch_size, flat_points.shape[0]
                 )
-                component_force[name][start:stop] = aggregate[0]
-                component_torque[name][start:stop] = aggregate[1]
-                if name == "total_external":
-                    force[start:stop] = aggregate[0]
-                    torque[start:stop] = aggregate[1]
-                    potential[start:stop] = aggregate[2]
+                fields = self._snapshot._evaluate_fields(
+                    target_mask=self._target_mask,
+                    target_points_m=flat_points,
+                    primary=self._primary,
+                )
+                physical_fields = _physical_field_components(fields)
+                for name in names:
+                    field_values, potential_values = physical_fields[name]
+                    force_part, torque_part, energy_part = _aggregate_wrench_samples(
+                        points,
+                        self._target_charge_weights_C[point_start:point_stop],
+                        field_values.reshape(batch_h.size, count, 3),
+                        potential_values.reshape(batch_h.size, count),
+                        origins[start:stop],
+                    )
+                    if point_start == 0:
+                        component_force[name][start:stop] = force_part
+                        component_torque[name][start:stop] = torque_part
+                    else:
+                        component_force[name][start:stop] += force_part
+                        component_torque[name][start:stop] += torque_part
+                    if name == "total_external":
+                        if point_start == 0:
+                            potential[start:stop] = energy_part
+                        else:
+                            potential[start:stop] += energy_part
 
         return _VerticalSamples(
             displacement_m=np.array(displacement_m, copy=True),
-            force_N=force,
-            torque_Nm=torque,
+            force_N=component_force["total_external"],
+            torque_Nm=component_torque["total_external"],
             torque_origin_m=origins,
             potential_energy_J=potential,
             component_force_N=component_force if components else {},
@@ -1081,7 +1093,10 @@ def _aggregate_wrench_samples(
         np.cross(points_m - origin_m[:, None, :], force_samples),
         axis=1,
     )
-    energy = potential_V @ charges_C
+    # Reduce each height on its own (a BLAS matrix-vector product rounds a row
+    # differently depending on how many rows share the call), so a height gives
+    # the same value whichever batch evaluates it and adaptive paths can reuse it.
+    energy = np.sum(potential_V * charges_C[None, :], axis=1)
     return force, torque, energy
 
 
