@@ -1,6 +1,7 @@
 """FieldKernel's Python-side contract and ctypes call sequence against a fake library."""
 
 import ctypes
+import dataclasses
 from pathlib import Path
 
 import numpy as np
@@ -164,10 +165,6 @@ def _one_panel_source() -> tuple[np.ndarray, np.ndarray]:
         ),
         np.array([0.0], dtype=float),
     )
-
-
-def test_field_kernel_diagnostics_is_a_frozen_top_level_api() -> None:
-    assert FieldKernelDiagnostics.__dataclass_params__.frozen
 
 
 @pytest.mark.parametrize(
@@ -710,6 +707,10 @@ def test_field_kernel_diagnostics_decodes_cache_metadata(
     with FieldKernel(source_triangles, source_charges) as kernel:
         diagnostics = kernel.diagnostics()
 
+    # The record is the top-level public type and cannot be edited after it is returned.
+    assert isinstance(diagnostics, FieldKernelDiagnostics)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        diagnostics.periodic_cache_hit = not expected_hit  # type: ignore[misc]
     assert diagnostics.periodic_cache_hit is expected_hit
     assert diagnostics.periodic_operator_build_count == expected_count
     assert diagnostics.periodic_cache_fingerprint == expected_fingerprint
