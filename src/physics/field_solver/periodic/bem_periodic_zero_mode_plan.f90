@@ -2,6 +2,7 @@ module bem_periodic_zero_mode_plan
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0
   use bem_types, only: mesh_type
+  use bem_sorting, only: sort_real_ascending
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
   private
@@ -30,6 +31,8 @@ module bem_periodic_zero_mode_plan
     real(dp) :: z_gauge = 0.0_dp
     real(dp) :: phi_gauge = 0.0_dp
     real(dp) :: total_charge = 0.0_dp
+    !> Charge primitive at z_gauge; every evaluation subtracts it, so refresh computes it once.
+    real(dp) :: gauge_primitive = 0.0_dp
     !> 区間 k の累積電荷多項式の係数。k>=2 は左端 break_z(k-1)、k=1 は break_z(1) を原点とする局所座標
     !! t=z-原点 の多項式で、絶対 z の冪の相殺を避ける（zero_mode_interval_origin）。
     real(dp), allocatable :: cumulative_charge_coeff(:, :)
@@ -44,6 +47,8 @@ module bem_periodic_zero_mode_plan
   public :: zero_mode_interval_origin
   public :: integrate_local_polynomial
   public :: zero_mode_heights_coincide
+  public :: locate_zero_mode_interval
+  public :: zero_mode_charge_primitive
 
 contains
 
@@ -106,7 +111,7 @@ contains
     do elem = 1_i32, nelem
       heights(3*elem - 2:3*elem) = source_heights(:, elem)
     end do
-    call sort_real(heights)
+    call sort_real_ascending(heights)
     ! Geometric scale of the problem: the slab height and the lateral cell size. Neither depends on
     ! the absolute z origin or on a 1 m unit; sqrt(area_xy) keeps a flat slab from treating
     ! rounding-level tilts (eps times the lateral coordinates) as inclined panels.
@@ -143,70 +148,74 @@ contains
     type(periodic_zero_mode_plan_type), intent(in) :: plan
     real(dp), intent(in) :: charge(:)
     real(dp), intent(in) :: e_bottom, z_gauge, phi_gauge
-    type(periodic_zero_mode_state_type), intent(out) :: state
-    real(dp), allocatable :: difference(:, :)
+    !> Arrays already sized for this plan are reused; every component is overwritten.
+    type(periodic_zero_mode_state_type), intent(inout) :: state
     real(dp) :: z0, z1, z2, denominator, offset, shift
-    integer(i32) :: elem, interval, ninterval, i0, i1, i2
+    integer(i32) :: elem, interval, ninterval, i0, i1, i2, gauge_interval, gauge_breakpoint
 
     if (size(charge) /= plan%nelem) error stop 'periodic zero-mode charge size mismatch.'
     if (any(.not. ieee_is_finite(charge))) error stop 'periodic zero-mode charges must be finite.'
     ninterval = plan%nbreak + 1_i32
-    allocate (difference(3, ninterval + 1_i32))
-    allocate (state%cumulative_charge_coeff(3, ninterval))
-    allocate (state%primitive_at_break(plan%nbreak), state%sheet_charge(plan%nbreak))
-    difference = 0.0_dp
+    if (allocated(state%cumulative_charge_coeff)) then
+      if (size(state%cumulative_charge_coeff, 2) /= ninterval) deallocate (state%cumulative_charge_coeff)
+    end if
+    if (.not. allocated(state%cumulative_charge_coeff)) allocate (state%cumulative_charge_coeff(3, ninterval))
+    call size_break_array(state%primitive_at_break, plan%nbreak)
+    call size_break_array(state%sheet_charge, plan%nbreak)
+    ! The per-interval differences accumulate in cumulative_charge_coeff and become prefix sums in place.
+    state%cumulative_charge_coeff = 0.0_dp
     state%sheet_charge = 0.0_dp
     state%e_bottom = e_bottom
     state%z_gauge = z_gauge
     state%phi_gauge = phi_gauge
     state%total_charge = sum(charge)
 
-    ! 傾斜 panel の寄与は、加える区間と外す区間それぞれの局所原点で表す。係数は panel 自身の高さ幅だけで
-    ! 決まり、絶対 z に依らない（平行移動で値が変わらない）。
-    do elem = 1, plan%nelem
-      z0 = plan%panel(elem)%z(1)
-      z1 = plan%panel(elem)%z(2)
-      z2 = plan%panel(elem)%z(3)
-      i0 = plan%panel(elem)%break_index(1)
-      i1 = plan%panel(elem)%break_index(2)
-      i2 = plan%panel(elem)%break_index(3)
-      if (plan%panel(elem)%horizontal) then
-        state%sheet_charge(i0) = state%sheet_charge(i0) + charge(elem)
-      else
-        if (i1 > i0) then
-          ! [z0, z1]: q*(z-z0)^2/denominator。原点 a では z-z0 = t+offset, offset=a-z0。
-          denominator = (z1 - z0)*(z2 - z0)
-          offset = plan%break_z(i0) - z0
-          difference(:, i0 + 1_i32) = difference(:, i0 + 1_i32) + &
-                                      charge(elem)*[offset*offset, 2.0_dp*offset, 1.0_dp]/denominator
-          offset = plan%break_z(i1) - z0
-          difference(:, i1 + 1_i32) = difference(:, i1 + 1_i32) - &
-                                      charge(elem)*[offset*offset, 2.0_dp*offset, 1.0_dp]/denominator
+    associate (difference => state%cumulative_charge_coeff)
+      ! 傾斜 panel の寄与は、加える区間と外す区間それぞれの局所原点で表す。係数は panel 自身の高さ幅だけで
+      ! 決まり、絶対 z に依らない（平行移動で値が変わらない）。
+      do elem = 1, plan%nelem
+        z0 = plan%panel(elem)%z(1)
+        z1 = plan%panel(elem)%z(2)
+        z2 = plan%panel(elem)%z(3)
+        i0 = plan%panel(elem)%break_index(1)
+        i1 = plan%panel(elem)%break_index(2)
+        i2 = plan%panel(elem)%break_index(3)
+        if (plan%panel(elem)%horizontal) then
+          state%sheet_charge(i0) = state%sheet_charge(i0) + charge(elem)
+        else
+          if (i1 > i0) then
+            ! [z0, z1]: q*(z-z0)^2/denominator。原点 a では z-z0 = t+offset, offset=a-z0。
+            denominator = (z1 - z0)*(z2 - z0)
+            offset = plan%break_z(i0) - z0
+            difference(:, i0 + 1_i32) = difference(:, i0 + 1_i32) + &
+                                        charge(elem)*[offset*offset, 2.0_dp*offset, 1.0_dp]/denominator
+            offset = plan%break_z(i1) - z0
+            difference(:, i1 + 1_i32) = difference(:, i1 + 1_i32) - &
+                                        charge(elem)*[offset*offset, 2.0_dp*offset, 1.0_dp]/denominator
+          end if
+          if (i2 > i1) then
+            ! [z1, z2]: q*(1-(z2-z)^2/denominator)。原点 a では z2-z = offset-t, offset=z2-a。
+            denominator = (z2 - z0)*(z2 - z1)
+            offset = z2 - plan%break_z(i1)
+            difference(:, i1 + 1_i32) = difference(:, i1 + 1_i32) + charge(elem)*[ &
+                                        1.0_dp - offset*offset/denominator, 2.0_dp*offset/denominator, &
+                                        -1.0_dp/denominator]
+            offset = z2 - plan%break_z(i2)
+            difference(:, i2 + 1_i32) = difference(:, i2 + 1_i32) - charge(elem)*[ &
+                                        1.0_dp - offset*offset/denominator, 2.0_dp*offset/denominator, &
+                                        -1.0_dp/denominator]
+          end if
         end if
-        if (i2 > i1) then
-          ! [z1, z2]: q*(1-(z2-z)^2/denominator)。原点 a では z2-z = offset-t, offset=z2-a。
-          denominator = (z2 - z0)*(z2 - z1)
-          offset = z2 - plan%break_z(i1)
-          difference(:, i1 + 1_i32) = difference(:, i1 + 1_i32) + charge(elem)*[ &
-                                      1.0_dp - offset*offset/denominator, 2.0_dp*offset/denominator, &
-                                      -1.0_dp/denominator]
-          offset = z2 - plan%break_z(i2)
-          difference(:, i2 + 1_i32) = difference(:, i2 + 1_i32) - charge(elem)*[ &
-                                      1.0_dp - offset*offset/denominator, 2.0_dp*offset/denominator, &
-                                      -1.0_dp/denominator]
-        end if
-      end if
-      difference(1, i2 + 1_i32) = difference(1, i2 + 1_i32) + charge(elem)
-    end do
+        difference(1, i2 + 1_i32) = difference(1, i2 + 1_i32) + charge(elem)
+      end do
 
-    ! 前の区間の多項式を次の区間の原点へ移してから差分を足す。移す量は隣接 break の間隔だけ。
-    state%cumulative_charge_coeff(:, 1) = difference(:, 1)
-    do interval = 2, ninterval
-      shift = zero_mode_interval_origin(plan%break_z, interval) - &
-              zero_mode_interval_origin(plan%break_z, interval - 1_i32)
-      state%cumulative_charge_coeff(:, interval) = &
-        shift_polynomial(state%cumulative_charge_coeff(:, interval - 1), shift) + difference(:, interval)
-    end do
+      ! 前の区間の多項式を次の区間の原点へ移してから差分を足す。移す量は隣接 break の間隔だけ。
+      do interval = 2, ninterval
+        shift = zero_mode_interval_origin(plan%break_z, interval) - &
+                zero_mode_interval_origin(plan%break_z, interval - 1_i32)
+        difference(:, interval) = shift_polynomial(difference(:, interval - 1), shift) + difference(:, interval)
+      end do
+    end associate
     ! Outside the source slab the integrated charge is known exactly. Do not
     ! extrapolate cancellation residue from the inclined-panel polynomials.
     state%cumulative_charge_coeff(:, 1) = 0.0_dp
@@ -219,7 +228,57 @@ contains
                                                plan%break_z(interval + 1) - plan%break_z(interval) &
                                                )
     end do
+    call locate_zero_mode_interval(plan%break_z, plan%height_tolerance, z_gauge, gauge_interval, gauge_breakpoint)
+    state%gauge_primitive = zero_mode_charge_primitive(plan, state, z_gauge, gauge_interval)
   end subroutine refresh_periodic_zero_mode_state
+
+  subroutine size_break_array(values, nbreak)
+    real(dp), allocatable, intent(inout) :: values(:)
+    integer(i32), intent(in) :: nbreak
+
+    if (allocated(values)) then
+      if (size(values) /= nbreak) deallocate (values)
+    end if
+    if (.not. allocated(values)) allocate (values(nbreak))
+  end subroutine size_break_array
+
+  pure real(dp) function zero_mode_charge_primitive(plan, state, z, interval) result(primitive)
+    type(periodic_zero_mode_plan_type), intent(in) :: plan
+    type(periodic_zero_mode_state_type), intent(in) :: state
+    real(dp), intent(in) :: z
+    integer(i32), intent(in) :: interval
+
+    ! 区間 1 は最下 break から、それ以外は区間の左端 break（局所原点）から積分する。
+    primitive = integrate_local_polynomial( &
+                state%cumulative_charge_coeff(:, interval), z - zero_mode_interval_origin(plan%break_z, interval) &
+                )
+    if (interval > 1_i32) primitive = primitive + state%primitive_at_break(interval - 1_i32)
+  end function zero_mode_charge_primitive
+
+  !> A target on a breakpoint (same coincidence rule as the plan's breakpoint merge) takes the
+  !! requested sheet trace; any other target lies strictly inside one interval.
+  pure subroutine locate_zero_mode_interval(break_z, tolerance, z, interval, breakpoint)
+    real(dp), intent(in) :: break_z(:), tolerance, z
+    integer(i32), intent(out) :: interval, breakpoint
+    integer(i32) :: low, high, middle
+
+    low = 1_i32
+    high = size(break_z)
+    breakpoint = 0_i32
+    do while (low <= high)
+      middle = (low + high)/2_i32
+      if (zero_mode_heights_coincide(z, break_z(middle), tolerance)) then
+        breakpoint = middle
+        interval = middle + 1_i32
+        return
+      else if (z < break_z(middle)) then
+        high = middle - 1_i32
+      else
+        low = middle + 1_i32
+      end if
+    end do
+    interval = low
+  end subroutine locate_zero_mode_interval
 
   !> Two heights are one breakpoint when they differ by at most the plan's geometric tolerance or by
   !! the few ULPs that binary64 cannot resolve at their magnitude. Only the second term sees the
@@ -276,43 +335,6 @@ contains
       if (abs(break_z(index - 1_i32) - value) <= abs(break_z(index) - value)) index = index - 1_i32
     end if
   end function nearest_break
-
-  subroutine sort_real(values)
-    real(dp), intent(inout) :: values(:)
-    real(dp) :: key
-    integer :: start, last
-
-    ! In-place heapsort bounds plan construction by O(N log N), including reversed heights.
-    last = size(values)
-    do start = last/2, 1, -1
-      call sift_down(start, last)
-    end do
-    do last = size(values), 2, -1
-      key = values(last)
-      values(last) = values(1)
-      values(1) = key
-      call sift_down(1, last - 1)
-    end do
-  contains
-    subroutine sift_down(first, limit)
-      integer, intent(in) :: first, limit
-      integer :: root, child
-      real(dp) :: key
-
-      root = first
-      key = values(root)
-      do while (root <= limit/2)
-        child = 2*root
-        if (child < limit) then
-          if (values(child) < values(child + 1)) child = child + 1
-        end if
-        if (key >= values(child)) exit
-        values(root) = values(child)
-        root = child
-      end do
-      values(root) = key
-    end subroutine sift_down
-  end subroutine sort_real
 
   pure subroutine sort_three(values)
     real(dp), intent(inout) :: values(3)

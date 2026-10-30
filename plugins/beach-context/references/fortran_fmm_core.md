@@ -168,7 +168,6 @@ BEACH の adapter は現状 `order = 4` を使いますが、コア自体は1以
 - source 葉一覧 `source_leaf_nodes`
 - target 葉一覧 `leaf_nodes`
 - 近傍 list `near_start/near_nodes`
-- 遠方 node list `far_start/far_nodes`
 - M2L pair cache `m2l_target_nodes/m2l_source_nodes`
 - periodic image shift 配列
 - M2L 微分表 `m2l_deriv`

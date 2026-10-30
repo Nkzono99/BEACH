@@ -7,6 +7,7 @@ module bem_mesh
   use bem_triangle_quadrature, only: fill_panel_quadrature
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
+  private :: place_periodic2_collision_mesh
 contains
 
   !> 三角形頂点配列から `mesh_type` を初期化し、幾何キャッシュと要素電荷配列を準備する。
@@ -90,9 +91,27 @@ contains
     type(mesh_type), intent(inout) :: mesh
     type(sim_config), intent(in) :: sim
 
+    call place_periodic2_collision_mesh(mesh, sim, rebuild_unmoved=.true.)
+  end subroutine prepare_periodic2_collision_mesh
+
+  !> `prepare_periodic2_collision_mesh` for a mesh whose geometry caches already match its vertices
+  !! (built by init_mesh and not edited since). The caches and collision grid are rebuilt only when
+  !! some panel is moved into the canonical cell.
+  subroutine prepare_built_periodic2_collision_mesh(mesh, sim)
+    type(mesh_type), intent(inout) :: mesh
+    type(sim_config), intent(in) :: sim
+
+    call place_periodic2_collision_mesh(mesh, sim, rebuild_unmoved=.false.)
+  end subroutine prepare_built_periodic2_collision_mesh
+
+  subroutine place_periodic2_collision_mesh(mesh, sim, rebuild_unmoved)
+    type(mesh_type), intent(inout) :: mesh
+    type(sim_config), intent(in) :: sim
+    logical, intent(in) :: rebuild_unmoved
+
     integer(i32) :: periodic_axes(2), iaxis, i
     real(dp) :: periodic_len(2), box_center(2), center_axis, shift
-    logical :: use_periodic2
+    logical :: use_periodic2, moved
 
     call resolve_periodic2_axes(sim, use_periodic2, periodic_axes, periodic_len)
     mesh%periodic2_collision_ready = .false.
@@ -104,6 +123,7 @@ contains
       box_center(iaxis) = 0.5d0*(sim%box_min(periodic_axes(iaxis)) + sim%box_max(periodic_axes(iaxis)))
     end do
 
+    moved = .false.
     do i = 1, mesh%nelem
       do iaxis = 1, 2
         center_axis = (mesh%v0(periodic_axes(iaxis), i) + mesh%v1(periodic_axes(iaxis), i) + &
@@ -113,15 +133,16 @@ contains
           mesh%v0(periodic_axes(iaxis), i) = mesh%v0(periodic_axes(iaxis), i) + shift
           mesh%v1(periodic_axes(iaxis), i) = mesh%v1(periodic_axes(iaxis), i) + shift
           mesh%v2(periodic_axes(iaxis), i) = mesh%v2(periodic_axes(iaxis), i) + shift
+          moved = .true.
         end if
       end do
     end do
 
-    call update_mesh_geometry(mesh)
+    if (moved .or. rebuild_unmoved) call update_mesh_geometry(mesh)
     mesh%periodic2_axes = periodic_axes
     mesh%periodic2_len = periodic_len
     mesh%periodic2_collision_ready = .true.
-  end subroutine prepare_periodic2_collision_mesh
+  end subroutine place_periodic2_collision_mesh
 
   !> 頂点配列から重心・法線・AABB・代表長・collision grid を再構築する。
   subroutine update_mesh_geometry(mesh)

@@ -5,7 +5,7 @@ module bem_coulomb_fmm_types
   use bem_panel_geometry, only: panel_geometry_type
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type
   use bem_periodic_shell_mean, only: periodic_shell_mean_plan_type, periodic_shell_mean_state_type, &
-                                     reset_periodic_shell_mean_plan, reset_periodic_shell_mean_state
+                                     reset_periodic_shell_mean_state
   implicit none
   private
 
@@ -145,7 +145,6 @@ module bem_coulomb_fmm_types
     real(sp), allocatable :: near_sp_edge(:, :), near_sp_ox(:, :), near_sp_oy(:, :), near_sp_oz(:, :)
     real(sp), allocatable :: near_sp_area(:)
     real(dp), allocatable :: near_leaf_center(:, :)
-    integer(i32), allocatable :: far_start(:), far_nodes(:)
     integer(i32) :: m2l_pair_count = 0_i32
     integer(i32) :: m2l_build_count = 0_i32
     integer(i32) :: m2l_visit_count = 0_i32
@@ -234,186 +233,18 @@ contains
   end function periodic_source_proxy_half_size
 
   !> periodic2 Ewald 用の補助データを初期状態へ戻す。
-  !! @param[inout] data リセット対象の補助データ。
+  !! intent(out) deallocates every allocatable component and applies the type's default values.
+  !! @param[out] data リセット対象の補助データ。
   subroutine reset_periodic2_ewald_data(data)
-    type(periodic2_ewald_data_type), intent(inout) :: data
-
-    if (allocated(data%screen_shift1)) deallocate (data%screen_shift1)
-    if (allocated(data%screen_shift2)) deallocate (data%screen_shift2)
-    if (allocated(data%inner_shift1)) deallocate (data%inner_shift1)
-    if (allocated(data%inner_shift2)) deallocate (data%inner_shift2)
-    if (allocated(data%k1)) deallocate (data%k1)
-    if (allocated(data%k2)) deallocate (data%k2)
-    if (allocated(data%kmag)) deallocate (data%kmag)
-    if (allocated(data%karg0)) deallocate (data%karg0)
-    if (allocated(data%kpref1)) deallocate (data%kpref1)
-    if (allocated(data%kpref2)) deallocate (data%kpref2)
-    if (allocated(data%kprefz)) deallocate (data%kprefz)
-    data%ready = .false.
-    data%axis1 = 0_i32
-    data%axis2 = 0_i32
-    data%axis_free = 0_i32
-    data%nimg = 0_i32
-    data%img_outer = 0_i32
-    data%kmax = 0_i32
-    data%alpha = 0.0d0
-    data%soft2 = 0.0d0
-    data%cell_area = 0.0d0
-    data%k0_pref = 0.0d0
-    data%screen_count = 0_i32
-    data%inner_count = 0_i32
-    data%k_count = 0_i32
+    type(periodic2_ewald_data_type), intent(out) :: data
   end subroutine reset_periodic2_ewald_data
 
   !> FMM plan を初期状態へ戻す。
-  !! @param[inout] plan リセット対象の FMM plan。
+  !! The plan owns only allocatable storage (no pointers), so intent(out) deallocates every component
+  !! and applies the type's default values; there is no second list of fields to keep in sync.
+  !! @param[out] plan リセット対象の FMM plan。
   subroutine reset_fmm_plan(plan)
-    type(fmm_plan_type), intent(inout) :: plan
-
-    if (allocated(plan%alpha)) deallocate (plan%alpha)
-    if (allocated(plan%alpha_degree)) deallocate (plan%alpha_degree)
-    if (allocated(plan%alpha_factorial)) deallocate (plan%alpha_factorial)
-    if (allocated(plan%alpha_sign)) deallocate (plan%alpha_sign)
-    if (allocated(plan%alpha_map)) deallocate (plan%alpha_map)
-    if (allocated(plan%alpha_plus_axis)) deallocate (plan%alpha_plus_axis)
-    if (allocated(plan%deriv_alpha)) deallocate (plan%deriv_alpha)
-    if (allocated(plan%deriv_degree)) deallocate (plan%deriv_degree)
-    if (allocated(plan%deriv_factorial)) deallocate (plan%deriv_factorial)
-    if (allocated(plan%deriv_map)) deallocate (plan%deriv_map)
-    if (allocated(plan%alpha_beta_deriv_idx)) deallocate (plan%alpha_beta_deriv_idx)
-    if (allocated(plan%eval_exp)) deallocate (plan%eval_exp)
-    if (allocated(plan%eval_deriv_idx)) deallocate (plan%eval_deriv_idx)
-    if (allocated(plan%eval_inv_factorial)) deallocate (plan%eval_inv_factorial)
-    if (allocated(plan%src_pos)) deallocate (plan%src_pos)
-    if (allocated(plan%panel_geometry)) deallocate (plan%panel_geometry)
-    if (allocated(plan%elem_order)) deallocate (plan%elem_order)
-    if (allocated(plan%node_start)) deallocate (plan%node_start)
-    if (allocated(plan%node_count)) deallocate (plan%node_count)
-    if (allocated(plan%child_count)) deallocate (plan%child_count)
-    if (allocated(plan%child_idx)) deallocate (plan%child_idx)
-    if (allocated(plan%child_octant)) deallocate (plan%child_octant)
-    if (allocated(plan%node_depth)) deallocate (plan%node_depth)
-    if (allocated(plan%node_level_start)) deallocate (plan%node_level_start)
-    if (allocated(plan%node_level_nodes)) deallocate (plan%node_level_nodes)
-    if (allocated(plan%node_center)) deallocate (plan%node_center)
-    if (allocated(plan%node_half_size)) deallocate (plan%node_half_size)
-    if (allocated(plan%node_radius)) deallocate (plan%node_radius)
-    if (allocated(plan%target_child_count)) deallocate (plan%target_child_count)
-    if (allocated(plan%target_child_idx)) deallocate (plan%target_child_idx)
-    if (allocated(plan%target_child_octant)) deallocate (plan%target_child_octant)
-    if (allocated(plan%target_node_depth)) deallocate (plan%target_node_depth)
-    if (allocated(plan%target_level_start)) deallocate (plan%target_level_start)
-    if (allocated(plan%target_level_nodes)) deallocate (plan%target_level_nodes)
-    if (allocated(plan%target_node_center)) deallocate (plan%target_node_center)
-    if (allocated(plan%target_node_half_size)) deallocate (plan%target_node_half_size)
-    if (allocated(plan%target_node_radius)) deallocate (plan%target_node_radius)
-    if (allocated(plan%source_leaf_nodes)) deallocate (plan%source_leaf_nodes)
-    if (allocated(plan%leaf_nodes)) deallocate (plan%leaf_nodes)
-    if (allocated(plan%leaf_slot_of_node)) deallocate (plan%leaf_slot_of_node)
-    if (allocated(plan%near_start)) deallocate (plan%near_start)
-    if (allocated(plan%near_nodes)) deallocate (plan%near_nodes)
-    if (allocated(plan%near_source_start)) deallocate (plan%near_source_start)
-    if (allocated(plan%near_source_idx)) deallocate (plan%near_source_idx)
-    if (allocated(plan%near_source_shift1)) deallocate (plan%near_source_shift1)
-    if (allocated(plan%near_source_shift2)) deallocate (plan%near_source_shift2)
-    if (allocated(plan%near_vx)) deallocate (plan%near_vx)
-    if (allocated(plan%near_vy)) deallocate (plan%near_vy)
-    if (allocated(plan%near_vz)) deallocate (plan%near_vz)
-    if (allocated(plan%near_nx)) deallocate (plan%near_nx)
-    if (allocated(plan%near_ny)) deallocate (plan%near_ny)
-    if (allocated(plan%near_nz)) deallocate (plan%near_nz)
-    if (allocated(plan%near_edge)) deallocate (plan%near_edge)
-    if (allocated(plan%near_ox)) deallocate (plan%near_ox)
-    if (allocated(plan%near_oy)) deallocate (plan%near_oy)
-    if (allocated(plan%near_oz)) deallocate (plan%near_oz)
-    if (allocated(plan%near_area)) deallocate (plan%near_area)
-    if (allocated(plan%near_sp_vx)) deallocate (plan%near_sp_vx)
-    if (allocated(plan%near_sp_vy)) deallocate (plan%near_sp_vy)
-    if (allocated(plan%near_sp_vz)) deallocate (plan%near_sp_vz)
-    if (allocated(plan%near_sp_nx)) deallocate (plan%near_sp_nx)
-    if (allocated(plan%near_sp_ny)) deallocate (plan%near_sp_ny)
-    if (allocated(plan%near_sp_nz)) deallocate (plan%near_sp_nz)
-    if (allocated(plan%near_sp_edge)) deallocate (plan%near_sp_edge)
-    if (allocated(plan%near_sp_ox)) deallocate (plan%near_sp_ox)
-    if (allocated(plan%near_sp_oy)) deallocate (plan%near_sp_oy)
-    if (allocated(plan%near_sp_oz)) deallocate (plan%near_sp_oz)
-    if (allocated(plan%near_sp_area)) deallocate (plan%near_sp_area)
-    if (allocated(plan%near_leaf_center)) deallocate (plan%near_leaf_center)
-    if (allocated(plan%far_start)) deallocate (plan%far_start)
-    if (allocated(plan%far_nodes)) deallocate (plan%far_nodes)
-    if (allocated(plan%m2l_target_nodes)) deallocate (plan%m2l_target_nodes)
-    if (allocated(plan%m2l_source_nodes)) deallocate (plan%m2l_source_nodes)
-    if (allocated(plan%m2l_shift_idx1)) deallocate (plan%m2l_shift_idx1)
-    if (allocated(plan%m2l_shift_idx2)) deallocate (plan%m2l_shift_idx2)
-    if (allocated(plan%m2l_target_start)) deallocate (plan%m2l_target_start)
-    if (allocated(plan%m2l_pair_order)) deallocate (plan%m2l_pair_order)
-    if (allocated(plan%source_parent_of)) deallocate (plan%source_parent_of)
-    if (allocated(plan%parent_of)) deallocate (plan%parent_of)
-    if (allocated(plan%m2m_term_count)) deallocate (plan%m2m_term_count)
-    if (allocated(plan%m2m_alpha_list)) deallocate (plan%m2m_alpha_list)
-    if (allocated(plan%m2m_delta_list)) deallocate (plan%m2m_delta_list)
-    if (allocated(plan%l2l_term_count)) deallocate (plan%l2l_term_count)
-    if (allocated(plan%l2l_gamma_list)) deallocate (plan%l2l_gamma_list)
-    if (allocated(plan%l2l_delta_list)) deallocate (plan%l2l_delta_list)
-    if (allocated(plan%shift_axis1)) deallocate (plan%shift_axis1)
-    if (allocated(plan%shift_axis2)) deallocate (plan%shift_axis2)
-    call reset_periodic2_ewald_data(plan%periodic_ewald)
-    if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
-    if (allocated(plan%periodic_anchor_center)) deallocate (plan%periodic_anchor_center)
-    if (allocated(plan%periodic_operator_cell_slot)) deallocate (plan%periodic_operator_cell_slot)
-    if (allocated(plan%periodic_operator_cells)) deallocate (plan%periodic_operator_cells)
-    plan%periodic_operator_anchor_count = 0_i32
-    plan%periodic_operator_anchor_cells = 0_i32
-    plan%periodic_operator_source_cells = 0_i32
-    plan%periodic_operator_built_count = 0_i32
-    plan%periodic_operator_new_cell_count = 0_i32
-    if (allocated(plan%periodic_source_cell)) deallocate (plan%periodic_source_cell)
-    if (allocated(plan%periodic_source_center)) deallocate (plan%periodic_source_center)
-    if (allocated(plan%periodic_source_p2m_basis)) deallocate (plan%periodic_source_p2m_basis)
-    plan%periodic_root_source_count = 0_i32
-    if (allocated(plan%m2l_deriv)) deallocate (plan%m2l_deriv)
-    if (allocated(plan%source_p2m_basis)) deallocate (plan%source_p2m_basis)
-    if (allocated(plan%source_shift_monomial)) deallocate (plan%source_shift_monomial)
-    if (allocated(plan%target_shift_monomial)) deallocate (plan%target_shift_monomial)
-    plan%options = fmm_options_type()
-    plan%sources_ready = .false.
-    plan%built = .false.
-    plan%nsrc = 0_i32
-    plan%panel_source = .false.
-    plan%ncoef = 0_i32
-    plan%nderiv = 0_i32
-    plan%eval_term_count = 0_i32
-    plan%max_node = 0_i32
-    plan%nnode = 0_i32
-    plan%node_max_depth = 0_i32
-    plan%target_tree_ready = .false.
-    plan%target_max_node = 0_i32
-    plan%target_nnode = 0_i32
-    plan%target_node_max_depth = 0_i32
-    plan%nsource_leaf = 0_i32
-    plan%nleaf = 0_i32
-    plan%m2l_pair_count = 0_i32
-    plan%m2l_build_count = 0_i32
-    plan%m2l_visit_count = 0_i32
-    plan%periodic_root_operator_ready = .false.
-    plan%periodic_root_target_count = 0_i32
-    plan%periodic_cache_hit = .false.
-    plan%periodic_operator_build_count = 0_i32
-    plan%periodic_qr_preparation_count = 0_i32
-    plan%periodic_operator_local_target_count = 0_i32
-    plan%periodic_operator_thread_count = 0_i32
-    plan%periodic_operator_class_count = 0_i32
-    plan%periodic_operator_ewald_evaluation_count = 0_i64
-    plan%periodic_cache_fingerprint = ''
-    plan%periodic_cache_path = ''
-    plan%periodic_k0_ready = .false.
-    plan%periodic_k0_free_axis = 0_i32
-    if (allocated(plan%periodic_k0_plan%break_z)) deallocate (plan%periodic_k0_plan%break_z)
-    if (allocated(plan%periodic_k0_plan%panel)) deallocate (plan%periodic_k0_plan%panel)
-    plan%periodic_k0_plan%nelem = 0_i32
-    plan%periodic_k0_plan%nbreak = 0_i32
-    plan%periodic_k0_plan%area_xy = 0.0_dp
-    call reset_periodic_shell_mean_plan(plan%periodic_shell_mean)
+    type(fmm_plan_type), intent(out) :: plan
   end subroutine reset_fmm_plan
 
   !> FMM state のポインタ成分を未関連状態へ初期化する。
@@ -431,15 +262,7 @@ contains
     if (allocated(state%anchor_local_active)) deallocate (state%anchor_local_active)
     state%ready = .false.
     state%update_count = 0_i32
-    if (allocated(state%periodic_k0_state%cumulative_charge_coeff)) then
-      deallocate (state%periodic_k0_state%cumulative_charge_coeff)
-    end if
-    if (allocated(state%periodic_k0_state%primitive_at_break)) deallocate (state%periodic_k0_state%primitive_at_break)
-    if (allocated(state%periodic_k0_state%sheet_charge)) deallocate (state%periodic_k0_state%sheet_charge)
-    state%periodic_k0_state%e_bottom = 0.0_dp
-    state%periodic_k0_state%z_gauge = 0.0_dp
-    state%periodic_k0_state%phi_gauge = 0.0_dp
-    state%periodic_k0_state%total_charge = 0.0_dp
+    state%periodic_k0_state = periodic_zero_mode_state_type()
     call reset_periodic_shell_mean_state(state%periodic_shell_mean_state)
   end subroutine initialize_fmm_state
 

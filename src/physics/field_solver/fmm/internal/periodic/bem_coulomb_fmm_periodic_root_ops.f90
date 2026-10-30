@@ -12,7 +12,7 @@ module bem_coulomb_fmm_periodic_root_ops
   use bem_coulomb_fmm_periodic_cache, only: periodic_cache_fingerprint
   use bem_coulomb_fmm_periodic_cell_cache, only: periodic_cell_cache_lock_type, lookup_cell_cache, &
                                                  publish_cell_cache_and_unlock
-  use bem_regularized_qr, only: regularized_qr_type, prepare_regularized_qr, solve_regularized_qr
+  use bem_regularized_qr, only: regularized_qr_type, prepare_regularized_qr, solve_regularized_qr, factor_tall_matrix_qr
   implicit none
   private
 
@@ -146,12 +146,15 @@ contains
         call publish_cell_cache_and_unlock(plan, target_count, cached_cells, cached_blocks, miss_cells, new_blocks, &
                                            cache_lock)
       end if
-      ! Cached cells live only on the root; share the assembled compact operator.
-      allocate (flat_operator(size(plan%periodic_root_operator)))
-      if (mpi_is_root(mpi)) flat_operator = reshape(plan%periodic_root_operator, [size(flat_operator)])
-      call mpi_bcast_real_dp_array(mpi, flat_operator, 0_i32)
-      plan%periodic_root_operator = reshape(flat_operator, shape(plan%periodic_root_operator))
-      deallocate (flat_operator)
+      ! Cached cells live only on the root; share the assembled compact operator. The collective
+      ! is a no-op on one rank, so skip the flattened copy there.
+      if (mpi%enabled) then
+        allocate (flat_operator(size(plan%periodic_root_operator)))
+        if (mpi_is_root(mpi)) flat_operator = reshape(plan%periodic_root_operator, [size(flat_operator)])
+        call mpi_bcast_real_dp_array(mpi, flat_operator, 0_i32)
+        plan%periodic_root_operator = reshape(flat_operator, shape(plan%periodic_root_operator))
+        deallocate (flat_operator)
+      end if
     end if
     plan%periodic_cache_hit = reuse_translations .and. nmiss == 0_i32
     plan%periodic_root_operator_ready = .true.
@@ -385,11 +388,13 @@ contains
         new_blocks(:, :, pair) = matmul(proxy_to_local, proxy_pinv)
       end do
     end do
-    allocate (flat_operator(size(new_blocks)))
-    flat_operator = reshape(new_blocks, [size(flat_operator)])
-    call mpi_allreduce_sum_real_dp_array(mpi, flat_operator)
-    new_blocks = reshape(flat_operator, shape(new_blocks))
-    deallocate (flat_operator)
+    if (mpi%enabled) then
+      allocate (flat_operator(size(new_blocks)))
+      flat_operator = reshape(new_blocks, [size(flat_operator)])
+      call mpi_allreduce_sum_real_dp_array(mpi, flat_operator)
+      new_blocks = reshape(flat_operator, shape(new_blocks))
+      deallocate (flat_operator)
+    end if
     if (mpi_is_root(mpi)) plan%periodic_operator_build_count = plan%periodic_operator_build_count + 1_i32
   end subroutine build_missing_cell_operators
 
@@ -672,9 +677,7 @@ contains
       if (row_scale(rhs_idx) <= tiny(1.0_dp)) row_scale(rhs_idx) = 1.0_dp
       matrix_t(:, rhs_idx) = matrix_t(:, rhs_idx)/row_scale(rhs_idx)
     end do
-    q = 0.0d0
-    r = 0.0d0
-    call factor_tall_matrix_qr(matrix_t, q, r)
+    call factor_tall_matrix_qr(matrix_t, q, r, periodic_operator_qr_tol)
 
     do rhs_idx = 1_i32, nrow
       rhs = 0.0d0
@@ -683,43 +686,6 @@ contains
       pinv(:, rhs_idx) = matmul(q, z)
     end do
   end subroutine build_minimum_norm_pseudoinverse
-
-  subroutine factor_tall_matrix_qr(matrix, q, r)
-    real(dp), intent(in) :: matrix(:, :)
-    real(dp), intent(out) :: q(:, :), r(:, :)
-    integer(i32) :: mrow, ncol, col_idx, basis_idx
-    real(dp), allocatable :: v(:)
-    real(dp) :: norm_v, corr, base_norm
-
-    mrow = int(size(matrix, 1), i32)
-    ncol = int(size(matrix, 2), i32)
-    if (size(q, 1) /= mrow .or. size(q, 2) /= ncol) error stop 'factor_tall_matrix_qr q dimension mismatch.'
-    if (size(r, 1) /= ncol .or. size(r, 2) /= ncol) error stop 'factor_tall_matrix_qr r dimension mismatch.'
-
-    q = 0.0d0
-    r = 0.0d0
-    allocate (v(mrow))
-    do col_idx = 1_i32, ncol
-      v = matrix(:, col_idx)
-      base_norm = max(sqrt(sum(v*v)), 1.0d0)
-      do basis_idx = 1_i32, col_idx - 1_i32
-        r(basis_idx, col_idx) = dot_product(q(:, basis_idx), v)
-        v = v - r(basis_idx, col_idx)*q(:, basis_idx)
-      end do
-      do basis_idx = 1_i32, col_idx - 1_i32
-        corr = dot_product(q(:, basis_idx), v)
-        r(basis_idx, col_idx) = r(basis_idx, col_idx) + corr
-        v = v - corr*q(:, basis_idx)
-      end do
-      norm_v = sqrt(sum(v*v))
-      if (norm_v <= periodic_operator_qr_tol*base_norm) then
-        r(col_idx, col_idx) = periodic_operator_qr_tol*base_norm
-      else
-        r(col_idx, col_idx) = norm_v
-        q(:, col_idx) = v/norm_v
-      end if
-    end do
-  end subroutine factor_tall_matrix_qr
 
   subroutine solve_lower_triangular_transpose_system(matrix, rhs, solution)
     real(dp), intent(in) :: matrix(:, :)

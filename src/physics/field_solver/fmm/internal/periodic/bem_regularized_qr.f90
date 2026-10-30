@@ -15,6 +15,7 @@ module bem_regularized_qr
 
   public :: prepare_regularized_qr
   public :: solve_regularized_qr
+  public :: factor_tall_matrix_qr
 
 contains
 
@@ -77,6 +78,8 @@ contains
     end do
   end subroutine solve_regularized_qr
 
+  !> Re-orthogonalised (two-pass modified Gram-Schmidt) QR of a tall matrix. A column whose residual
+  !! norm falls below qr_tolerance times its norm (at least 1) gets that floor as its pivot and a zero q column.
   subroutine factor_tall_matrix_qr(matrix, q, r, qr_tolerance)
     real(dp), intent(in) :: matrix(:, :), qr_tolerance
     real(dp), intent(out) :: q(:, :), r(:, :)
