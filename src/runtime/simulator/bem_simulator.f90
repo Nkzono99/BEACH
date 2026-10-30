@@ -26,7 +26,8 @@ module bem_simulator
   use bem_external_boundary_contract, only: external_boundary_contract_type
   use bem_simulator_workspace, only: simulator_batch_workspace_type
   use bem_surface_closure_contract, only: surface_closure_contract_type
-  use bem_surface_current_model, only: evaluate_surface_closure
+  use bem_surface_current_model, only: evaluate_surface_current_model
+  use bem_mesh_identity, only: mesh_fingerprint
   use bem_run_outputs, only: run_outputs_type
   use bem_output_writer, only: write_matching_plane_history_snapshot, write_fixed_current_history_rows, &
                                write_matching_plane_spectrum_history_rows, write_secondary_emission_history_rows

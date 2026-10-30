@@ -6,6 +6,7 @@ module bem_output_writer
   use bem_charge_ledger, only: charge_ledger_type
   use bem_checkpoint_contract, only: begin_checkpoint_publish
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
+  use bem_surface_current_model, only: surface_current_model_result_type
   use bem_filesystem, only: &
     create_directories, &
     filesystem_empty_path, &
@@ -31,6 +32,17 @@ module bem_output_writer
   public :: ensure_output_dir
   public :: remove_previous_run_outputs
   public :: trim_history_files
+  public :: summary_identity_type
+
+  !> summary.txt に書く run 内不変量: mesh の幾何・材質の識別子と、設定から解いた初期 surface-current model。
+  !! どちらも電荷・統計・動的 closure に依存しないので、run の開始時に一度作り、checkpoint と最終出力で使い回す。
+  !! mesh の幾何・材質か設定を変えたら作り直す。`ready` でなければ writer がその場で計算する。
+  !! model を allocatable にして、この型を含む構造体を構成子で既定値のまま作れるようにする。
+  type :: summary_identity_type
+    logical :: ready = .false.
+    character(len=16) :: mesh_fingerprint = ''
+    type(surface_current_model_result_type), allocatable :: initial_model
+  end type summary_identity_type
 
   ! Optional products that one run may write and the next run may not; `remove_previous_run_outputs`
   ! and `trim_history_files` own them by these names, so a new history must be added here.
@@ -155,7 +167,7 @@ module bem_output_writer
     end subroutine write_fixed_current_history_rows
 
     module subroutine write_summary_file( &
-      out_dir, mesh, stats, cfg, mpi_world_size, charge_ledger, electrostatic_diagnostics &
+      out_dir, mesh, stats, cfg, mpi_world_size, charge_ledger, electrostatic_diagnostics, identity &
       )
       character(len=*), intent(in) :: out_dir
       type(mesh_type), intent(in) :: mesh
@@ -164,6 +176,7 @@ module bem_output_writer
       integer(i32), intent(in), optional :: mpi_world_size
       type(charge_ledger_type), intent(in), optional :: charge_ledger
       type(electrostatic_diagnostics_type), intent(in), optional :: electrostatic_diagnostics
+      type(summary_identity_type), intent(in), optional :: identity
     end subroutine write_summary_file
 
     module pure real(dp) function soft_discard_fraction(stats) result(fraction)
@@ -275,7 +288,7 @@ contains
   !! @param[in] stats 書き出し対象の統計値。
   !! @param[in] cfg 出力設定を含むアプリ設定。
   subroutine write_result_files( &
-    out_dir, mesh, stats, cfg, mpi_world_size, mesh_potential_v, charge_ledger, electrostatic_diagnostics &
+    out_dir, mesh, stats, cfg, mpi_world_size, mesh_potential_v, charge_ledger, electrostatic_diagnostics, identity &
     )
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
@@ -285,11 +298,12 @@ contains
     real(dp), intent(in), optional :: mesh_potential_v(:)
     type(charge_ledger_type), intent(in), optional :: charge_ledger
     type(electrostatic_diagnostics_type), intent(in), optional :: electrostatic_diagnostics
+    type(summary_identity_type), intent(in), optional :: identity
     call ensure_output_dir(out_dir)
     call begin_checkpoint_publish(out_dir)
     call write_summary_file( &
       out_dir, mesh, stats, cfg, mpi_world_size=mpi_world_size, charge_ledger=charge_ledger, &
-      electrostatic_diagnostics=electrostatic_diagnostics &
+      electrostatic_diagnostics=electrostatic_diagnostics, identity=identity &
       )
     call write_charges_file(out_dir, mesh)
     if (cfg%write_mesh_potential) then
@@ -304,18 +318,19 @@ contains
   end subroutine write_result_files
 
   !> 再開に必要な root-rank 共通状態だけをチェックポイントへ保存する。
-  subroutine write_checkpoint_state_files(out_dir, mesh, stats, cfg, mpi_world_size, charge_ledger)
+  subroutine write_checkpoint_state_files(out_dir, mesh, stats, cfg, mpi_world_size, charge_ledger, identity)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in), optional :: mpi_world_size
     type(charge_ledger_type), intent(in), optional :: charge_ledger
+    type(summary_identity_type), intent(in), optional :: identity
 
     call ensure_output_dir(out_dir)
     call begin_checkpoint_publish(out_dir)
     call write_summary_file( &
-      out_dir, mesh, stats, cfg, mpi_world_size=mpi_world_size, charge_ledger=charge_ledger &
+      out_dir, mesh, stats, cfg, mpi_world_size=mpi_world_size, charge_ledger=charge_ledger, identity=identity &
       )
     call write_charges_file(out_dir, mesh)
     if (present(charge_ledger)) call write_charge_ledger_file(out_dir, charge_ledger)
