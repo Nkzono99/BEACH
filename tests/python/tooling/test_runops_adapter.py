@@ -171,6 +171,7 @@ def test_agent_context_has_plugin_skills() -> None:
     assert path is not None
     assert (path / "skills" / "beach-config-review" / "SKILL.md").is_file()
     assert (path / "references").is_dir()
+    assert (path / "docs" / "usage-workflows.md").is_file()
     assert Adapter().agent_context_dir() == path
 
 
@@ -314,8 +315,3 @@ def test_progress_counts_batches_from_the_resume_point(tmp_path: Path) -> None:
     }
     (run / "work" / "stdout.41.log").write_text("batch 9/10\n", encoding="utf-8")
     assert adapter.progress(run)["done"] == 104002  # the manifest's job, not the newest file
-
-
-def test_agent_context_ships_docs() -> None:
-    path = agent_context_path()
-    assert path is not None and (path / "docs" / "usage-workflows.md").is_file()

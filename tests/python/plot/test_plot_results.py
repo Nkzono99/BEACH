@@ -85,43 +85,6 @@ def test_potential_animation_rejects_cached_kneq0_component(
         )
 
 
-def test_plot_potential_slices_returns_figure_and_axes(tmp_path: Path) -> None:
-    matplotlib = pytest.importorskip("matplotlib")
-    matplotlib.use("Agg")
-    _write_complete_free_field_config(tmp_path)
-
-    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = RunResult(
-        directory=tmp_path,
-        charges=np.array([1.0e-9]),
-        summary=RunSummary(
-            mesh_nelem=1,
-            processed_particles=0,
-            absorbed=0,
-            escaped=0,
-            batches=0,
-            escaped_boundary=0,
-            survived_max_step=0,
-            last_rel_change=0.0,
-        ),
-        mesh=RunMesh(triangles=triangles),
-    )
-
-    fig, axes = plot_potential_slices(
-        result,
-        box_min=[-1.0, -1.0, -1.0],
-        box_max=[1.0, 1.0, 1.0],
-        grid_n=10,
-        xy_z=0.3,
-        yz_x=0.3,
-        xz_y=0.3,
-    )
-
-    assert fig is not None
-    assert len(axes) == 3
-    fig.clf()
-
-
 def test_plot_potential_slices_applies_vmin_vmax(tmp_path: Path) -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
@@ -149,10 +112,14 @@ def test_plot_potential_slices_applies_vmin_vmax(tmp_path: Path) -> None:
         box_min=[-1.0, -1.0, -1.0],
         box_max=[1.0, 1.0, 1.0],
         grid_n=8,
+        xy_z=0.3,
+        yz_x=0.3,
+        xz_y=0.3,
         vmin=-5.0,
         vmax=12.0,
     )
 
+    assert len(axes) == 3
     for ax in axes:
         assert ax.collections
         assert ax.collections[0].get_clim() == (-5.0, 12.0)
@@ -250,17 +217,13 @@ def test_plot_potential_mesh_returns_figure_and_axes(tmp_path: Path) -> None:
         mesh=RunMesh(triangles=triangles),
     )
 
-    fig, ax = plot_potential_mesh(result, reference_point=None)
-
-    assert fig is not None
-    assert ax is not None
-    fig.clf()
-
     fig, ax = plot_potential_mesh(
         result,
         reference_point=None,
         axis_unit="um",
     )
+    assert fig is not None
+    assert ax is not None
     assert ax.get_xlabel() == "x [um]"
     fig.clf()
 
@@ -339,9 +302,6 @@ def test_plot_potential_mesh_accepts_custom_view_angles(tmp_path: Path) -> None:
 
     assert ax.elev == pytest.approx(11.0)
     assert ax.azim == pytest.approx(37.0)
-    ax.view_init(elev=5.0, azim=15.0)
-    assert ax.elev == pytest.approx(5.0)
-    assert ax.azim == pytest.approx(15.0)
     fig.clf()
 
 

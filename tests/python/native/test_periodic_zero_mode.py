@@ -45,6 +45,7 @@ def test_periodic_zero_mode_matches_two_sheet_solution_and_traces(
     area = 2.0
     heights = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
     charges = EPS0 * area * np.array([1.0, -1.0])
+    updated_charges = EPS0 * area * np.array([2.0, -0.5])
 
     with PeriodicZeroMode(
         heights,
@@ -55,38 +56,30 @@ def test_periodic_zero_mode_matches_two_sheet_solution_and_traces(
         phi, ez = zero.eval(np.array([-0.5, 0.0, 0.5, 1.0, 1.5]))
         _, ez_minus = zero.eval(np.array([0.0, 1.0]), trace="minus")
         _, ez_plus = zero.eval(np.array([0.0, 1.0]), trace="plus")
+        zero.update_charges(updated_charges)
+        updated_phi, updated_ez = zero.eval(np.array([-0.5, 0.5, 1.5]))
 
     np.testing.assert_allclose(
-        phi, [0.0, 0.0, -0.5, -1.0, -1.0], rtol=0.0, atol=1.0e-14
+        phi, [0.0, 0.0, -0.5, -1.0, -1.0], rtol=0.0, atol=1.0e-14,
+        err_msg="initial potential",
     )
     np.testing.assert_allclose(
-        ez, [0.0, 0.5, 1.0, 0.5, 0.0], rtol=0.0, atol=1.0e-14
+        ez, [0.0, 0.5, 1.0, 0.5, 0.0], rtol=0.0, atol=1.0e-14,
+        err_msg="initial field",
     )
     np.testing.assert_allclose(ez_minus, [0.0, 1.0], rtol=0.0, atol=1.0e-14)
     np.testing.assert_allclose(ez_plus, [1.0, 0.0], rtol=0.0, atol=1.0e-14)
     assert not phi.flags.writeable
     assert not ez.flags.writeable
-
-
-def test_periodic_zero_mode_charge_update_matches_two_sheet_solution(
-    field_kernel_library: Path,
-) -> None:
-    area = 2.0
-    heights = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
-    charges = EPS0 * area * np.array([1.0, -1.0])
-    updated_charges = EPS0 * area * np.array([2.0, -0.5])
-
-    with PeriodicZeroMode(
-        heights,
-        charges,
-        area,
-        library_path=field_kernel_library,
-    ) as zero:
-        zero.update_charges(updated_charges)
-        phi, ez = zero.eval(np.array([-0.5, 0.5, 1.5]))
-
-    np.testing.assert_allclose(phi, [0.0, -1.0, -2.75], rtol=0.0, atol=1.0e-14)
-    np.testing.assert_allclose(ez, [0.0, 2.0, 1.5], rtol=0.0, atol=1.0e-14)
+    # The charge update keeps the height plan and gives the new two-sheet solution.
+    np.testing.assert_allclose(
+        updated_phi, [0.0, -1.0, -2.75], rtol=0.0, atol=1.0e-14,
+        err_msg="potential after charge update",
+    )
+    np.testing.assert_allclose(
+        updated_ez, [0.0, 2.0, 1.5], rtol=0.0, atol=1.0e-14,
+        err_msg="field after charge update",
+    )
 
 
 def test_periodic_zero_mode_rejects_invalid_shape_without_native_library() -> None:
@@ -95,15 +88,26 @@ def test_periodic_zero_mode_rejects_invalid_shape_without_native_library() -> No
 
 
 def test_periodic_zero_mode_rejects_invalid_trace_and_closed_use(
-    field_kernel_library: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    zero = PeriodicZeroMode(
-        np.zeros((1, 3)), np.ones(1), 1.0, library_path=field_kernel_library
+    library, destroy_calls = _fake_zero_mode_library()
+
+    def forbidden_eval(*_args: object) -> int:
+        raise AssertionError("rejected evaluations must not reach the native library")
+
+    library.beach_zero_mode_eval = forbidden_eval
+    monkeypatch.setattr(
+        zero_mode_module,
+        "_load_kernel_library",
+        lambda _path: library,
     )
+
+    zero = PeriodicZeroMode(np.zeros((1, 3)), np.ones(1), 1.0)
     with pytest.raises(ValueError, match="trace"):
         zero.eval(np.array([0.0]), trace="surface")
     zero.close()
     zero.close()
+    assert len(destroy_calls) == 1
     with pytest.raises(FieldKernelError, match="closed"):
         zero.eval(np.array([0.0]))
 

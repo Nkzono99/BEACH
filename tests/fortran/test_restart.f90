@@ -53,7 +53,7 @@ program test_restart
   end if
 
   call cleanup_restart_fixture(out_dir)
-  call test_init(12)
+  call test_init(11)
 
   call test_begin('missing_checkpoint')
   call build_test_mesh(mesh)
@@ -329,19 +329,9 @@ program test_restart
     )
   call test_end()
 
-  call test_begin('write_checkpoint')
-  call ensure_directory(out_dir)
-  call write_summary_fixture(out_dir)
-  call write_charges_fixture(out_dir)
-  ! The fixture summary has no schema key, so it is a legacy checkpoint that still lists its RNG state file.
-  call touch_file(out_dir//'/rng_state.txt')
-  state%macro_residual = [0.25_dp, 0.75_dp]
-  call write_macro_residuals_file(out_dir, state)
-  inquire (file=trim(out_dir)//'/macro_residuals.csv', exist=exists)
-  call assert_true(exists, 'macro_residuals.csv should be created')
-  call test_end()
-
   call test_begin('ranked_paths')
+  call ensure_directory(out_dir)
+  state%macro_residual = [0.25_dp, 0.75_dp]
   rng_rank_path = restart_rng_state_path(out_dir, mpi_rank=1_i32, mpi_size=4_i32)
   residual_global_path = restart_macro_residual_path(out_dir, mpi_rank=1_i32, mpi_size=4_i32)
   call assert_true(trim(rng_rank_path) == trim(out_dir)//'/rng_state_rank00001.txt', 'ranked rng path mismatch')
@@ -354,6 +344,14 @@ program test_restart
   call test_end()
 
   call test_begin('load_checkpoint')
+  call write_summary_fixture(out_dir)
+  call write_charges_fixture(out_dir)
+  ! The fixture summary has no schema key, so it is a legacy checkpoint that still lists its RNG state file.
+  call touch_file(out_dir//'/rng_state.txt')
+  state%macro_residual = [0.25_dp, 0.75_dp]
+  call write_macro_residuals_file(out_dir, state)
+  inquire (file=trim(out_dir)//'/macro_residuals.csv', exist=exists)
+  call assert_true(exists, 'macro_residuals.csv should be created')
   call build_test_mesh(mesh)
   state%macro_residual = 0.0_dp
   state%boundary_macro_residual = 0.0_dp
@@ -456,6 +454,15 @@ contains
     call run_self_probe('--numeric-csv-probe', matching_probe_log, exit_status)
     call assert_true(exit_status /= 0, 'malformed ledger CSV must fail')
     call assert_true(file_contains(matching_probe_log, 'Failed to parse charge_ledger.csv'), 'ledger CSV diagnostic')
+    ! Ledger counts only grow during a run, so the checkpoint reader is their only nonnegativity check.
+    open (newunit=u, file=out_dir//'/charge_ledger.csv', status='replace')
+    write (u, '(a)') 'batch,species_idx,legacy_charges_C,counts', '2,1,0,0,0,0,0,0,0,0,-1,0,0,0,0'
+    close (u)
+    call run_self_probe('--numeric-csv-probe', matching_probe_log, exit_status)
+    call assert_true(exit_status /= 0, 'negative ledger count must fail on resume')
+    call assert_true( &
+      file_contains(matching_probe_log, 'Resume charge ledger counts must be nonnegative'), 'negative count diagnostic' &
+      )
     call cleanup_restart_fixture(out_dir)
   end subroutine test_numeric_csv_records
 

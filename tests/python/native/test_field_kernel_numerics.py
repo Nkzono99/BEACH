@@ -43,25 +43,6 @@ def _uniform_triangle_field(
     return K_COULOMB * density * np.sum(weight[:, :, None] * integrand, axis=(0, 1))
 
 
-def test_field_kernel_eval_e_matches_exact_panel_direct(field_kernel_library: Path) -> None:
-    lib = field_kernel_library
-    triangles = np.array(
-        [
-            [[0.0, 0.0, 0.0], [0.2, 0.0, 0.0], [0.0, 0.2, 0.0]],
-            [[1.0, 0.0, 0.0], [1.2, 0.0, 0.0], [1.0, 0.2, 0.0]],
-        ],
-        dtype=float,
-    )
-    source_q = np.array([1.0e-9, -2.0e-9], dtype=float)
-    target = np.array([[0.0, 1.0, 0.3]], dtype=float)
-
-    with FieldKernel(triangles, source_q, library_path=lib) as kernel:
-        field = kernel.eval_e(target)
-        exact = kernel.eval_e_direct(target)
-
-    np.testing.assert_allclose(field, exact, rtol=2.0e-14, atol=1.0e-14)
-
-
 @pytest.mark.parametrize("edge_m", [1.0e-6, 1.0e-9])
 def test_native_kernel_accepts_small_and_translated_panels(
     field_kernel_library: Path, edge_m: float
@@ -102,12 +83,15 @@ def test_field_kernel_exact_panel_direct_scales_with_charge_refresh(
     source_q = np.array([1.0e-9, -1.2e-9, 0.8e-9])
     targets = np.array([[0.13, -0.08, 0.4], [-0.4, 0.2, 0.3]], dtype=float)
     with FieldKernel(triangles, source_q, library_path=lib) as kernel:
+        ordinary_e = kernel.eval_e(targets)
         direct_e = kernel.eval_e_direct(targets)
         direct_phi = kernel.eval_phi_direct(targets)
         kernel.update_charges(-0.25 * source_q)
         refreshed_e = kernel.eval_e_direct(targets)
         refreshed_phi = kernel.eval_phi_direct(targets)
 
+    # Mixed-sign panels and off-plane targets: the ordinary evaluation equals the exact panel sum.
+    np.testing.assert_allclose(ordinary_e, direct_e, rtol=2.0e-14, atol=1.0e-14)
     np.testing.assert_allclose(refreshed_e, -0.25 * direct_e, rtol=2.0e-14, atol=1.0e-14)
     np.testing.assert_allclose(
         refreshed_phi, -0.25 * direct_phi, rtol=2.0e-14, atol=1.0e-14

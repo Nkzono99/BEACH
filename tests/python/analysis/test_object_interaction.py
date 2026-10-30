@@ -1044,44 +1044,6 @@ def test_repeated_snapshot_and_probe_contexts_close_every_native_handle(
     assert all(instance.closed for instance in fake_zero.instances)
 
 
-def test_triangle_source_is_never_silently_downgraded_to_centroids(
-    tmp_path: Path,
-    fake_native,
-) -> None:
-    config = tmp_path / "beach.toml"
-    _write_free_config(config)
-    result = _result(
-        tmp_path,
-        np.array([[0.0, 0.0, 0.0]]),
-        np.array([1.0]),
-        np.array([1]),
-        source_model="triangle_p0",
-    )
-
-    with ObjectInteractionSnapshot.from_result(
-        result,
-        step=None,
-        config_path=config,
-    ) as snapshot:
-        automatic = snapshot.object_probe(1).wrench()
-        compatibility = snapshot.object_probe(
-            1,
-            target_integration="centroid_compatibility",
-        ).wrench()
-
-    assert automatic.numerical_metadata["target_integration"] == "gauss_duffy"
-    assert automatic.numerical_metadata["quadrature_order"] == 7
-    assert compatibility.numerical_metadata["target_integration"] == (
-        "centroid_compatibility"
-    )
-    # The snapshot kernel and both probe kernels receive the saved triangles unchanged, so neither
-    # integration mode collapses or moves the source geometry before native evaluation.
-    fake_field, _ = fake_native
-    assert len(fake_field.instances) == 3
-    for instance in fake_field.instances:
-        np.testing.assert_array_equal(instance.source_triangles, result.mesh.triangles)
-
-
 def test_periodic_snapshot_connects_one_mesh_across_the_cell_seam(
     tmp_path: Path,
     fake_native,
@@ -1158,6 +1120,23 @@ def test_free_snapshot_keeps_saved_geometry_bitwise(
         probe = snapshot.object_probe(1)
         assert probe.target_geometry_representation == "saved"
         assert probe.target_triangles_m.tobytes() == saved.tobytes()
+        automatic = probe.wrench()
+        compatibility = snapshot.object_probe(
+            1,
+            target_integration="centroid_compatibility",
+        ).wrench()
+
+    # A triangle source is never silently downgraded to centroids: the default is the Duffy rule,
+    # centroids only on request, and every kernel receives the saved triangles unchanged.
+    assert automatic.numerical_metadata["target_integration"] == "gauss_duffy"
+    assert automatic.numerical_metadata["quadrature_order"] == 7
+    assert compatibility.numerical_metadata["target_integration"] == (
+        "centroid_compatibility"
+    )
+    fake_field, _ = fake_native
+    assert len(fake_field.instances) == 3
+    for instance in fake_field.instances:
+        np.testing.assert_array_equal(instance.source_triangles, saved)
 
 
 def test_periodic_full_cell_plane_uses_concentration_fallback(

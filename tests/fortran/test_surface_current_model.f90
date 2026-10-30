@@ -179,7 +179,19 @@ program test_surface_current_model
                        'field-floor Type A phi0 must match the width-tolerated root')
   call assert_true(refreshed%upstream_field_deficit_v_m > 1.0e-4_dp .and. refreshed%upstream_field_deficit_v_m < 0.1_dp, &
                    'field deficit inside the upstream band must be of order mV/m')
-  ! Rejection above the floor or tolerance is the sheath-model search contract (test/test_upstream_band.f90).
+  ! The search itself is the sheath-model contract (test/test_upstream_band.f90). These two rejections only check
+  ! that BEACH passes the configured floor and tolerance through instead of clamping or fixing them.
+  cfg%surface_current%zhao_upstream_field_floor_v_m = 1.0e-5_dp
+  call solve_zhao_outflow_closure( &
+    cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, ' ', refreshed, success, message &
+    )
+  call assert_true(.not. success, 'a field deficit above the configured floor must be rejected')
+  cfg%surface_current%zhao_upstream_field_floor_v_m = 0.0_dp
+  cfg%surface_current%zhao_upstream_band_tolerance = 0.02_dp
+  call solve_zhao_outflow_closure( &
+    cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, ' ', refreshed, success, message &
+    )
+  call assert_true(.not. success, 'a band wider than the configured tolerance must be rejected')
   call test_end()
 
   call test_begin('zhao_outflow_refresh_with_emission_source_reproduces_root')

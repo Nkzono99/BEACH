@@ -8,6 +8,7 @@ program test_simulator_loop
   use bem_physics_config_types, only: normalize_legacy_physics_config
   use bem_types, only: mesh_type, sim_stats, bc_open, bc_reflect
   use bem_charge_ledger, only: charge_ledger_type
+  use bem_simulator_workspace, only: simulator_batch_workspace_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, delete_file_if_exists
   implicit none
@@ -135,9 +136,7 @@ program test_simulator_loop
   call assert_close_dp(sum(charge_ledger%absorbed_on_surface), 5.0_dp, 1.0d-12, 'ledger absorbed charge mismatch')
   call assert_close_dp(sum(charge_ledger%escaped_to_infinity), 2.0_dp, 1.0d-12, 'ledger escaped charge mismatch')
   call assert_close_dp(charge_ledger%residual(), 0.0_dp, 1.0d-12, 'simulation charge residual mismatch')
-  call test_end()
-
-  call test_begin('history_output')
+  ! One batch with history_stride=1 writes one history snapshot row.
   n_lines = 0_i32
   open (newunit=u, file=history_path, status='old', action='read', iostat=ios)
   if (ios /= 0) error stop 'failed to read simulator history fixture'
@@ -148,7 +147,6 @@ program test_simulator_loop
   end do
   close (u)
   call assert_equal_i32(n_lines, 1_i32, 'history snapshot line count mismatch')
-
   call delete_file_if_exists(history_path)
   call test_end()
 
@@ -265,9 +263,60 @@ program test_simulator_loop
   call test_large_finite_charge_norm_stays_finite()
   call test_end()
 
+  call test_begin('batch_workspace_reset_clears_previous_batch')
+  call test_batch_workspace_reset_clears_previous_batch()
+  call test_end()
+
   call test_summary()
 
 contains
+
+  !> The batch workspace is reused across batches. Whatever a finished batch left in its charge tallies,
+  !! closure accumulators and particle terminal flags must not leak into the next batch.
+  subroutine test_batch_workspace_reset_clears_previous_batch()
+    type(simulator_batch_workspace_type) :: workspace
+
+    call workspace%init(2_i32, 3_i32, 2_i32, candidate_charge_enabled=.true.)
+    call workspace%prepare_particle_flags(5_i32)
+    workspace%escaped_boundary_flag = .true.
+    workspace%absorbed_flag = .true.
+    workspace%absorbed_element = 1_i32
+    workspace%soft_discarded_boundary_flag = .true.
+    workspace%dq_thread = 1.0_dp
+    workspace%photo_emission_dq = 2.0_dp
+    workspace%candidate_charge = 3.0_dp
+    workspace%charge_candidate_ready = .true.
+    workspace%neutral_return_charge_values = 4.0_dp
+    workspace%neutral_return_terminal_counts = 5_i64
+    workspace%neutral_return_weight_scale = 6.0_dp
+    workspace%neutral_return_correction = 7.0_dp
+    workspace%fixed_current_charge_values = 8.0_dp
+    workspace%fixed_absorbed_weight_scale = 9.0_dp
+    workspace%fixed_current_correction = 10.0_dp
+    workspace%matching_plane_moments_thread = 11.0_dp
+    workspace%secondary_counts_thread = 12_i64
+
+    call workspace%reset_before_injection()
+    call workspace%prepare_particle_flags(2_i32)
+
+    call assert_true(all(workspace%dq_thread == 0.0_dp), 'previous batch charge deltas leaked')
+    call assert_true(all(workspace%photo_emission_dq == 0.0_dp), 'previous batch photo-emission charge leaked')
+    call assert_true(all(workspace%candidate_charge == 0.0_dp), 'previous adaptive candidate charge leaked')
+    call assert_true(.not. workspace%charge_candidate_ready, 'previous adaptive candidate stayed ready')
+    call assert_true(all(workspace%neutral_return_charge_values == 0.0_dp), 'neutral-return charges leaked')
+    call assert_true(all(workspace%neutral_return_terminal_counts == 0_i64), 'neutral-return counts leaked')
+    call assert_true(all(workspace%neutral_return_weight_scale == 1.0_dp), 'neutral-return scale was not reset to 1')
+    call assert_true(all(workspace%neutral_return_correction == 0.0_dp), 'neutral-return correction leaked')
+    call assert_true(all(workspace%fixed_current_charge_values == 0.0_dp), 'fixed-current tallies leaked')
+    call assert_true(all(workspace%fixed_absorbed_weight_scale == 1.0_dp), 'fixed-current scale was not reset to 1')
+    call assert_true(all(workspace%fixed_current_correction == 0.0_dp), 'fixed-current correction leaked')
+    call assert_true(all(workspace%matching_plane_moments_thread == 0.0_dp), 'matching-plane moments leaked')
+    call assert_true(all(workspace%secondary_counts_thread == 0_i64), 'secondary-emission counts leaked')
+    call assert_true(all(.not. workspace%escaped_boundary_flag(:2)), 'previous escaped flags leaked')
+    call assert_true(all(.not. workspace%absorbed_flag(:2)), 'previous absorbed flags leaked')
+    call assert_true(all(workspace%absorbed_element(:2) == -1_i32), 'previous absorbed elements leaked')
+    call assert_true(all(.not. workspace%soft_discarded_boundary_flag(:2)), 'previous discard flags leaked')
+  end subroutine test_batch_workspace_reset_clears_previous_batch
 
   subroutine test_reflected_remainder_deposits()
     type(mesh_type) :: reflected_mesh

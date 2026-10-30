@@ -16,7 +16,7 @@ program test_dynamics_field_solver
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(11)
+  call test_init(10)
 
   call test_begin('field_solver_auto_mode')
   call test_field_solver_auto_mode()
@@ -34,12 +34,8 @@ program test_dynamics_field_solver
   call test_treecode_mixed_sign_cancellation_sweep()
   call test_end()
 
-  call test_begin('direct_field_length_normalization_accuracy')
-  call test_direct_field_length_normalization_accuracy()
-  call test_end()
-
-  call test_begin('direct_potential_length_normalization_accuracy')
-  call test_direct_potential_length_normalization_accuracy()
+  call test_begin('direct_length_normalization_field_and_potential')
+  call test_direct_length_normalization_field_and_potential()
   call test_end()
 
   call test_begin('treecode_field_length_normalization_accuracy')
@@ -179,6 +175,7 @@ contains
     integer, allocatable :: seed(:)
     real(dp) :: r(3), e_direct(3), e_tree(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err, norm_r
+    real(dp) :: e_init(3), phi_init, phi_tree
 
     call make_sphere(mesh_tree, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
     call mark_normal_plus(mesh_tree)
@@ -190,7 +187,15 @@ contains
     sim%tree_leaf_max = 6_i32
     sim%tree_min_nelem = 64_i32
     call solver%init(mesh_tree, sim)
+
+    ! The far target accepts tree nodes, so the comparison sees the refreshed node moments.
+    r = [30.0d0, 5.0d0, -4.0d0]
+    call solver%eval_e(mesh_tree, r, e_init)
+    call solver%eval_potential(mesh_tree, sim, r, phi_init)
     call solver%refresh(mesh_tree)
+    call solver%eval_e(mesh_tree, r, e_tree)
+    call solver%eval_potential(mesh_tree, sim, r, phi_tree)
+    call assert_unchanged_refresh(e_init, e_tree, phi_init, phi_tree, 'treecode')
 
     call random_seed(size=seed_size)
     allocate (seed(seed_size))
@@ -270,6 +275,18 @@ contains
     end do
   end subroutine test_treecode_mixed_sign_cancellation_sweep
 
+  !> init already prepares every backend; refreshing with the same charges must leave E and phi unchanged.
+  subroutine assert_unchanged_refresh(e_before, e_after, phi_before, phi_after, backend)
+    real(dp), intent(in) :: e_before(3), e_after(3), phi_before, phi_after
+    character(len=*), intent(in) :: backend
+    real(dp) :: tolerance
+
+    tolerance = 8.0_dp*epsilon(1.0_dp)*maxval(abs(e_before))
+    call assert_allclose_1d(e_after, e_before, tolerance, trim(backend)//' E changed after an unchanged refresh')
+    tolerance = 8.0_dp*epsilon(1.0_dp)*abs(phi_before)
+    call assert_close_dp(phi_after, phi_before, tolerance, trim(backend)//' phi changed after an unchanged refresh')
+  end subroutine assert_unchanged_refresh
+
   subroutine init_treecode_monopole_fixture(mesh_tree, solver, sim)
     type(mesh_type), intent(out) :: mesh_tree
     type(field_solver_type), intent(out) :: solver
@@ -297,11 +314,12 @@ contains
     call assert_true(solver%child_count(1) > 0_i32, 'treecode cancellation fixture root must be internal')
   end subroutine init_treecode_monopole_fixture
 
-  subroutine test_direct_field_length_normalization_accuracy()
+  subroutine test_direct_length_normalization_field_and_potential()
     type(mesh_type) :: mesh_direct
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
-    real(dp) :: r(3), e_direct(3), e_solver(3), norm_direct, rel_err
+    real(dp) :: r(3), e_direct(3), e_solver(3), e_init(3), norm_direct, rel_err
+    real(dp) :: phi_direct, phi_solver, phi_init
 
     call make_sphere(mesh_direct, radius=2.0d-5, n_lon=8_i32, n_lat=4_i32, center=[5.0d-5, 0.0d0, 0.0d0])
     call mark_normal_plus(mesh_direct)
@@ -312,40 +330,22 @@ contains
     sim%field_normalization = 'length'
     sim%field_length_scale = 1.0d-4
     call solver%init(mesh_direct, sim)
-    call solver%refresh(mesh_direct)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
+    call solver%eval_e(mesh_direct, r, e_init)
+    call solver%eval_potential(mesh_direct, sim, r, phi_init)
+    call solver%refresh(mesh_direct)
     e_direct = panel_sum_field(mesh_direct, r)
     call solver%eval_e(mesh_direct, r, e_solver)
-
-    norm_direct = sqrt(sum(e_direct*e_direct))
-    rel_err = sqrt(sum((e_solver - e_direct)*(e_solver - e_direct)))/norm_direct
-    call assert_true(rel_err <= 1.0d-12, 'normalized direct E relative error exceeds 1e-12')
-  end subroutine test_direct_field_length_normalization_accuracy
-
-  subroutine test_direct_potential_length_normalization_accuracy()
-    type(mesh_type) :: mesh_direct
-    type(field_solver_type) :: solver = field_solver_type()
-    type(sim_config) :: sim
-    real(dp) :: r(3), phi_direct, phi_solver
-
-    call make_sphere(mesh_direct, radius=2.0d-5, n_lon=8_i32, n_lat=4_i32, center=[5.0d-5, 0.0d0, 0.0d0])
-    call mark_normal_plus(mesh_direct)
-    mesh_direct%q_elem = 1.0d-13
-
-    sim = sim_config()
-    sim%field_solver = 'direct'
-    sim%field_normalization = 'length'
-    sim%field_length_scale = 1.0d-4
-    call solver%init(mesh_direct, sim)
-    call solver%refresh(mesh_direct)
-
-    r = [8.0d-5, -6.0d-5, 7.0d-5]
     phi_direct = panel_sum_potential(mesh_direct, r)
     call solver%eval_potential(mesh_direct, sim, r, phi_solver)
 
+    call assert_unchanged_refresh(e_init, e_solver, phi_init, phi_solver, 'direct')
+    norm_direct = sqrt(sum(e_direct*e_direct))
+    rel_err = sqrt(sum((e_solver - e_direct)*(e_solver - e_direct)))/norm_direct
+    call assert_true(rel_err <= 1.0d-12, 'normalized direct E relative error exceeds 1e-12')
     call assert_close_dp(phi_solver, phi_direct, max(1.0d-12, abs(phi_direct)*1.0d-12), 'direct potential mismatch')
-  end subroutine test_direct_potential_length_normalization_accuracy
+  end subroutine test_direct_length_normalization_field_and_potential
 
   subroutine test_treecode_field_length_normalization_accuracy()
     type(mesh_type) :: mesh_tree
@@ -366,7 +366,6 @@ contains
     sim%has_tree_leaf_max = .true.
     sim%tree_min_nelem = 64_i32
     call solver%init(mesh_tree, sim)
-    call solver%refresh(mesh_tree)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
     e_direct = panel_sum_field(mesh_tree, r)
@@ -381,8 +380,8 @@ contains
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
-    real(dp) :: r(3), e_direct(3), e_fmm(3), norm_direct, rel_err
-    real(dp) :: phi_direct, phi_fmm
+    real(dp) :: r(3), e_direct(3), e_fmm(3), e_init(3), norm_direct, rel_err
+    real(dp) :: phi_direct, phi_fmm, phi_init
 
     call make_sphere(mesh_fmm, radius=2.0d-5, n_lon=16_i32, n_lat=8_i32, center=[5.0d-5, 0.0d0, 0.0d0])
     call mark_normal_plus(mesh_fmm)
@@ -396,13 +395,16 @@ contains
     sim%tree_leaf_max = 12_i32
     sim%tree_min_nelem = 64_i32
     call solver%init(mesh_fmm, sim)
-    call solver%refresh(mesh_fmm)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
+    call solver%eval_e(mesh_fmm, r, e_init)
+    call solver%eval_potential(mesh_fmm, sim, r, phi_init)
+    call solver%refresh(mesh_fmm)
     e_direct = panel_sum_field(mesh_fmm, r)
     call solver%eval_e(mesh_fmm, r, e_fmm)
     phi_direct = panel_sum_potential(mesh_fmm, r)
     call solver%eval_potential(mesh_fmm, sim, r, phi_fmm)
+    call assert_unchanged_refresh(e_init, e_fmm, phi_init, phi_fmm, 'fmm')
 
     norm_direct = sqrt(sum(e_direct*e_direct))
     rel_err = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))/norm_direct
@@ -439,7 +441,6 @@ contains
     sim%tree_leaf_max = 12_i32
     sim%tree_min_nelem = 64_i32
     call solver%init(mesh_fmm, sim)
-    call solver%refresh(mesh_fmm)
 
     ! The first target lies below box_min(2) and takes the direct fallback. The second lies inside the
     ! box, about five sphere radii from the charge, so it is evaluated through the target tree and the

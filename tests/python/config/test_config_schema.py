@@ -175,16 +175,20 @@ def test_schema_requires_kind_and_describes_all_part_key_types():
     assert schema_errors(config, schema)
 
 
+def test_upper_fourier_schema_rejects_invalid_switch_height():
+    schema, _ = load_schema()
+    config = _example('zero_current_refresh.toml')
+    for invalid in ('on', True, [], {}):
+        config['fields']['periodic']['upper_fourier'] = {'switch_height': invalid, 'mode_layers': 7}
+        assert schema_errors(config, schema), invalid
+
+
 @pytest.mark.parametrize('height', ['off', 'auto', 5e-4])
 def test_upper_fourier_schema_types(height):
     schema, _ = load_schema()
     config = _example('zero_current_refresh.toml')
     config['fields']['periodic']['upper_fourier'] = {'switch_height': height, 'mode_layers': 7}
     assert schema_errors(config, schema) == []
-    for invalid in ('on', True, [], {}):
-        config['fields']['periodic']['upper_fourier']['switch_height'] = invalid
-        assert schema_errors(config, schema)
-    config['fields']['periodic']['upper_fourier']['switch_height'] = height
     for invalid in (-1, 33, 2.5, True):
         config['fields']['periodic']['upper_fourier']['mode_layers'] = invalid
         assert schema_errors(config, schema)
