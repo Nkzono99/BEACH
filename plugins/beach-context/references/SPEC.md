@@ -27,8 +27,9 @@ BEACH がサポートする製品構成は、2 軸周期セルに外部 1-D シ�
 | 粒子源 | `volume_seed`、boundary reservoir 流入、`photo_raycast`、衝突時の `secondary_emission` |
 | closure | `explicit`、`fixed_current`、`neutral_return`、`zhao_stationary` と outflow refresh |
 
-参照構成として、free-space の direct / FMM と入門ケース (free + direct + `volume_seed` + plane template) の
-ビルドとテストを維持します。参照構成に新しい機能は加えません。それ以外の組合せは lint と Fortran が拒否します。
+参照構成として、free-space の direct / FMM と `volume_seed` のビルドとテストを維持します。
+参照構成に新しい機能は加えません。それ以外の組合せは lint と Fortran が拒否します。
+入門ケースは periodic2 の浮遊導体平面に電子と陽子を境界 reservoir から流入させる製品構成の最小例です。
 
 ### 2.2 実装済み
 

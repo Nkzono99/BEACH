@@ -3,7 +3,7 @@
     {"source": "media/README.md", "slug": "figure-style", "order": 999, "description": "編集可能な概念図の配色、文字、配置と検証の規則。", "sidebar": false},
     {"source": "index.md", "slug": "index", "order": 10, "description": "BEACHの適用範囲と目的別の読み始め方。"},
     {"source": "start/Installation.md", "slug": "installation", "order": 20, "description": "BEACHの動作要件とインストール手順。"},
-    {"source": "start/Tutorial.md", "slug": "tutorial", "order": 30, "description": "電子ビームで金属板を帯電させ、飽和電位を見積もりと比べる公式チュートリアル。"},
+    {"source": "start/Tutorial.md", "slug": "tutorial", "order": 30, "description": "電子と陽子の電流が釣り合う金属板の浮遊電位を、見積もりと比べる公式チュートリアル。"},
     {"source": "guide/ConfigurationRecipes.md", "slug": "configuration-recipes", "order": 40, "description": "物理的な目的から形状、粒子源、境界、solverを選ぶ。"},
     {"source": "guide/ParticleSourcesBoundaries.md", "slug": "particle-sources-boundaries", "order": 45, "description": "生成位置と供給方法から粒子源を選ぶ。"},
     {"source": "guide/Configuration.md", "slug": "configuration", "order": 50, "description": "beach.tomlを生成、編集、検証する。"},
@@ -61,7 +61,7 @@
         {
           "type": "page",
           "slug": "tutorial",
-          "label": "入門: 電子ビームで金属板を帯電させる"
+          "label": "入門: プラズマ中の金属板の浮遊電位"
         }
       ]
     },

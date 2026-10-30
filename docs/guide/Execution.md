@@ -131,7 +131,7 @@ beachx profile outputs/tutorial/performance_profile.csv \
 grep '^batches=' outputs/tutorial/summary.txt
 ```
 
-公式入門ケースでは `batches=150` と表示されます。一般には、この完了済みバッチ数を `B` とします。
+公式入門ケースでは `batches=10000` と表示されます。一般には、この完了済みバッチ数を `B` とします。
 
 元の設定を残して再開用の設定を作ります。
 
@@ -140,11 +140,11 @@ cp beach.toml resume.toml
 ```
 
 `resume.toml` の既存の `[run]` と `[output]` にある該当値を変更します。
-次は公式入門ケースを 150 batch から 151 batch へ延長する完全な例です。
+次は公式入門ケースを 10000 batch から 10001 batch へ延長する完全な例です。
 
 ```toml
 [run]
-batch_count = 151
+batch_count = 10001
 
 [output]
 enabled = true
@@ -166,9 +166,9 @@ beachx inspect outputs/resumed
 合格時は、`beach` と `beachx inspect` の出力に次が含まれます。
 
 ```text
-resuming_from_batches=150
+resuming_from_batches=10000
 ...
-batches=151 ...
+batches=10001 ...
 ```
 
 別のケースでも、完了済みバッチ数が `B` なら `batch_count` を整数 `B+1` に変更し、

@@ -77,11 +77,12 @@ Fortran はその全診断を繰り返さず、派生値・参照解決と実行
 ## 公式入門ケース
 
 最初の実行には [入門チュートリアル](../start/Tutorial.md) と
-`examples/tutorial_electron_beam.toml` を使ってください。`beachx config init`
-も同一の設定を生成します。この入門ケースは、5 eV の電子ビームによる浮遊導体板の帯電を
-150 batch（1.5 μs）追跡し、`fields.solver.method="direct"`と`fields.boundary="free"`を使います。
+`examples/tutorial_floating_plate.toml` を使ってください。`beachx config init`
+も同一の設定を生成します。この入門ケースは、電子と陽子の境界reservoir流入による浮遊導体板の帯電を
+10000 batch（5 s）追跡し、`fields.boundary="periodic2"`、`fields.periodic.backend="cached_kneq0"`、
+`fields.solver.method="fmm"`を使います。
 
-境界reservoir流入、周期境界、閉じた光電子、無限周期補正は、そのケースが実行できた後に
+外部シースとの接続、光電子、二次電子は、そのケースが実行できた後に
 [シミュレーションケースを設計する](../guide/ConfigurationRecipes.md)から追加する応用設定です。
 
 ---
