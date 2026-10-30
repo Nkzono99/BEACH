@@ -431,15 +431,7 @@ contains
     if (allocated(state%anchor_local_active)) deallocate (state%anchor_local_active)
     state%ready = .false.
     state%update_count = 0_i32
-    if (allocated(state%periodic_k0_state%cumulative_charge_coeff)) then
-      deallocate (state%periodic_k0_state%cumulative_charge_coeff)
-    end if
-    if (allocated(state%periodic_k0_state%primitive_at_break)) deallocate (state%periodic_k0_state%primitive_at_break)
-    if (allocated(state%periodic_k0_state%sheet_charge)) deallocate (state%periodic_k0_state%sheet_charge)
-    state%periodic_k0_state%e_bottom = 0.0_dp
-    state%periodic_k0_state%z_gauge = 0.0_dp
-    state%periodic_k0_state%phi_gauge = 0.0_dp
-    state%periodic_k0_state%total_charge = 0.0_dp
+    state%periodic_k0_state = periodic_zero_mode_state_type()
     call reset_periodic_shell_mean_state(state%periodic_shell_mean_state)
   end subroutine initialize_fmm_state
 
