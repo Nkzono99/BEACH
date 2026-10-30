@@ -16,6 +16,10 @@ BEACH の後処理は、実行概要を CLI で確認し、電荷履歴を動画
 [出力ファイルを調べる](OutputGuide.md)、全 class・関数は
 [Python 後処理 API リファレンス](../reference/PythonPostprocessAPI.md)を参照してください。
 
+![出力ファイルから保存電荷と最終電位を読む経路と、native kernel で電位履歴や断面を再構成する経路の図。](../media/concepts/postprocess-pipeline.svg)
+
+保存済みの電荷・最終電位はそのまま描画でき、電位履歴や断面の再構成では native field kernel を使います。
+
 ## 1. `beachx inspect` で完走と分布を確認する
 
 最初に、図を作らず実行概要を読みます。

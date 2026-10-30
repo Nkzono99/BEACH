@@ -16,6 +16,10 @@ field boundaryです。
 
 ## 問題規模からsolverを選ぶ
 
+![Direct の全三角形和、Treecode の遠方群の単極近似、FMM の局所展開を比較する図。](../media/concepts/field-solvers.svg)
+
+近傍の三角形電荷は同じで、遠方の寄与をまとめる方法がソルバごとに異なります。
+
 | solver | 主な用途 | 場境界 | 近似 |
 | --- | --- | --- | --- |
 | [Direct](../developer/DirectSolver.md) | 小規模計算、基準解、split reference | free、条件付きperiodic2 | 解析panel kernelを全要素について直接評価 |

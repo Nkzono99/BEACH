@@ -1,5 +1,6 @@
 {
   "pages": [
+    {"source": "media/README.md", "slug": "figure-style", "order": 999, "description": "編集可能な概念図の配色、文字、配置と検証の規則。", "sidebar": false},
     {"source": "index.md", "slug": "index", "order": 10, "description": "BEACHの適用範囲と目的別の読み始め方。"},
     {"source": "start/Installation.md", "slug": "installation", "order": 20, "description": "BEACHの動作要件とインストール手順。"},
     {"source": "start/Tutorial.md", "slug": "tutorial", "order": 30, "description": "電子ビームで金属板を帯電させ、飽和電位を見積もりと比べる公式チュートリアル。"},
