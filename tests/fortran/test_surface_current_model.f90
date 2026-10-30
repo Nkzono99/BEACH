@@ -9,9 +9,11 @@ program test_surface_current_model
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_surface_current_model, only: &
     surface_current_model_result_type, evaluate_surface_current_model, evaluate_surface_closure, &
-    solve_zhao_outflow_closure
+    solve_zhao_outflow_closure, refresh_zhao_outflow_closure
+  use bem_irradiation_cell_contract, only: &
+    irradiation_cell_contract_type, resolve_irradiation_cell_contract, irradiation_cell_ok
   use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev, outflow_spectrum_bin
-  use sheath_model, only: log_energy_edges
+  use sheath_model, only: log_energy_edges, sheath_matching_iteration, sheath_matching_conditions
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, &
                           assert_equal_i32
   implicit none
@@ -24,10 +26,13 @@ program test_surface_current_model
   real(dp) :: barrier_v, expected_escape, cold_phi_m
   real(dp) :: edges(outflow_spectrum_bins + 1), spectrum(outflow_spectrum_bins), tail_spectrum(outflow_spectrum_bins)
   type(surface_current_model_result_type) :: maxwell_root
-  integer(i32) :: j
+  integer(i32) :: j, status
   logical :: success
+  type(irradiation_cell_contract_type) :: cell
+  type(sheath_matching_iteration) :: outer
+  type(sheath_matching_conditions) :: accepted_plane, current_plane
 
-  call test_init(18)
+  call test_init(19)
 
   call test_begin('none_dispatch')
   call default_app_config(cfg)
@@ -245,6 +250,36 @@ program test_surface_current_model
     )
   call assert_current_decomposition(refreshed, 'observed-outflow outer solve')
   call assert_close_dp(refreshed%plane_gauge_potential_v, refreshed%phi0_v, 0.0_dp, 'refreshed H gauge mismatch')
+  call test_end()
+
+  call test_begin('zhao_outflow_refresh_keeps_outer_root_when_closure_rejects')
+  ! Type C の外部根では放出電子が全て脱出する。観測流出が表面放出を超えると根は解けても PE の帰還が
+  ! 正になり closure が棄却する。呼出し側は前回の closure を使い続けるので、外部根も前回のまま残す。
+  call configure_zhao_fixture(cfg, alpha_deg=10.0_dp)
+  cfg%surface_current%zhao_branch = 'c'
+  call resolve_irradiation_cell_contract(cfg, cell, status, message)
+  call assert_true(status == irradiation_cell_ok, 'Type C fixture cell: '//trim(message))
+  call evaluate_surface_current_model(cfg, result, cell, outer)
+  accepted_plane = outer%conditions()
+  call bin_shifted_half_maxwellian(1.05_dp*result%outer_photoelectron_flux_m2_s, 2.2_dp, 0.0_dp, spectrum)
+  call refresh_zhao_outflow_closure( &
+    cfg, outer, 1.05_dp*result%outer_photoelectron_flux_m2_s, 2.2_dp, spectrum, cell, refreshed, success, message &
+    )
+  call assert_true(.not. success, 'Type C escape above the surface emission must be rejected')
+  current_plane = outer%conditions()
+  call assert_close_dp(current_plane%emitted_outward_flux_m2_s, accepted_plane%emitted_outward_flux_m2_s, 0.0_dp, &
+                       'rejected refresh must keep the accepted outer source')
+  call assert_close_dp(current_plane%plane_potential_v, accepted_plane%plane_potential_v, 0.0_dp, &
+                       'rejected refresh must keep the accepted outer root')
+  ! The kept root still refreshes from an admissible observed outflow.
+  call bin_shifted_half_maxwellian(0.95_dp*result%outer_photoelectron_flux_m2_s, 2.2_dp, 0.0_dp, spectrum)
+  call refresh_zhao_outflow_closure( &
+    cfg, outer, 0.95_dp*result%outer_photoelectron_flux_m2_s, 2.2_dp, spectrum, cell, refreshed, success, message &
+    )
+  call assert_true(success, 'admissible Type C refresh failed: '//trim(message))
+  current_plane = outer%conditions()
+  call assert_true(current_plane%emitted_outward_flux_m2_s < 0.99_dp*accepted_plane%emitted_outward_flux_m2_s, &
+                   'accepted refresh must advance the outer source')
   call test_end()
 
   call test_begin('outflow_spectrum_bins_cover_energy_axis')

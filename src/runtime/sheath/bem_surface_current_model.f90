@@ -226,7 +226,8 @@ contains
   end subroutine solve_zhao_outflow_closure
 
   !> 外部解を観測したH外向き流出で更新する。前回の根を初期値にし、同じbranchを先に試す。
-  !! 解けなければ outer は前回のまま残り、success=.false. を返す。
+  !! 根が解けないか、解けた根の closure を棄却したときは outer を前回のまま残し、success=.false. を返す。
+  !! 呼出し側はこのとき前回の closure を使い続けるので、外部根もそれと揃えておく。
   subroutine refresh_zhao_outflow_closure( &
     app, outer, outer_flux_m2_s, outer_mean_energy_ev, outer_spectrum_m2_s, cell, result, success, message &
     )
@@ -238,13 +239,15 @@ contains
     type(surface_current_model_result_type), intent(out) :: result
     logical, intent(out) :: success
     character(len=*), intent(out) :: message
+    type(sheath_matching_iteration) :: candidate
     type(emission_source) :: source
     integer(i32) :: status
     character(len=256) :: root_message
 
     call outer_emission(app, outer_flux_m2_s, outer_mean_energy_ev, source, success, message, outer_spectrum_m2_s)
     if (.not. success) return
-    call outer%update(source, status, root_message)
+    candidate = outer
+    call candidate%update(source, status, root_message)
     success = status == SHEATH_OK
     if (.not. success) then
       message = 'outer Zhao zero-current root was not found for the observed photoelectron outflow: '// &
@@ -252,9 +255,10 @@ contains
       return
     end if
     call finish_observed_closure( &
-      app, outer, outer_flux_m2_s, outer_mean_energy_ev, result, success, message, &
+      app, candidate, outer_flux_m2_s, outer_mean_energy_ev, result, success, message, &
       outer_spectrum_m2_s, cell &
       )
+    if (success) outer = candidate
   end subroutine refresh_zhao_outflow_closure
 
   !> 観測した束・平均法線エネルギー・スペクトルから外部の放出源を作る。
