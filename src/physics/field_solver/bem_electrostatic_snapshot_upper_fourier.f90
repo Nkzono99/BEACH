@@ -1,5 +1,6 @@
 !> Deterministic geometry-only switch selection and real-charge monitoring.
 submodule(bem_electrostatic_snapshot) bem_electrostatic_snapshot_upper_fourier
+  use bem_sorting, only: sort_real_ascending, order_by_i32_key
   implicit none
 contains
 
@@ -8,8 +9,8 @@ contains
   real(dp) :: heights(16), mismatch(16), phi_rms, ez_rms, lo, hi
   real(dp), allocatable :: patterns(:, :), sorted(:)
   real(dp) :: median
-  logical, allocatable :: remaining(:)
-  integer(i32) :: layers(16), nplane, plane, pattern, element, group, count, selected
+  integer(i32), allocatable :: order(:)
+  integer(i32) :: layers(16), nplane, plane, pattern, count, selected, first, last
 
   if (self%periodic_options%upper_fourier_switch == 'auto') then
     nplane = 16_i32
@@ -29,18 +30,22 @@ contains
   patterns(:, 1) = 1.0_dp
   patterns(:, 2) = merge(1.0_dp, -1.0_dp, modulo(mesh%elem_mesh_id, 2_i32) == 0_i32)
   ! Each mesh uses its centroid-height median; ties take +1 so planar meshes stay normalized.
-  allocate (remaining(mesh%nelem), source=.true.)
-  do while (any(remaining))
-    element = maxloc(merge(1_i32, 0_i32, remaining), dim=1)
-    group = mesh%elem_mesh_id(element)
-    sorted = pack(mesh%centers(3, :), mesh%elem_mesh_id == group)
-    count = size(sorted)
-    call sort_switch_heights(sorted)
-    where (mesh%elem_mesh_id == group) remaining = .false.
+  ! Ordering the elements by mesh id once visits every mesh as one contiguous run.
+  allocate (order(mesh%nelem))
+  call order_by_i32_key(mesh%elem_mesh_id, order)
+  first = 1_i32
+  do while (first <= mesh%nelem)
+    last = first
+    do while (last < mesh%nelem)
+      if (mesh%elem_mesh_id(order(last + 1_i32)) /= mesh%elem_mesh_id(order(first))) exit
+      last = last + 1_i32
+    end do
+    sorted = mesh%centers(3, order(first:last))
+    count = last - first + 1_i32
+    call sort_real_ascending(sorted)
     median = 0.5_dp*(sorted((count + 1)/2) + sorted((count + 2)/2))
-    where (mesh%elem_mesh_id == group)
-      patterns(:, 3) = merge(1.0_dp, -1.0_dp, mesh%centers(3, :) >= median)
-    end where
+    patterns(order(first:last), 3) = merge(1.0_dp, -1.0_dp, mesh%centers(3, order(first:last)) >= median)
+    first = last + 1_i32
   end do
   proxy = mesh
   mismatch = 0.0_dp
@@ -48,6 +53,8 @@ contains
     ! Normalize each proxy pattern to 1 pC of total |q| so the reported mismatch has a familiar scale.
     proxy%q_elem = 1.0e-12_dp*patterns(:, pattern)/sum(abs(patterns(:, pattern)))
     call self%nonzero_solver%refresh(proxy)
+    ! The source sums depend only on the charges, so one refresh serves every candidate height.
+    call self%upper_fourier_plan%refresh(proxy%q_elem)
     do plane = 1, nplane
       call plane_mismatch(self, proxy, sim, heights(plane), layers(plane), phi_rms, ez_rms)
       mismatch(plane) = max(mismatch(plane), phi_rms)
@@ -64,34 +71,6 @@ contains
   end if
   call self%upper_fourier_plan%refresh(mesh%q_elem)
   end procedure init_snapshot_upper_fourier_switch
-
-  recursive subroutine sort_switch_heights(values)
-    real(dp), intent(inout) :: values(:)
-    real(dp) :: pivot, value
-    integer :: left, right
-
-    if (size(values) < 2) return
-    pivot = values((size(values) + 1)/2)
-    left = 1
-    right = size(values)
-    do
-      do while (values(left) < pivot)
-        left = left + 1
-      end do
-      do while (values(right) > pivot)
-        right = right - 1
-      end do
-      if (left > right) exit
-      value = values(left)
-      values(left) = values(right)
-      values(right) = value
-      left = left + 1
-      right = right - 1
-      if (left > right) exit
-    end do
-    if (right > 1) call sort_switch_heights(values(:right))
-    if (left < size(values)) call sort_switch_heights(values(left:))
-  end subroutine sort_switch_heights
 
   integer(i32) function switch_mode_layers(self, mesh, height) result(layers)
     class(electrostatic_snapshot_type), intent(in) :: self
@@ -113,6 +92,7 @@ contains
   phi_rms = 0.0_dp
   ez_rms = 0.0_dp
   if (.not. self%diagnostics%upper_fourier_switch_active) return
+  call self%upper_fourier_plan%refresh(mesh%q_elem)
   call plane_mismatch(self, mesh, sim, self%diagnostics%upper_fourier_switch_height_m, &
                       self%diagnostics%upper_fourier_switch_mode_layers, phi_rms, ez_rms)
   end procedure measure_snapshot_switch_mismatch
@@ -127,10 +107,10 @@ contains
     real(dp) :: target(3), phi_fmm, phi_fourier, e_fmm(3), e_fourier(3)
     integer(i32) :: ix, iy, status
 
+    ! The caller refreshes upper_fourier_plan with mesh%q_elem; the Fourier side uses those cached source sums.
     phi_rms = 0.0_dp
     ez_rms = 0.0_dp
     target(3) = height
-    call self%upper_fourier_plan%refresh(mesh%q_elem)
     do iy = 1, 12
       target(2) = self%periodic_origin(2) + (real(iy, dp) - 0.5_dp)*self%periodic_length(2)/12.0_dp
       do ix = 1, 12
