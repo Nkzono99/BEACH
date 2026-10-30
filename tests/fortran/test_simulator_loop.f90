@@ -95,7 +95,7 @@ program test_simulator_loop
 
   call seed_particles_from_config(cfg)
 
-  call test_init(8)
+  call test_init(7)
 
   call test_begin('basic_simulation')
   call delete_file_if_exists(history_path)
@@ -135,9 +135,7 @@ program test_simulator_loop
   call assert_close_dp(sum(charge_ledger%absorbed_on_surface), 5.0_dp, 1.0d-12, 'ledger absorbed charge mismatch')
   call assert_close_dp(sum(charge_ledger%escaped_to_infinity), 2.0_dp, 1.0d-12, 'ledger escaped charge mismatch')
   call assert_close_dp(charge_ledger%residual(), 0.0_dp, 1.0d-12, 'simulation charge residual mismatch')
-  call test_end()
-
-  call test_begin('history_output')
+  ! One batch with history_stride=1 writes one history snapshot row.
   n_lines = 0_i32
   open (newunit=u, file=history_path, status='old', action='read', iostat=ios)
   if (ios /= 0) error stop 'failed to read simulator history fixture'
@@ -148,7 +146,6 @@ program test_simulator_loop
   end do
   close (u)
   call assert_equal_i32(n_lines, 1_i32, 'history snapshot line count mismatch')
-
   call delete_file_if_exists(history_path)
   call test_end()
 

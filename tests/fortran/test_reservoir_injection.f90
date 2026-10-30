@@ -113,9 +113,8 @@ program test_reservoir_injection
   call test_begin('species_ratio')
   ! Both species share the weight that puts 300 macro particles of species 1 on the face per batch, so the
   ! quarter-density species 2 gets exactly 75. The budget is an integer, so one batch fixes the absolute counts
-  ! and leaves no residual; the fractional carry is covered by deterministic_batches.
-  call default_app_config(cfg_auto)
-  call load_app_config(cfg_auto_path, cfg_auto)
+  ! and leaves no residual; the fractional carry is covered by deterministic_batches. cfg_auto is the
+  ! configuration loaded and checked by auto_duration_config.
   residual1 = 0.0d0
   residual2 = 0.0d0
   call compute_macro_particles_for_batch( &

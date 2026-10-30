@@ -54,7 +54,6 @@ contains
     sim%box_min = [0.0d0, 0.0d0, -1.0d0]
     sim%box_max = [1.0d0, 1.0d0, 1.0d0]
     call solver%init(mesh_fmm, sim)
-    call solver%refresh(mesh_fmm)
     call assert_true(trim(solver%mode) == 'fmm', 'explicit FMM should select the FMM dispatcher')
     call assert_true(solver%fmm_core_plan%target_tree_ready, 'a finite [domain] must enable the FMM target tree')
 
@@ -120,7 +119,6 @@ contains
     sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     call solver%init(mesh_fmm, sim)
-    call solver%refresh(mesh_fmm)
     call assert_true(trim(solver%mode) == 'fmm', 'periodic2 should select the FMM dispatcher')
 
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
@@ -183,12 +181,10 @@ contains
     sim_auto%bc_low = [bc_periodic, bc_periodic, bc_open]
     sim_auto%bc_high = [bc_periodic, bc_periodic, bc_open]
     call solver_auto%init(mesh_fmm, sim_auto)
-    call solver_auto%refresh(mesh_fmm)
 
     sim_none = sim_auto
     sim_none%field_periodic_far_correction = 'none'
     call solver_none%init(mesh_fmm, sim_none)
-    call solver_none%refresh(mesh_fmm)
 
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
     queries(:, 2) = [0.75d0, 0.75d0, 0.50d0]
