@@ -1252,6 +1252,8 @@ def test_compute_potential_slices_returns_xy_yz_xz_grids(
         xy_z=6.0,
         yz_x=-0.5,
         xz_y=1.5,
+        # A chunk that does not divide a plane crosses grid rows.
+        chunk_size=3,
     )
 
     gradient = {"x": 1.0, "y": 10.0, "z": 100.0}

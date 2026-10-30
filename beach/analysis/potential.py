@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import AbstractContextManager, nullcontext
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
 from typing import Iterable, Literal, Mapping
 
@@ -166,18 +167,51 @@ def compute_potential_points(
         Potential in volts with shape ``(n_points,)``.
     """
 
-    context = RunContext.from_value(result, config_path=config_path)
-    resolved = context.result
-    context.require_triangle_source_model()
-    if chunk_size <= 0:
-        raise ValueError("chunk_size must be > 0.")
-
+    context = _point_potential_context(
+        result, chunk_size=chunk_size, config_path=config_path
+    )
     sample_points = _points(points)
     if sample_points.shape[0] == 0:
         return np.empty(0, dtype=float)
 
+    with _point_potential_evaluator(
+        context,
+        chunk_size=chunk_size,
+        periodic2=periodic2,
+        reference_point=reference_point,
+        library_path=library_path,
+        kernel=kernel,
+    ) as evaluate:
+        return evaluate(sample_points)
+
+
+def _point_potential_context(
+    result: RunResult | object,
+    *,
+    chunk_size: int,
+    config_path: str | Path | None,
+) -> RunContext:
+    context = RunContext.from_value(result, config_path=config_path)
+    context.require_triangle_source_model()
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be > 0.")
+    return context
+
+
+@contextmanager
+def _point_potential_evaluator(
+    context: RunContext,
+    *,
+    chunk_size: int,
+    periodic2: Mapping[str, object] | None,
+    reference_point: Iterable[float] | str | None,
+    library_path: str | Path | None,
+    kernel: FieldKernel | None,
+) -> Iterator[Callable[[np.ndarray], np.ndarray]]:
+    """Yield ``points -> potential`` on one kernel, minus the reference potential."""
+
     reference_xyz = _resolve_reference_point(
-        resolved,
+        context.result,
         reference_point,
         context=context,
     )
@@ -187,12 +221,18 @@ def compute_potential_points(
         library_path=library_path,
         kernel=kernel,
     ) as evaluator:
-        potential_v = _eval_phi_chunks(evaluator, sample_points, chunk_size)
-        if reference_xyz is not None:
-            potential_v = potential_v - float(
-                evaluator.eval_phi(reference_xyz.reshape(1, 3))[0]
-            )
-    return potential_v
+        reference: float | None = None
+
+        def evaluate(points: np.ndarray) -> np.ndarray:
+            nonlocal reference
+            potential_v = _eval_phi_chunks(evaluator, points, chunk_size)
+            if reference_xyz is None:
+                return potential_v
+            if reference is None:
+                reference = float(evaluator.eval_phi(reference_xyz.reshape(1, 3))[0])
+            return potential_v - reference
+
+        yield evaluate
 
 
 def compute_potential_slices(
@@ -243,35 +283,38 @@ def compute_potential_slices(
         name="xz_y",
     )
 
-    xx, yy = np.meshgrid(x, y, indexing="xy")
-    yy2, zz = np.meshgrid(y, z, indexing="xy")
-    xx2, zz2 = np.meshgrid(x, z, indexing="xy")
-    points_xy = np.column_stack(
-        (xx.reshape(-1), yy.reshape(-1), np.full(xx.size, z_xy))
+    context = _point_potential_context(
+        result, chunk_size=chunk_size, config_path=config_path
     )
-    points_yz = np.column_stack(
-        (np.full(yy2.size, x_yz), yy2.reshape(-1), zz.reshape(-1))
+    # Each plane is generated chunk by chunk from flat grid indices, so no
+    # (3 * grid_n**2, 3) point array is held. Row ``k // grid_n`` and column
+    # ``k % grid_n`` follow ``np.meshgrid(..., indexing="xy")``.
+    planes = (
+        (x, y, lambda u, v: (u, v, np.full(u.size, z_xy))),
+        (y, z, lambda u, v: (np.full(u.size, x_yz), u, v)),
+        (x, z, lambda u, v: (u, np.full(u.size, y_xz), v)),
     )
-    points_xz = np.column_stack(
-        (xx2.reshape(-1), np.full(xx2.size, y_xz), zz2.reshape(-1))
-    )
-    all_points = np.concatenate((points_xy, points_yz, points_xz), axis=0)
-    all_potential = compute_potential_points(
-        result,
-        all_points,
+    plane_size = grid_n * grid_n
+    with _point_potential_evaluator(
+        context,
         chunk_size=chunk_size,
         periodic2=periodic2,
         reference_point=reference_point,
-        config_path=config_path,
         library_path=library_path,
         kernel=kernel,
-    )
-    plane_size = grid_n * grid_n
-    potential_xy = all_potential[:plane_size].reshape(grid_n, grid_n)
-    potential_yz = all_potential[plane_size : 2 * plane_size].reshape(
-        grid_n, grid_n
-    )
-    potential_xz = all_potential[2 * plane_size :].reshape(grid_n, grid_n)
+    ) as evaluate:
+        potentials = []
+        for u_values, v_values, columns in planes:
+            plane = np.empty(plane_size, dtype=float)
+            for start in range(0, plane_size, chunk_size):
+                index = np.arange(start, min(start + chunk_size, plane_size))
+                plane[index] = evaluate(
+                    np.column_stack(
+                        columns(u_values[index % grid_n], v_values[index // grid_n])
+                    )
+                )
+            potentials.append(plane.reshape(grid_n, grid_n))
+    potential_xy, potential_yz, potential_xz = potentials
 
     return {
         "xy": PotentialSlice2D(
@@ -608,27 +651,6 @@ def _species1_injection_center_from_result(
         )
     )
     return 0.5 * (pos_low + pos_high)
-
-
-def _wrap_periodic2_points(
-    points: np.ndarray,
-    *,
-    axes: tuple[int, int],
-    lengths: tuple[float, float],
-    origins: tuple[float, float],
-) -> np.ndarray:
-    """Wrap points into a periodic cell without changing non-periodic axes."""
-
-    wrapped = np.asarray(points, dtype=float).copy()
-    wrapped[:, axes[0]] = origins[0] + np.mod(
-        wrapped[:, axes[0]] - origins[0],
-        lengths[0],
-    )
-    wrapped[:, axes[1]] = origins[1] + np.mod(
-        wrapped[:, axes[1]] - origins[1],
-        lengths[1],
-    )
-    return wrapped
 
 
 def _coerce_vec3(value: object, *, name: str) -> tuple[float, float, float]:
