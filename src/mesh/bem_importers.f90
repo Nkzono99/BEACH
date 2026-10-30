@@ -3,6 +3,7 @@ module bem_importers
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
+  use, intrinsic :: iso_fortran_env, only: iostat_end, iostat_eor
   implicit none
 contains
 
@@ -55,7 +56,7 @@ contains
   subroutine scan_obj(path, nvert, ntri)
     character(len=*), intent(in) :: path
     integer(i32), intent(out) :: nvert, ntri
-    character(len=1024) :: line
+    character(len=:), allocatable :: line
     integer :: u, ios, ntok
 
     nvert = 0
@@ -64,9 +65,8 @@ contains
     if (ios /= 0) error stop "failed to open OBJ"
 
     do
-      read (u, '(A)', iostat=ios) line
+      call read_obj_line(u, line, ios)
       if (ios /= 0) exit
-      call strip_cr(line)
       if (is_vertex_line(line)) nvert = nvert + 1
       if (is_face_line(line)) then
         ntok = count_face_tokens(line)
@@ -84,9 +84,10 @@ contains
     character(len=*), intent(in) :: path
     real(dp), intent(out) :: vertices(:, :)
     integer(i32), intent(out) :: faces(:, :)
-    character(len=1024) :: line
+    character(len=:), allocatable :: line
     integer :: u, ios, i
-    integer(i32) :: iv, itri, ntok, idx(512)
+    integer(i32) :: iv, itri
+    integer(i32), allocatable :: idx(:)
 
     iv = 0
     itri = 0
@@ -94,24 +95,51 @@ contains
     if (ios /= 0) error stop "failed to open OBJ"
 
     do
-      read (u, '(A)', iostat=ios) line
+      call read_obj_line(u, line, ios)
       if (ios /= 0) exit
-      call strip_cr(line)
       if (is_vertex_line(line)) then
         iv = iv + 1
         call parse_vertex_line(line, vertices(:, iv))
       else if (is_face_line(line)) then
-        call parse_face_line(line, iv, idx, ntok)
-        if (ntok >= 3) then
-          do i = 2, ntok - 1
-            itri = itri + 1
-            faces(:, itri) = [idx(1), idx(i), idx(i + 1)]
-          end do
-        end if
+        call parse_face_line(line, iv, idx)
+        do i = 2, size(idx) - 1
+          itri = itri + 1
+          faces(:, itri) = [idx(1), idx(i), idx(i + 1)]
+        end do
       end if
     end do
     close (u)
   end subroutine parse_obj
+
+  !> OBJの1行を長さ制限なしで読み、行末の CR を除く。
+  !! 固定長バッファで読むと長い面行が短い有効な面へ切り詰められるため、
+  !! 非前進読込で行末まで連結する。
+  !! @param[in] u 読み込み中の装置番号。
+  !! @param[out] line 読み込んだ1行（行末の改行と CR を除く）。
+  !! @param[out] ios 0 なら1行を読んだ。ファイル終端または読込失敗では非0。
+  subroutine read_obj_line(u, line, ios)
+    integer, intent(in) :: u
+    character(len=:), allocatable, intent(out) :: line
+    integer, intent(out) :: ios
+    character(len=1024) :: chunk
+    integer :: nread
+
+    line = ''
+    do
+      read (u, '(a)', advance='no', size=nread, iostat=ios) chunk
+      line = line//chunk(1:nread)
+      if (ios == iostat_eor) then
+        ios = 0
+        exit
+      end if
+      if (ios /= 0) then
+        ! 改行のない最終行は、その行を返してから次の呼出しで終端を返す。
+        if (ios == iostat_end .and. len(line) > 0) ios = 0
+        exit
+      end if
+    end do
+    call strip_cr(line)
+  end subroutine read_obj_line
 
   !> 与えられた行がOBJ頂点行(`v `)かを判定する。
   !! @param[in] line 判定対象の1行文字列。
@@ -140,28 +168,44 @@ contains
   !! @return count_face_tokens 関数の戻り値。
   integer(i32) pure function count_face_tokens(line)
     character(len=*), intent(in) :: line
-    character(len=1024) :: s
-    integer :: pos, n, i
+    character(len=:), allocatable :: s
+    integer :: pos, first, last
 
     s = trim(adjustl(line))
     pos = 3
-    n = len_trim(s)
     count_face_tokens = 0
-    do while (pos <= n)
-      do while (pos <= n .and. s(pos:pos) == ' ')
-        pos = pos + 1
-      end do
-      if (pos > n) exit
+    do
+      call next_face_token(s, pos, first, last)
+      if (first > last) exit
       count_face_tokens = count_face_tokens + 1
-      do i = pos, n
-        if (s(i:i) == ' ') then
-          pos = i + 1
-          exit
-        end if
-        if (i == n) pos = n + 1
-      end do
     end do
   end function count_face_tokens
+
+  !> 面行の `pos` 以降にある次の空白区切りトークンの範囲を返す。
+  !! 計数パスと解析パスが同じ規則でトークンを数えるための共通 tokenizer。
+  !! @param[in] s `f` で始まる左詰めの面行。
+  !! @param[inout] pos 走査開始位置。戻り値はトークン直後の位置。
+  !! @param[out] first トークン先頭位置。トークンがなければ `first > last`。
+  !! @param[out] last トークン末尾位置。
+  pure subroutine next_face_token(s, pos, first, last)
+    character(len=*), intent(in) :: s
+    integer, intent(inout) :: pos
+    integer, intent(out) :: first, last
+    integer :: n
+
+    n = len_trim(s)
+    do while (pos <= n)
+      if (s(pos:pos) /= ' ') exit
+      pos = pos + 1
+    end do
+    first = pos
+    last = pos - 1
+    do while (pos <= n)
+      if (s(pos:pos) == ' ') exit
+      last = pos
+      pos = pos + 1
+    end do
+  end subroutine next_face_token
 
   !> `v x y z` 形式の頂点行を3次元座標へ変換する。
   !! @param[in] line OBJ頂点行（例: `v 0.0 1.0 2.0`）。
@@ -169,7 +213,7 @@ contains
   subroutine parse_vertex_line(line, p)
     character(len=*), intent(in) :: line
     real(dp), intent(out) :: p(3)
-    character(len=1024) :: s
+    character(len=:), allocatable :: s
     s = trim(adjustl(line))
     read (s(3:), *) p(1), p(2), p(3)
   end subroutine parse_vertex_line
@@ -177,47 +221,26 @@ contains
   !> `f` 行の頂点参照を抽出し、`v/vt/vn` 形式から頂点インデックスのみを取り出す。
   !! @param[in] line OBJ面行（`f i j k ...`）。
   !! @param[in] nvert 負インデックス解決に使う現在有効な頂点数。
-  !! @param[out] idx 抽出した頂点インデックス配列（先頭 `ntok` 個が有効）。
-  !! @param[out] ntok 抽出した頂点参照トークン数。
-  subroutine parse_face_line(line, nvert, idx, ntok)
+  !! @param[out] idx 抽出した頂点インデックス配列（トークン数と同じ長さ）。
+  subroutine parse_face_line(line, nvert, idx)
     character(len=*), intent(in) :: line
     integer(i32), intent(in) :: nvert
-    integer(i32), intent(out) :: idx(:)
-    integer(i32), intent(out) :: ntok
-    character(len=1024) :: s, tok
-    integer :: pos, n, slash, i
+    integer(i32), allocatable, intent(out) :: idx(:)
+    character(len=:), allocatable :: s
+    integer :: pos, first, last, slash, k
     integer(i32) :: vi
 
     s = trim(adjustl(line))
+    allocate (idx(count_face_tokens(s)))
     pos = 3
-    n = len_trim(s)
-    ntok = 0
-
-    do while (pos <= n)
-      do while (pos <= n .and. s(pos:pos) == ' ')
-        pos = pos + 1
-      end do
-      if (pos > n) exit
-      tok = ''
-      do i = pos, n
-        if (s(i:i) == ' ') then
-          tok = s(pos:i - 1)
-          pos = i + 1
-          exit
-        end if
-        if (i == n) then
-          tok = s(pos:n)
-          pos = n + 1
-        end if
-      end do
-
-      slash = index(tok, '/')
-      if (slash > 0) tok = tok(1:slash - 1)
-      read (tok, *) vi
+    do k = 1, size(idx)
+      call next_face_token(s, pos, first, last)
+      slash = index(s(first:last), '/')
+      if (slash > 0) last = first + slash - 2
+      read (s(first:last), *) vi
       if (vi < 0) vi = nvert + vi + 1
       if (vi <= 0 .or. vi > nvert) error stop "OBJ face index out of range"
-      ntok = ntok + 1
-      idx(ntok) = vi
+      idx(k) = vi
     end do
   end subroutine parse_face_line
 
