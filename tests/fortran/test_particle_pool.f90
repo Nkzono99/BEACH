@@ -29,7 +29,7 @@ program test_particle_pool
   integer(i32) :: species_idx, source_element, collision_status, bounce_count
   integer(i32) :: species_idx2, source_element2, collision_status2, bounce_count2
   logical :: emitted, emitted2
-  integer(i32) :: slot
+  integer(i32) :: slot, segment, local_index
 
   call test_init(9)
 
@@ -54,11 +54,14 @@ program test_particle_pool
   call assert_equal_i32(layout%segment_end(2), 6_i32, 'segment 2 end mismatch')
   call assert_equal_i32(layout%boundary_global_count(5, 2), 1_i32, 'reservoir global count mismatch')
   ! Slots interleave the segments round-robin: volume, reservoir, volume, volume, ...
-  call assert_equal_i32(layout%slot_segment(1), 1_i32, 'slot 1 should come from the volume segment')
-  call assert_equal_i32(layout%slot_segment(2), 2_i32, 'slot 2 should come from the reservoir segment')
-  call assert_equal_i32(layout%slot_index(2), 1_i32, 'slot 2 segment index mismatch')
-  call assert_equal_i32(layout%slot_segment(6), 1_i32, 'slot 6 should come from the volume segment')
-  call assert_equal_i32(layout%slot_index(6), 5_i32, 'slot 6 segment index mismatch')
+  call layout%locate_slot(1_i32, segment, local_index)
+  call assert_equal_i32(segment, 1_i32, 'slot 1 should come from the volume segment')
+  call layout%locate_slot(2_i32, segment, local_index)
+  call assert_equal_i32(segment, 2_i32, 'slot 2 should come from the reservoir segment')
+  call assert_equal_i32(local_index, 1_i32, 'slot 2 segment index mismatch')
+  call layout%locate_slot(6_i32, segment, local_index)
+  call assert_equal_i32(segment, 1_i32, 'slot 6 should come from the volume segment')
+  call assert_equal_i32(local_index, 5_i32, 'slot 6 segment index mismatch')
   ! The static path samples the same global counts on one rank.
   allocate (state_static%macro_residual(2), state_static%boundary_macro_residual(6, 2))
   state_static%macro_residual = 0.0_dp
@@ -92,7 +95,8 @@ program test_particle_pool
                      'the same slot must regenerate the same particle')
     call assert_equal_i32(species_idx, species_idx2, 'the same slot must regenerate the same species')
     call assert_equal_i32(source_element, -1_i32, 'volume and reservoir slots have no source element')
-    if (layout%slot_segment(slot) == 1_i32) then
+    call layout%locate_slot(slot, segment, local_index)
+    if (segment == 1_i32) then
       call assert_equal_i32(species_idx, 1_i32, 'volume slot species mismatch')
       call assert_true(all(x >= cfg%particle_species(1)%pos_low) .and. all(x <= cfg%particle_species(1)%pos_high), &
                        'volume slot position must lie in the seed box')
@@ -179,6 +183,7 @@ contains
   subroutine test_particle_append_preserves_existing_state()
     type(particles_soa) :: particles
     real(dp) :: initial_x(3, 1), initial_v(3, 1), append_x(3, 2), append_v(3, 2)
+    integer :: j
 
     initial_x(:, 1) = [1.0_dp, 2.0_dp, 3.0_dp]
     initial_v(:, 1) = [4.0_dp, 5.0_dp, 6.0_dp]
@@ -210,9 +215,34 @@ contains
     call assert_true(all(particles%w(1:3) == [3.0_dp, 8.0_dp, 9.0_dp]), 'particle append weight mismatch')
     call assert_true(all(particles%species_id(1:3) == [1_i32, 2_i32, 3_i32]), 'particle append species mismatch')
     call assert_true( &
-      all(particles%source_element(1:3) == [7_i32, 8_i32, 9_i32]), &
+      all(particles%source_element(:particles%n) == [7_i32, 8_i32, 9_i32]), &
       'particle append must preserve and append source provenance' &
       )
+    call append_particles( &
+      particles, append_x(:, :0), append_v(:, :0), [real(dp) ::], [real(dp) ::], [real(dp) ::], [integer(i32) ::] &
+      )
+    call assert_equal_i32(particles%n, 3_i32, 'empty particle append changed the count')
+    ! Single appends cross several capacity growths; every earlier particle must keep its state.
+    do j = 4, 8
+      call append_particles( &
+        particles, reshape(real([j, -j, 2*j], dp), [3, 1]), reshape(real([-j, j, 3*j], dp), [3, 1]), &
+        [real(j, dp)], [real(2*j, dp)], [real(3*j, dp)], [int(j, i32)] &
+        )
+      call assert_equal_i32(particles%n, int(j, i32), 'consecutive particle append count mismatch')
+      call assert_true(size(particles%q) >= particles%n, 'particle capacity is smaller than the count')
+    end do
+    call assert_true(.not. particles%alive(1) .and. all(particles%alive(2:8)), &
+                     'capacity growth must preserve alive state')
+    call assert_true(all(particles%source_element(:8) == [7_i32, 8_i32, 9_i32, -1_i32, -1_i32, -1_i32, -1_i32, -1_i32]), &
+                     'capacity growth must preserve source provenance')
+    call assert_true(all(particles%x(:, 2) == [7.0_dp, 8.0_dp, 9.0_dp]), 'capacity growth moved an early position')
+    do j = 4, 8
+      call assert_true(all(particles%x(:, j) == real([j, -j, 2*j], dp)) .and. &
+                       all(particles%v(:, j) == real([-j, j, 3*j], dp)), 'appended state mismatch after growth')
+      call assert_true(particles%q(j) == real(j, dp) .and. particles%m(j) == real(2*j, dp) .and. &
+                       particles%w(j) == real(3*j, dp) .and. particles%species_id(j) == j, &
+                       'appended attributes mismatch after growth')
+    end do
   end subroutine test_particle_append_preserves_existing_state
 
   subroutine test_uneven_species_batch()
@@ -239,6 +269,7 @@ contains
     end do
     call seed_particles_from_config(app)
     call build_particle_source_plan(app, plan)
+    call assert_slot_order_is_round_robin(app, plan)
     call init_particle_batch_from_config(app, 1_i32, particles, source_plan=plan)
     ! The interleaving order is layout_segments_follow_static_order's contract; here every particle must carry
     ! the attributes of its own species, and disabled species emit nothing.
@@ -264,6 +295,30 @@ contains
     call assert_true(size(particles%x, 1) == 3 .and. size(particles%x, 2) == 0, 'empty batch position shape mismatch')
     call assert_true(size(particles%species_id) == 0 .and. size(particles%alive) == 0, 'empty batch state mismatch')
   end subroutine test_uneven_species_batch
+
+  !> Slots of segments with unequal lengths follow the round-robin enumeration: round k takes, in segment
+  !> order, every segment that has at least k slots.
+  subroutine assert_slot_order_is_round_robin(app, plan)
+    type(app_config), intent(in) :: app
+    type(particle_source_plan_type), intent(in) :: plan
+    type(batch_injection_layout_type) :: uneven_layout
+    integer(i32) :: k, g, expected_slot, segment, local_index, lengths(16)
+
+    call build_batch_injection_layout(app, 1_i32, uneven_layout, source_plan=plan)
+    lengths(:uneven_layout%nsegments) = uneven_layout%segment_end - uneven_layout%segment_begin + 1_i32
+    call assert_equal_i32(uneven_layout%nsegments, 3_i32, 'uneven layout segment count mismatch')
+    expected_slot = 0_i32
+    do k = 1_i32, maxval(lengths(:uneven_layout%nsegments))
+      do g = 1_i32, uneven_layout%nsegments
+        if (lengths(g) < k) cycle
+        expected_slot = expected_slot + 1_i32
+        call uneven_layout%locate_slot(expected_slot, segment, local_index)
+        call assert_equal_i32(segment, g, 'round-robin slot segment mismatch')
+        call assert_equal_i32(local_index, k, 'round-robin slot index mismatch')
+      end do
+    end do
+    call assert_equal_i32(expected_slot, uneven_layout%total_slots, 'round-robin slot count mismatch')
+  end subroutine assert_slot_order_is_round_robin
 
   !> volume、密度 0 の reservoir、photo_raycast が混在する batch の粒子数・電荷・光電子の反作用電荷の配分。
   subroutine test_photo_batch()
@@ -505,11 +560,11 @@ contains
   !! chunk 幅を変えても同じ ray 集合が同じ要素に当たるので、収支は丸め誤差の範囲で一致する。
   subroutine run_shared_pool_photo_test()
     integer(i32), parameter :: rays = 1024_i32
-    type(mesh_type) :: mesh_small, mesh_large
-    type(app_config) :: cfg_small, cfg_large
-    type(sim_stats) :: stats_small, stats_large
-    type(charge_ledger_type) :: ledger_small, ledger_large
-    real(dp) :: signature_small(9), signature_large(9)
+    type(mesh_type) :: mesh_small, mesh_large, mesh_grown
+    type(app_config) :: cfg_small, cfg_large, cfg_grown
+    type(sim_stats) :: stats_small, stats_large, stats_grown
+    type(charge_ledger_type) :: ledger_small, ledger_large, ledger_grown
+    real(dp) :: signature_small(9), signature_large(9), signature_grown(9)
     integer :: value_index
     character(len=96) :: message
 
@@ -536,6 +591,25 @@ contains
     do value_index = 1, size(signature_small)
       write (message, '(a,i0)') 'photo pool signature mismatch at index ', value_index
       call assert_close_dp(signature_large(value_index), signature_small(value_index), &
+                           1.0e-11_dp*max(1.0_dp, abs(signature_small(value_index))), trim(message))
+    end do
+
+    ! A process sized for 8 ranks starts with room for about 1/8 of the pool; claiming all of it alone must
+    ! grow the batch arrays between claims without losing or reordering any particle.
+    call setup_photo_fixture(mesh_grown, cfg_grown, rays)
+    cfg_grown%sim%particle_distribution = 'shared'
+    cfg_grown%sim%particle_pool_chunk = 7_i32
+    call seed_particles_from_config(cfg_grown)
+    call run_absorption_insulator( &
+      mesh_grown, cfg_grown, stats_grown, mpi=mpi_context(rank=0_i32, size=8_i32, enabled=.false.), &
+      charge_ledger=ledger_grown &
+      )
+    call assert_equal_i64(stats_grown%processed_particles, stats_small%processed_particles, &
+                          'a growing pool must keep every claimed particle')
+    call pack_photo_signature(mesh_grown, ledger_grown, signature_grown)
+    do value_index = 1, size(signature_small)
+      write (message, '(a,i0)') 'growing photo pool signature mismatch at index ', value_index
+      call assert_close_dp(signature_grown(value_index), signature_small(value_index), &
                            1.0e-11_dp*max(1.0_dp, abs(signature_small(value_index))), trim(message))
     end do
   end subroutine run_shared_pool_photo_test

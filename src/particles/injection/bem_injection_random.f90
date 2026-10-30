@@ -2,7 +2,7 @@
 module bem_injection_random
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_boltzmann
-  use bem_counter_rng, only: counter_uniform
+  use bem_counter_rng, only: counter_stream_type
   use bem_random_stream, only: seed_random_stream, random_uniform
   implicit none
   private
@@ -98,11 +98,12 @@ contains
     real(dp), intent(in), optional :: sigma_cutoff
     integer(i32), intent(in), optional :: rng_seed
     integer(i64), intent(in), optional :: rng_counter(:)
-    integer(i64) :: draw
+    type(counter_stream_type) :: stream
     integer :: n_total, i, row, column
     real(dp) :: r, theta, pi, u1, u2, z1, z2, cutoff
 
-    draw = 100_i64
+    ! Counter draws 100, 101, ... feed the Box-Muller pairs in order.
+    if (present(rng_counter)) call stream%open(rng_seed, rng_counter, 100_i64)
     n_total = size(z)
     pi = acos(-1.0_dp)
     cutoff = default_velocity_sigma_cutoff
@@ -114,9 +115,8 @@ contains
     column = 1
     do while (i <= n_total)
       if (present(rng_counter)) then
-        u1 = counter_uniform(rng_seed, rng_counter, draw)
-        u2 = counter_uniform(rng_seed, rng_counter, draw + 1_i64)
-        draw = draw + 2_i64
+        u1 = stream%next_uniform()
+        u2 = stream%next_uniform()
       else
         call random_uniform(u1)
         call random_uniform(u2)
@@ -145,6 +145,7 @@ contains
         i = i + 1
       end if
     end do
+    call stream%close()
   end subroutine sample_standard_normal
 
 end module bem_injection_random

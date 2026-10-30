@@ -5,7 +5,7 @@ submodule(bem_app_config_particle_runtime) bem_app_config_particle_runtime_slots
   use bem_kinds, only: i64
   use bem_injection, only: sample_reservoir_face_particle_counter, sample_photo_ray_slot, photo_ray_macro_weight
   use bem_injection_random, only: sample_standard_normal
-  use bem_counter_rng, only: counter_uniform
+  use bem_counter_rng, only: counter_uniforms
   implicit none
 contains
 
@@ -19,10 +19,13 @@ contains
   !! @param[inout] snapshot refresh 済み静電 snapshot（注入電位補正の使用時に必要）。
   !! @param[in] source_plan run 中に再利用する粒子 source 導出値（`build_particle_source_plan` で同じ MPI 文脈から構築）。
   module procedure build_batch_injection_layout
-  integer(i32) :: s, face, local_rank, n_ranks, segment, slot, local_index
+  integer(i32) :: s, face, local_rank, n_ranks, segment
   logical :: use_collective_reservoir_count
   type(particle_species_spec) :: face_spec
   real(dp) :: correction_vmin_normal, kinetic_vmin_normal, kinetic_barrier_normal, face_density_m3
+  ! A boundary face spans the whole box side, so its potential statistics are shared by every species.
+  real(dp) :: face_potential(4, 6)
+  logical :: face_potential_ready(6)
 
   layout = batch_injection_layout_type()
   if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
@@ -71,6 +74,7 @@ contains
   layout%photo_emit_current_density = source_plan%photo_emit_current_density
   layout%photo_normal_drift_speed = source_plan%photo_normal_drift_speed
   layout%photo_ray_weight = 0.0_dp
+  face_potential_ready = .false.
 
   do s = 1, cfg%n_particle_species
     if (.not. cfg%particle_species(s)%enabled) cycle
@@ -101,7 +105,8 @@ contains
         call reservoir_face_velocity_correction( &
           cfg, face_spec, correction_vmin_normal, layout%boundary_barrier(face, s), mesh, snapshot, &
           warn_face_variation=local_rank == 0_i32 .and. &
-          (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
+          (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count), &
+          face_potential=face_potential(:, face), face_potential_ready=face_potential_ready(face) &
           )
         layout%boundary_vmin(face, s) = correction_vmin_normal
         face_density_m3 = source_plan%effective_density_m3(s)
@@ -110,7 +115,8 @@ contains
             cfg, face_spec, source_plan%kinetic_reservoir_potential_v(s), &
             source_plan%kinetic_access_potential_v(s), kinetic_vmin_normal, kinetic_barrier_normal, &
             mesh, snapshot, warn_face_variation=local_rank == 0_i32 .and. &
-            (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
+            (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count), &
+            face_potential=face_potential(:, face), face_potential_ready=face_potential_ready(face) &
             )
           layout%boundary_vmin(face, s) = max(layout%boundary_vmin(face, s), kinetic_vmin_normal)
           layout%boundary_barrier(face, s) = kinetic_barrier_normal
@@ -156,29 +162,39 @@ contains
       call push_segment(s, slot_kind_reservoir_face, face, layout%boundary_global_count(face, s))
     end do
   end do
-  ! Hand the slots out round-robin over the segments, as the static batch interleaves species.
-  allocate (layout%slot_segment(layout%total_slots), layout%slot_index(layout%total_slots))
-  slot = 0_i32
-  do local_index = 1_i32, max_segment_length()
-    do segment = 1_i32, layout%nsegments
-      if (local_index > layout%segment_end(segment) - layout%segment_begin(segment) + 1_i32) cycle
-      slot = slot + 1_i32
-      layout%slot_segment(slot) = segment
-      layout%slot_index(slot) = local_index
-    end do
-  end do
-  if (slot /= layout%total_slots) error stop 'batch injection slot order does not cover every slot.'
+  ! Slots go out round-robin over the segments, as the static batch interleaves species; locate_slot
+  ! resolves that order per band of equal active-segment count instead of storing it per slot.
+  call build_slot_bands()
   layout%ready = .true.
 
 contains
-  pure integer(i32) function max_segment_length() result(length)
-    integer(i32) :: g
+  !> 相異なる segment 長を昇順に並べ、帯ごとの最後の slot を求める。
+  subroutine build_slot_bands()
+    integer(i32), allocatable :: lengths(:)
+    integer(i32) :: previous, current, g
+    integer(i64) :: last_slot
 
-    length = 0_i32
-    do g = 1_i32, layout%nsegments
-      length = max(length, layout%segment_end(g) - layout%segment_begin(g) + 1_i32)
+    lengths = layout%segment_end - layout%segment_begin + 1_i32
+    allocate (layout%band_length(0:layout%nsegments), layout%band_last_slot(0:layout%nsegments))
+    layout%band_length(0) = 0_i32
+    layout%band_last_slot(0) = 0_i32
+    layout%nbands = 0_i32
+    last_slot = 0_i64
+    previous = 0_i32
+    do
+      current = huge(0_i32)
+      do g = 1_i32, layout%nsegments
+        if (lengths(g) > previous) current = min(current, lengths(g))
+      end do
+      if (current == huge(0_i32)) exit
+      layout%nbands = layout%nbands + 1_i32
+      last_slot = last_slot + int(current - previous, i64)*int(count(lengths >= current), i64)
+      layout%band_length(layout%nbands) = current
+      layout%band_last_slot(layout%nbands) = int(last_slot, i32)
+      previous = current
     end do
-  end function max_segment_length
+    if (last_slot /= int(layout%total_slots, i64)) error stop 'batch injection slot order does not cover every slot.'
+  end subroutine build_slot_bands
 
   subroutine push_segment(species, kind, face_index, count)
     integer(i32), intent(in) :: species, kind, face_index, count
@@ -204,13 +220,12 @@ contains
   module procedure generate_batch_slot
   integer(i32) :: segment, s, kind, face, local_index
   integer(i64) :: counter(5)
-  real(dp) :: sigma, z(3, 1)
+  real(dp) :: sigma, z(3, 1), position_uniform(3)
   type(particle_species_spec) :: face_spec
 
   if (.not. layout%ready) error stop 'batch injection layout is not initialized.'
   if (slot < 1_i32 .or. slot > layout%total_slots) error stop 'batch injection slot is out of range.'
-  segment = layout%slot_segment(slot)
-  local_index = layout%slot_index(slot)
+  call layout%locate_slot(slot, segment, local_index)
   s = layout%segment_species(segment)
   kind = layout%segment_kind(segment)
   face = layout%segment_face(segment)
@@ -229,9 +244,8 @@ contains
   associate (spec => cfg%particle_species(s))
     select case (kind)
     case (slot_kind_volume)
-      x = spec%pos_low + (spec%pos_high - spec%pos_low)* &
-          [counter_uniform(cfg%sim%rng_seed, counter, 1_i64), counter_uniform(cfg%sim%rng_seed, counter, 2_i64), &
-           counter_uniform(cfg%sim%rng_seed, counter, 3_i64)]
+      call counter_uniforms(cfg%sim%rng_seed, counter, 1_i64, position_uniform)
+      x = spec%pos_low + (spec%pos_high - spec%pos_low)*position_uniform
       ! 質量 > 0 と温度 >= 0 は native preflight の validate_volume_seed_species が保証する。
       sigma = sqrt(k_boltzmann*layout%temperature_k(s)/spec%m_particle)
       call sample_standard_normal(z, rng_seed=cfg%sim%rng_seed, rng_counter=counter)

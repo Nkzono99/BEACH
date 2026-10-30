@@ -37,6 +37,16 @@ module bem_simulator
   implicit none
   private
 
+  !> `batch_counts(:)` の各要素の意味。MPI 合計は配列のまま行うので、順序はここだけで決める。
+  !! escaped は境界脱出・最大 step 到達・soft discard の合計（`sim_stats%escaped` と同じ定義）。
+  integer(i32), parameter :: batch_count_processed = 1_i32
+  integer(i32), parameter :: batch_count_absorbed = 2_i32
+  integer(i32), parameter :: batch_count_escaped = 3_i32
+  integer(i32), parameter :: batch_count_escaped_boundary = 4_i32
+  integer(i32), parameter :: batch_count_survived_max_step = 5_i32
+  integer(i32), parameter :: batch_count_soft_discarded = 6_i32
+  integer(i32), parameter :: batch_count_kinds = 6_i32
+
   public :: run_absorption_insulator
   !> 固定電流 closure は contract との契約をテストから直接確認する。
   public :: apply_fixed_surface_current_closure
@@ -134,7 +144,7 @@ module bem_simulator
     end subroutine apply_neutral_return_surface_closure
 
     module subroutine apply_fixed_surface_current_closure( &
-      app, current_model, pcls_batch, fresh_particle_count, workspace, mpi &
+      app, current_model, pcls_batch, fresh_particle_count, workspace, mpi, raw_charge_needed &
       )
       type(app_config), intent(in) :: app
       type(surface_closure_contract_type), intent(in) :: current_model
@@ -142,6 +152,9 @@ module bem_simulator
       integer(i32), intent(in) :: fresh_particle_count
       type(simulator_batch_workspace_type), intent(inout) :: workspace
       type(mpi_context), intent(in) :: mpi
+      !> 固定電流 closure を使う種がなくても raw 電荷の rank 合計が要る（外部根の更新が放出反作用電荷を読む）。
+      !! 省略時は `.true.`。全 rank で同じ値を渡す。
+      logical, intent(in), optional :: raw_charge_needed
     end subroutine apply_fixed_surface_current_closure
 
     module subroutine record_batch_initial_charge(app, pcls_batch, fresh_particle_count, ledger)
@@ -171,14 +184,14 @@ module bem_simulator
       )
       type(particles_soa), intent(in) :: pcls_batch
       logical, intent(in) :: escaped_boundary_flag(:), absorbed_flag(:), soft_discarded_boundary_flag(:)
-      integer(i64), intent(out) :: batch_counts(6)
+      integer(i64), intent(out) :: batch_counts(batch_count_kinds)
       real(dp), intent(out) :: soft_discarded_abs_charge
     end subroutine count_batch_outcomes
 
     module subroutine accumulate_batch_stats(stats, batch_counts, soft_discarded_abs_charge, retry_counts, &
                                              substep_counts, rel)
       type(sim_stats), intent(inout) :: stats
-      integer(i64), intent(in) :: batch_counts(6)
+      integer(i64), intent(in) :: batch_counts(batch_count_kinds)
       integer(i64), intent(in) :: retry_counts(2)
       integer(i64), intent(in) :: substep_counts(4)
       real(dp), intent(in) :: soft_discarded_abs_charge, rel

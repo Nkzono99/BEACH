@@ -5,9 +5,10 @@ program test_reservoir_injection
   use bem_app_config, only: app_config, default_app_config, load_app_config, particles_per_batch_from_config, &
                             species_from_defaults, seed_particles_from_config, init_particle_batch_from_config
   use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan, &
+                                    batch_injection_layout_type, build_batch_injection_layout, make_boundary_inflow_spec, &
                                     compute_face_average_potential, compute_wall_box_potential_statistics, &
                                     reservoir_face_velocity_correction
-  use bem_app_config_types, only: particle_inflow_reservoir
+  use bem_app_config_types, only: particle_inflow_reservoir, particle_species_spec
   use bem_external_boundary_contract, only: external_inflow_scalar_barrier
   use bem_injection, only: compute_macro_particles_for_batch, &
                            compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
@@ -30,10 +31,14 @@ program test_reservoir_injection
   real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('snapshot_infinity_barrier')
   call test_snapshot_infinity_barrier()
+  call test_end()
+
+  call test_begin('layout_face_barriers_follow_each_face')
+  call test_layout_face_barriers_follow_each_face()
   call test_end()
 
   call test_begin('face_potential_statistics_share_sampling_pass')
@@ -266,6 +271,75 @@ contains
     call assert_close_dp(barrier_normal, 1.0_dp, 1.0e-14_dp, 'face-average barrier mismatch')
     call assert_close_dp(vmin_normal, 1.0_dp, 1.0e-14_dp, 'face-average cutoff mismatch')
   end subroutine test_face_potential_statistics_share_sampling_pass
+
+  !> 一様場 E=(0,0,-1) では z_low と z_high の面平均電位が違う。
+  !! 二つの種が両面から流入する layout の障壁は、種ごと・面ごとに、
+  !! その面だけを評価した面平均電位から求めた値と一致しなければならない。
+  subroutine test_layout_face_barriers_follow_each_face()
+    type(app_config) :: cfg
+    type(particle_source_plan_type) :: source_plan
+    type(batch_injection_layout_type) :: layout
+    type(mesh_type) :: mesh
+    type(injection_state) :: state
+    type(electrostatic_snapshot_type) :: snapshot
+    type(particle_species_spec) :: face_spec
+    real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1), phi_face, expected
+    integer :: s, face
+
+    v0(:, 1) = [0.0_dp, 0.0_dp, 0.5_dp]
+    v1(:, 1) = [1.0_dp, 0.0_dp, 0.5_dp]
+    v2(:, 1) = [0.0_dp, 1.0_dp, 0.5_dp]
+    call init_mesh(mesh, v0, v1, v2, q0=[0.0_dp])
+    mesh%elem_vacuum_sign = 1_i32
+    mesh%vacuum_normals = mesh%normals
+    call default_app_config(cfg)
+    cfg%sim%batch_count = 1_i32
+    cfg%sim%batch_duration = 1.0_dp
+    cfg%sim%has_batch_duration = .true.
+    cfg%sim%use_box = .true.
+    cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    cfg%sim%e0 = [0.0_dp, 0.0_dp, -1.0_dp]
+    cfg%sim%reservoir_potential_model = 'infinity_barrier'
+    cfg%boundary_contract%inflow_map = external_inflow_scalar_barrier
+    cfg%sim%phi_infty = 0.25_dp
+    cfg%sim%injection_face_phi_grid_n = 2_i32
+    cfg%n_particle_species = 2_i32
+    do s = 1, 2
+      cfg%particle_species(s) = species_from_defaults()
+      cfg%particle_species(s)%source_mode = 'volume_seed'
+      cfg%particle_species(s)%npcls_per_step = 0_i32
+      cfg%particle_species(s)%number_density_m3 = 10.0_dp
+      cfg%particle_species(s)%temperature_k = 0.0_dp
+      cfg%particle_species(s)%q_particle = real(3 - 2*s, dp)
+      cfg%particle_species(s)%m_particle = real(s, dp)
+      cfg%particle_species(s)%w_particle = 1.0_dp
+      cfg%particle_species(s)%has_w_particle = .true.
+      cfg%particle_species(s)%boundary_inflow_low(3) = particle_inflow_reservoir
+      cfg%particle_species(s)%boundary_inflow_high(3) = particle_inflow_reservoir
+    end do
+    allocate (state%macro_residual(2), state%boundary_macro_residual(6, 2))
+    state%macro_residual = 0.0_dp
+    state%boundary_macro_residual = 0.0_dp
+    call snapshot%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
+    call snapshot%refresh(mesh)
+    call build_particle_source_plan(cfg, source_plan)
+    call build_batch_injection_layout( &
+      cfg, 1_i32, layout, state=state, mesh=mesh, snapshot=snapshot, source_plan=source_plan &
+      )
+    do s = 1, 2
+      do face = 5, 6
+        call make_boundary_inflow_spec(cfg%sim, cfg%particle_species(s), int(face, i32), face_spec)
+        call compute_face_average_potential(mesh, cfg%sim, face_spec, snapshot, phi_face)
+        expected = 2.0_dp*cfg%particle_species(s)%q_particle*(phi_face - cfg%sim%phi_infty)/ &
+                   cfg%particle_species(s)%m_particle
+        call assert_close_dp(layout%boundary_barrier(face, s), expected, 1.0e-14_dp, &
+                             'layout barrier must use the potential of its own face')
+      end do
+    end do
+    call assert_true(abs(layout%boundary_barrier(5, 1) - layout%boundary_barrier(6, 1)) > 0.1_dp, &
+                     'the two faces must see different potentials in this fixture')
+  end subroutine test_layout_face_barriers_follow_each_face
 
   subroutine test_snapshot_infinity_barrier()
     type(app_config) :: barrier_cfg

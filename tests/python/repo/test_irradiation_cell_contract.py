@@ -8,10 +8,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
 CONTRACT = "src/runtime/sheath/bem_irradiation_cell_contract.f90"
-# Exact statements, rather than whole-file exclusions: both are generic six-face mappings.
+# Exact statements, rather than whole-file exclusions: the entry is a generic six-face mapping.
 ALLOWED = {
-    ("src/runtime/configuration/bem_app_config_particle_runtime.f90", "name = 'z_high'"):
-        "boundary_face_name maps every bem_boundary face index to its name",
     ("src/runtime/configuration/bem_app_config_potential_runtime.f90", "case ('z_high')"):
         "resolve_face_sampling_geometry samples any of the six box faces",
 }

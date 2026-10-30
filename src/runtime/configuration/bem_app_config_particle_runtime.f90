@@ -14,7 +14,8 @@ module bem_app_config_particle_runtime
   use bem_app_config_potential_runtime, only: &
     compute_face_average_potential, warn_face_average_potential_variation, resolve_face_sampling_geometry
   use bem_string_utils, only: lower_ascii
-  use bem_config_helpers, only: resolve_inward_normal
+  use bem_config_helpers, only: resolve_inward_normal, species_number_density_m3, species_temperature_k, &
+                                boundary_face_name, boundary_inflow_face_enabled
   use, intrinsic :: iso_fortran_env, only: error_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
@@ -76,10 +77,16 @@ module bem_app_config_particle_runtime
     integer(i32), allocatable :: segment_face(:)
     integer(i32), allocatable :: segment_begin(:)
     integer(i32), allocatable :: segment_end(:)
-    !> global slot -> (segment, segment 内 index)。slot は segment を round-robin に回って並ぶので、
-    !! 取り合う順に種が混ざり、static の round-robin 組み立てと同じ処理順になる。
-    integer(i32), allocatable :: slot_segment(:)
-    integer(i32), allocatable :: slot_index(:)
+    !> slot は segment を round-robin に回って並ぶ（segment 内 index k の周回で、長さが k 以上の segment を順に取る）。
+    !! 取り合う順に種が混ざり、static の round-robin 組み立てと同じ処理順になる。slot ごとの表は持たず、
+    !! segment 長の相異なる値ごとの帯で `locate_slot` が (segment, segment 内 index) を求める。
+    !! 帯 b は segment 内 index が `band_length(b-1)+1 .. band_length(b)` の周回で、`band_length(0)=0`。
+    integer(i32) :: nbands = 0_i32
+    integer(i32), allocatable :: band_length(:)
+    !> 帯 b の最後の global slot（`band_last_slot(0)=0`）。
+    integer(i32), allocatable :: band_last_slot(:)
+  contains
+    procedure :: locate_slot => locate_batch_slot
   end type batch_injection_layout_type
 
   interface
@@ -131,7 +138,7 @@ module bem_app_config_particle_runtime
     end subroutine init_particle_batch_from_config
 
     module subroutine reservoir_face_velocity_correction( &
-      cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, warn_face_variation &
+      cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, warn_face_variation, face_potential, face_potential_ready &
       )
       type(app_config), intent(in) :: cfg
       type(particle_species_spec), intent(in) :: spec
@@ -140,11 +147,15 @@ module bem_app_config_particle_runtime
       type(mesh_type), intent(in), optional :: mesh
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
       logical, intent(in), optional :: warn_face_variation
+      !> 面の電位統計 (平均, 標準偏差, 最小, 最大) [V] の cache。`face_potential_ready` が真なら評価せずに使い、
+      !! 偽なら評価して書き込む。box 面全体の統計なので、同じ snapshot の 1 layout 内では種によらず共有できる。
+      real(dp), intent(inout), optional :: face_potential(4)
+      logical, intent(inout), optional :: face_potential_ready
     end subroutine reservoir_face_velocity_correction
 
     module subroutine external_kinetic_face_velocity_correction( &
       cfg, spec, reservoir_potential_v, access_potential_v, vmin_normal, barrier_normal, &
-      mesh, snapshot, warn_face_variation &
+      mesh, snapshot, warn_face_variation, face_potential, face_potential_ready &
       )
       type(app_config), intent(in) :: cfg
       type(particle_species_spec), intent(in) :: spec
@@ -153,10 +164,43 @@ module bem_app_config_particle_runtime
       type(mesh_type), intent(in), optional :: mesh
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
       logical, intent(in), optional :: warn_face_variation
+      !> 面の電位統計 (平均, 標準偏差, 最小, 最大) [V] の cache。`face_potential_ready` が真なら評価せずに使い、
+      !! 偽なら評価して書き込む。box 面全体の統計なので、同じ snapshot の 1 layout 内では種によらず共有できる。
+      real(dp), intent(inout), optional :: face_potential(4)
+      logical, intent(inout), optional :: face_potential_ready
     end subroutine external_kinetic_face_velocity_correction
   end interface
 
 contains
+
+  !> global slot から (segment, segment 内 index) を求める。O(nsegments) で、slot ごとの表を持たない。
+  !! @param[in] slot `1..total_slots` の global slot。
+  !! @param[out] segment slot が属する segment。
+  !! @param[out] local_index segment 内の 1 始まり index。
+  pure subroutine locate_batch_slot(self, slot, segment, local_index)
+    class(batch_injection_layout_type), intent(in) :: self
+    integer(i32), intent(in) :: slot
+    integer(i32), intent(out) :: segment, local_index
+    integer(i32) :: band, active, offset, rank_in_round, g
+
+    band = 1_i32
+    do while (self%band_last_slot(band) < slot)
+      band = band + 1_i32
+    end do
+    active = count(self%segment_end - self%segment_begin + 1_i32 >= self%band_length(band))
+    offset = slot - self%band_last_slot(band - 1_i32) - 1_i32
+    local_index = self%band_length(band - 1_i32) + offset/active + 1_i32
+    rank_in_round = mod(offset, active) + 1_i32
+    segment = 0_i32
+    do g = 1_i32, self%nsegments
+      if (self%segment_end(g) - self%segment_begin(g) + 1_i32 < self%band_length(band)) cycle
+      rank_in_round = rank_in_round - 1_i32
+      if (rank_in_round == 0_i32) then
+        segment = g
+        return
+      end if
+    end do
+  end subroutine locate_batch_slot
 
   !> バッチ生成前に乱数シードだけを初期化する。
   !! @param[in] cfg 乱数シード値 `sim.rng_seed` を含むアプリ設定。
@@ -238,56 +282,15 @@ contains
     plan%kinetic_reservoir_density_m3 = 0.0_dp
     plan%kinetic_inflow_face = 0_i32
 
-    if (present(kinetic_inflow_active) .or. present(kinetic_reservoir_potential_v) .or. &
-        present(kinetic_access_potential_v) .or. present(kinetic_inflow_face)) then
-      if (.not. present(kinetic_inflow_active) .or. .not. present(kinetic_reservoir_potential_v) .or. &
-          .not. present(kinetic_access_potential_v) .or. .not. present(kinetic_inflow_face)) then
-        error stop 'particle source kinetic map requires active, reservoir, access, and face arrays together.'
-      end if
-      if (size(kinetic_inflow_active) /= cfg%n_particle_species .or. &
-          size(kinetic_reservoir_potential_v) /= cfg%n_particle_species .or. &
-          size(kinetic_access_potential_v) /= cfg%n_particle_species .or. &
-          size(kinetic_inflow_face) /= cfg%n_particle_species) then
-        error stop 'particle source kinetic map species count mismatch.'
-      end if
-      if (.not. all(ieee_is_finite(kinetic_reservoir_potential_v)) .or. &
-          .not. all(ieee_is_finite(kinetic_access_potential_v))) then
-        error stop 'particle source kinetic map potentials must be finite.'
-      end if
-      plan%kinetic_inflow_active = kinetic_inflow_active
-      plan%kinetic_reservoir_potential_v = kinetic_reservoir_potential_v
-      plan%kinetic_access_potential_v = kinetic_access_potential_v
-      plan%kinetic_inflow_face = kinetic_inflow_face
-      if (any(plan%kinetic_inflow_active .and. &
-              (plan%kinetic_inflow_face < 1_i32 .or. plan%kinetic_inflow_face > 6_i32))) then
-        error stop 'active particle source kinetic map face must be in [1, 6].'
-      end if
-    end if
-
-    if (present(kinetic_reservoir_density_m3)) then
-      if (size(kinetic_reservoir_density_m3) /= cfg%n_particle_species) then
-        error stop 'particle source kinetic reservoir density species count mismatch.'
-      end if
-      if (.not. all(ieee_is_finite(kinetic_reservoir_density_m3))) then
-        error stop 'particle source kinetic reservoir densities must be finite.'
-      end if
-      plan%kinetic_reservoir_density_m3 = max(0.0_dp, kinetic_reservoir_density_m3)
-    end if
-
-    if (present(number_flux_override_active) .or. present(number_flux_override_m2_s)) then
-      if (.not. present(number_flux_override_active) .or. .not. present(number_flux_override_m2_s)) then
-        error stop 'particle source number-flux override requires active and flux arrays together.'
-      end if
-      if (size(number_flux_override_active) /= cfg%n_particle_species .or. &
-          size(number_flux_override_m2_s) /= cfg%n_particle_species) then
-        error stop 'particle source number-flux override species count mismatch.'
-      end if
-      if (any(number_flux_override_active .and. &
-              (.not. ieee_is_finite(number_flux_override_m2_s) .or. number_flux_override_m2_s < 0.0_dp))) then
-        error stop 'active particle source number-flux overrides must be finite and nonnegative.'
-      end if
-      plan%number_flux_override_active = number_flux_override_active
-    end if
+    ! Runtime callers hand over the closure's kinetic map and number-flux override; their shapes and values are
+    ! checked here, while the TOML physics conditions belong to the parser preflight.
+    call apply_kinetic_map_arguments( &
+      plan, cfg%n_particle_species, kinetic_inflow_active, kinetic_reservoir_potential_v, kinetic_access_potential_v, &
+      kinetic_inflow_face, kinetic_reservoir_density_m3 &
+      )
+    call apply_number_flux_override_arguments( &
+      plan, cfg%n_particle_species, number_flux_override_active, number_flux_override_m2_s &
+      )
 
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
@@ -317,6 +320,78 @@ contains
     plan%ready = .true.
   end subroutine build_particle_source_plan
 
+  !> 外部 closure の kinetic 写像（有効フラグ・貯留部/access 電位・面・貯留部密度）を検査して plan へ写す。
+  subroutine apply_kinetic_map_arguments( &
+    plan, nspecies, kinetic_inflow_active, kinetic_reservoir_potential_v, kinetic_access_potential_v, &
+    kinetic_inflow_face, kinetic_reservoir_density_m3 &
+    )
+    type(particle_source_plan_type), intent(inout) :: plan
+    integer(i32), intent(in) :: nspecies
+    logical, intent(in), optional :: kinetic_inflow_active(:)
+    real(dp), intent(in), optional :: kinetic_reservoir_potential_v(:), kinetic_access_potential_v(:)
+    integer(i32), intent(in), optional :: kinetic_inflow_face(:)
+    real(dp), intent(in), optional :: kinetic_reservoir_density_m3(:)
+
+    if (present(kinetic_inflow_active) .or. present(kinetic_reservoir_potential_v) .or. &
+        present(kinetic_access_potential_v) .or. present(kinetic_inflow_face)) then
+      if (.not. present(kinetic_inflow_active) .or. .not. present(kinetic_reservoir_potential_v) .or. &
+          .not. present(kinetic_access_potential_v) .or. .not. present(kinetic_inflow_face)) then
+        error stop 'particle source kinetic map requires active, reservoir, access, and face arrays together.'
+      end if
+      if (size(kinetic_inflow_active) /= nspecies .or. &
+          size(kinetic_reservoir_potential_v) /= nspecies .or. &
+          size(kinetic_access_potential_v) /= nspecies .or. &
+          size(kinetic_inflow_face) /= nspecies) then
+        error stop 'particle source kinetic map species count mismatch.'
+      end if
+      if (.not. all(ieee_is_finite(kinetic_reservoir_potential_v)) .or. &
+          .not. all(ieee_is_finite(kinetic_access_potential_v))) then
+        error stop 'particle source kinetic map potentials must be finite.'
+      end if
+      plan%kinetic_inflow_active = kinetic_inflow_active
+      plan%kinetic_reservoir_potential_v = kinetic_reservoir_potential_v
+      plan%kinetic_access_potential_v = kinetic_access_potential_v
+      plan%kinetic_inflow_face = kinetic_inflow_face
+      if (any(plan%kinetic_inflow_active .and. &
+              (plan%kinetic_inflow_face < 1_i32 .or. plan%kinetic_inflow_face > 6_i32))) then
+        error stop 'active particle source kinetic map face must be in [1, 6].'
+      end if
+    end if
+
+    if (present(kinetic_reservoir_density_m3)) then
+      if (size(kinetic_reservoir_density_m3) /= nspecies) then
+        error stop 'particle source kinetic reservoir density species count mismatch.'
+      end if
+      if (.not. all(ieee_is_finite(kinetic_reservoir_density_m3))) then
+        error stop 'particle source kinetic reservoir densities must be finite.'
+      end if
+      plan%kinetic_reservoir_density_m3 = max(0.0_dp, kinetic_reservoir_density_m3)
+    end if
+  end subroutine apply_kinetic_map_arguments
+
+  !> 外部 closure の number-flux override の有効フラグを検査して plan へ写す（flux 値は種の解決時に使う）。
+  subroutine apply_number_flux_override_arguments(plan, nspecies, number_flux_override_active, number_flux_override_m2_s)
+    type(particle_source_plan_type), intent(inout) :: plan
+    integer(i32), intent(in) :: nspecies
+    logical, intent(in), optional :: number_flux_override_active(:)
+    real(dp), intent(in), optional :: number_flux_override_m2_s(:)
+
+    if (present(number_flux_override_active) .or. present(number_flux_override_m2_s)) then
+      if (.not. present(number_flux_override_active) .or. .not. present(number_flux_override_m2_s)) then
+        error stop 'particle source number-flux override requires active and flux arrays together.'
+      end if
+      if (size(number_flux_override_active) /= nspecies .or. &
+          size(number_flux_override_m2_s) /= nspecies) then
+        error stop 'particle source number-flux override species count mismatch.'
+      end if
+      if (any(number_flux_override_active .and. &
+              (.not. ieee_is_finite(number_flux_override_m2_s) .or. number_flux_override_m2_s < 0.0_dp))) then
+        error stop 'active particle source number-flux overrides must be finite and nonnegative.'
+      end if
+      plan%number_flux_override_active = number_flux_override_active
+    end if
+  end subroutine apply_number_flux_override_arguments
+
   !> source plan がこの rank/size と mpi 引数の有無で構築されたかを返す。
   !! rank、size、mpi 引数の有無はそれぞれ独立に一致する必要がある。
   !! @param[in] plan `build_particle_source_plan` で構築した source plan。
@@ -343,18 +418,6 @@ contains
                  any(spec%boundary_inflow_high == particle_inflow_reservoir)
   end function has_boundary_inflow
 
-  !> face bit順の面に reservoir 流入が有効かを返す。
-  pure logical function boundary_inflow_face_enabled(spec, face) result(enabled)
-    type(particle_species_spec), intent(in) :: spec
-    integer(i32), intent(in) :: face
-
-    if (mod(face, 2_i32) == 1_i32) then
-      enabled = spec%boundary_inflow_low((face + 1_i32)/2_i32) == particle_inflow_reservoir
-    else
-      enabled = spec%boundary_inflow_high(face/2_i32) == particle_inflow_reservoir
-    end if
-  end function boundary_inflow_face_enabled
-
   !> box 全面の境界流入をサンプリングする面座標を構築する。
   pure subroutine make_boundary_inflow_spec(sim, source_spec, face, inflow_spec)
     type(sim_config), intent(in) :: sim
@@ -380,29 +443,6 @@ contains
     inflow_spec%boundary_inflow_low = 0_i32
     inflow_spec%boundary_inflow_high = 0_i32
   end subroutine make_boundary_inflow_spec
-
-  !> face bit順の面名を返す。
-  pure subroutine boundary_face_name(face, name)
-    integer(i32), intent(in) :: face
-    character(len=*), intent(out) :: name
-
-    select case (face)
-    case (1_i32)
-      name = 'x_low'
-    case (2_i32)
-      name = 'x_high'
-    case (3_i32)
-      name = 'y_low'
-    case (4_i32)
-      name = 'y_high'
-    case (5_i32)
-      name = 'z_low'
-    case (6_i32)
-      name = 'z_high'
-    case default
-      error stop 'invalid boundary inflow face.'
-    end select
-  end subroutine boundary_face_name
 
   !> 境界流入用に、物理流量と残差から今バッチのマクロ粒子数を決める。
   !! @param[in] sim ボックス境界・バッチ時間などのシミュレーション設定。
@@ -469,16 +509,6 @@ contains
     end if
   end subroutine compute_macro_particles_for_species
 
-  !> 粒子種設定から実効密度[m^-3]を返す。
-  !! @param[in] spec 粒子種設定。
-  !! @return number_density_m3 実効粒子数密度 [1/m^3]。
-  pure real(dp) function species_number_density_m3(spec) result(number_density_m3)
-    type(particle_species_spec), intent(in) :: spec
-
-    number_density_m3 = spec%number_density_m3
-    if (spec%has_number_density_cm3) number_density_m3 = spec%number_density_cm3*1.0d6
-  end function species_number_density_m3
-
   !> 併存対応のため `mpi_context` と rank/size の両方を受け、最終的なrank/sizeを解決する。
   subroutine resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, caller_name)
     integer(i32), intent(out) :: local_rank, n_ranks
@@ -494,15 +524,5 @@ contains
       error stop 'mpi_rank is out of range in '//trim(caller_name)//'.'
     end if
   end subroutine resolve_parallel_rank_size
-
-  !> 粒子種設定から実効温度[K]を返す。
-  !! @param[in] spec 粒子種設定。
-  !! @return temperature_k 実効温度 [K]。
-  pure real(dp) function species_temperature_k(spec) result(temperature_k)
-    type(particle_species_spec), intent(in) :: spec
-
-    temperature_k = spec%temperature_k
-    if (spec%has_temperature_ev) temperature_k = spec%temperature_ev*1.160451812d4
-  end function species_temperature_k
 
 end module bem_app_config_particle_runtime

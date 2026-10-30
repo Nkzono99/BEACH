@@ -5,13 +5,15 @@
 !> 鍵の計算は 32 bit の Murmur3 を 4 系統の seed で回すもので、整数演算は 16 bit 分割の乗算で
 !> 符号付き 64 bit の範囲に収めている（Fortran の整数 overflow を起こさない）。
 module bem_counter_rng
-  use, intrinsic :: iso_c_binding, only: c_ptr, c_associated, c_int64_t
+  use, intrinsic :: iso_c_binding, only: c_ptr, c_null_ptr, c_associated, c_int64_t
   use bem_kinds, only: dp, i32, i64
   use m_pcg64_bind, only: pcg64_create, pcg64_destroy, pcg64_random_double53, pcg64_advance
   implicit none
   private
 
   public :: counter_uniform
+  public :: counter_uniforms
+  public :: counter_stream_type
   public :: counter_key
   public :: pcg64_open_uniform
   public :: open_uniform_from_double53
@@ -27,7 +29,65 @@ module bem_counter_rng
   integer(i64), parameter :: lane_seed(4) = [int(z'9e3779b9', i64), int(z'7f4a7c15', i64), &
                                              int(z'f39cc060', i64), int(z'5ced1c2b', i64)]
 
+  !> 1 つの (seed, counter) の draw を連番で引く列。鍵の計算と PCG64 生成器の作成を 1 回で済ませ、
+  !! `next_uniform` の n 回目は `counter_uniform(seed, counter, first_draw + n - 1)` と同じ値を返す。
+  !! 生成器は C++ 側で確保するので、`open` したら `close` する。
+  type :: counter_stream_type
+    private
+    type(c_ptr) :: handle = c_null_ptr
+  contains
+    procedure :: open => open_counter_stream
+    procedure :: next_uniform => counter_stream_next_uniform
+    procedure :: close => close_counter_stream
+  end type counter_stream_type
+
 contains
+
+  !> (seed, counter) の draw `first_draw .. first_draw + size(uniforms) - 1` をまとめて返す。
+  !! 値は同じ draw の `counter_uniform` と一致する。
+  subroutine counter_uniforms(seed, counter, first_draw, uniforms)
+    integer(i32), intent(in) :: seed
+    integer(i64), intent(in) :: counter(:), first_draw
+    real(dp), intent(out) :: uniforms(:)
+    type(counter_stream_type) :: stream
+    integer :: i
+
+    call stream%open(seed, counter, first_draw)
+    do i = 1, size(uniforms)
+      uniforms(i) = stream%next_uniform()
+    end do
+    call stream%close()
+  end subroutine counter_uniforms
+
+  !> (seed, counter) の PCG64 を開き、`first_draw` 回進めた位置に置く。
+  subroutine open_counter_stream(self, seed, counter, first_draw)
+    class(counter_stream_type), intent(inout) :: self
+    integer(i32), intent(in) :: seed
+    integer(i64), intent(in) :: counter(:), first_draw
+    integer(i64) :: state_seed, stream
+
+    if (first_draw < 0_i64) error stop 'counter_uniform draw must be >= 0.'
+    call self%close()
+    call counter_key(seed, counter, state_seed, stream)
+    self%handle = pcg64_create(int(state_seed, c_int64_t), int(stream, c_int64_t))
+    if (.not. c_associated(self%handle)) error stop 'failed to create a PCG64 generator.'
+    if (first_draw > 0_i64) call pcg64_advance(self%handle, int(first_draw, c_int64_t))
+  end subroutine open_counter_stream
+
+  !> 次の draw を (0, 1) で返す。
+  real(dp) function counter_stream_next_uniform(self) result(uniform)
+    class(counter_stream_type), intent(inout) :: self
+
+    uniform = open_uniform_from_double53(pcg64_random_double53(self%handle))
+  end function counter_stream_next_uniform
+
+  !> 生成器を解放する（開いていなければ何もしない）。
+  subroutine close_counter_stream(self)
+    class(counter_stream_type), intent(inout) :: self
+
+    if (c_associated(self%handle)) call pcg64_destroy(self%handle)
+    self%handle = c_null_ptr
+  end subroutine close_counter_stream
 
   !> (seed, counter, draw) で決まる (0, 1) の一様乱数。
   !! @param[in] seed 実行の乱数 seed（`run.rng_seed`）。

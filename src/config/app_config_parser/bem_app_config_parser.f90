@@ -33,6 +33,8 @@ module bem_app_config_parser
   private :: validate_field_config
   private :: validate_particle_species_config
   private :: validate_surface_current_model_config
+  private :: resolve_boundary_inflow_weight
+  private :: resolve_photo_raycast_direction
   private :: stop_config_error
 
   interface
@@ -52,17 +54,17 @@ module bem_app_config_parser
       type(app_config), intent(inout) :: cfg
     end subroutine resolve_external_e_field
 
-    !> box境界に結び付いた reservoir 流入設定を検証し、必要なら重みを解決する。
-    module subroutine validate_boundary_inflow_species(cfg, species_idx)
+    !> box境界に結び付いた reservoir 流入の密度条件を検査し、目標 macro 粒子数から重みを導いて書き戻す。
+    module subroutine resolve_boundary_inflow_weight(cfg, species_idx)
       type(app_config), intent(inout) :: cfg
       integer, intent(in) :: species_idx
-    end subroutine validate_boundary_inflow_species
+    end subroutine resolve_boundary_inflow_weight
 
-    !> `photo_raycast` 粒子種の入力値を検証し、発射方向などを正規化する。
-    module subroutine validate_photo_raycast_species(cfg, species_idx)
+    !> `photo_raycast` 粒子種の開口と放出条件を検査し、入射方向を正規化して書き戻す。
+    module subroutine resolve_photo_raycast_direction(cfg, species_idx)
       type(app_config), intent(inout) :: cfg
       integer, intent(in) :: species_idx
-    end subroutine validate_photo_raycast_species
+    end subroutine resolve_photo_raycast_direction
 
     module subroutine apply_periodic2_toml_table(table, authoring)
       type(config_toml_table), intent(inout) :: table

@@ -5,7 +5,7 @@ module bem_injection_flux
   use bem_constants, only: k_boltzmann
   use bem_injection_geometry, only: compute_face_area_from_bounds, resolve_face_axes, resolve_face_geometry
   use bem_injection_random, only: sample_standard_normal
-  use bem_counter_rng, only: counter_uniform
+  use bem_counter_rng, only: counter_uniforms
   implicit none
   private
 
@@ -91,7 +91,7 @@ contains
     integer(i32), intent(out) :: n_macro
     real(dp), intent(in), optional :: vmin_normal
 
-    real(dp) :: inward_normal(3), gamma_in, area, n_phys_batch, n_macro_expected, macro_budget
+    real(dp) :: inward_normal(3), gamma_in
 
     if (w_particle <= 0.0_dp) error stop "macro-particle weight must be > 0"
 
@@ -99,14 +99,10 @@ contains
     gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
                number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal, vmin_normal=vmin_normal &
                )
-    area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
-    n_phys_batch = gamma_in*area*batch_duration
-    n_macro_expected = n_phys_batch/w_particle
-    macro_budget = residual + n_macro_expected
-    if (macro_budget < 0.0_dp) macro_budget = 0.0_dp
-    if (macro_budget > real(huge(0_i32), dp)) error stop "macro particle count exceeds integer range"
-    n_macro = int(floor(macro_budget), i32)
-    residual = macro_budget - real(n_macro, dp)
+    call carry_macro_particle_budget( &
+      gamma_in, compute_face_area_from_bounds(inject_face, pos_low, pos_high), batch_duration, w_particle, residual, &
+      n_macro &
+      )
   end subroutine compute_macro_particles_for_batch
 
   !> 指定済み粒子 flux・重み・残差から今バッチのマクロ粒子数を決める。
@@ -128,22 +124,31 @@ contains
     real(dp), intent(inout) :: residual
     integer(i32), intent(out) :: n_macro
 
-    real(dp) :: area, n_phys_batch, n_macro_expected, macro_budget
-
     if (.not. ieee_is_finite(particle_flux_m2_s) .or. particle_flux_m2_s < 0.0_dp) then
       error stop "particle_flux_m2_s must be finite and >= 0"
     end if
     if (w_particle <= 0.0_dp) error stop "macro-particle weight must be > 0"
 
-    area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
-    n_phys_batch = particle_flux_m2_s*area*batch_duration
-    n_macro_expected = n_phys_batch/w_particle
-    macro_budget = residual + n_macro_expected
+    call carry_macro_particle_budget( &
+      particle_flux_m2_s, compute_face_area_from_bounds(inject_face, pos_low, pos_high), batch_duration, w_particle, &
+      residual, n_macro &
+      )
+  end subroutine compute_macro_particles_from_flux
+
+  !> flux × 面積 × バッチ時間を重みで割ったマクロ粒子数に前バッチの端数を足し、整数部を今バッチの数、
+  !! 残りを次バッチへの端数にする。負の予算は 0 に切り上げる。入力の検査は呼出し元が行う。
+  subroutine carry_macro_particle_budget(particle_flux_m2_s, area, batch_duration, w_particle, residual, n_macro)
+    real(dp), intent(in) :: particle_flux_m2_s, area, batch_duration, w_particle
+    real(dp), intent(inout) :: residual
+    integer(i32), intent(out) :: n_macro
+    real(dp) :: macro_budget
+
+    macro_budget = residual + particle_flux_m2_s*area*batch_duration/w_particle
     if (macro_budget < 0.0_dp) macro_budget = 0.0_dp
     if (macro_budget > real(huge(0_i32), dp)) error stop "macro particle count exceeds integer range"
     n_macro = int(floor(macro_budget), i32)
     residual = macro_budget - real(n_macro, dp)
-  end subroutine compute_macro_particles_from_flux
+  end subroutine carry_macro_particle_budget
 
   !> 上流リザーバ境界から流入する粒子を 1 つ、counter-based 乱数で面注入としてサンプルする。
   !! 同じ (seed, counter) は常に同じ粒子を返すので、どの rank・thread が生成しても結果は同じ。
@@ -162,7 +167,7 @@ contains
     integer(i64), intent(in) :: rng_counter(:)
     real(dp), intent(out) :: x(3), v(3)
     integer :: axis_n, axis_t1, axis_t2
-    real(dp) :: boundary_value, inward_normal(3), sigma, u_n, vn_floor, vn_inf, vn(1), z(3, 1)
+    real(dp) :: boundary_value, inward_normal(3), sigma, u_n, vn_floor, vn_inf, vn(1), z(3, 1), uniform(3)
 
     call resolve_face_geometry(box_min, box_max, inject_face, axis_n, boundary_value, inward_normal)
     call resolve_face_axes(inject_face, axis_t1, axis_t2)
@@ -176,9 +181,10 @@ contains
 
     call sample_standard_normal(z, sigma_cutoff=default_velocity_sigma_cutoff, rng_seed=rng_seed, rng_counter=rng_counter)
     v = sigma*z(:, 1) + drift_velocity
+    ! Draw 1 picks the normal speed and draws 2 and 3 the position on the face.
+    call counter_uniforms(rng_seed, rng_counter, 1_i64, uniform)
     call sample_flux_weighted_normal_component( &
-      u_n, sigma, vn, vmin_normal=vn_floor, sigma_cutoff=default_velocity_sigma_cutoff, &
-      uniform=[counter_uniform(rng_seed, rng_counter, 1_i64)] &
+      u_n, sigma, vn, vmin_normal=vn_floor, sigma_cutoff=default_velocity_sigma_cutoff, uniform=uniform(1:1) &
       )
     ! A negative barrier (accelerating sheath) raises the normal speed.
     vn_inf = sqrt(max(0.0_dp, vn(1)*vn(1) - barrier_normal_energy))
@@ -187,8 +193,8 @@ contains
     x = 0.0_dp
     ! One representable step inward avoids a zero-time boundary event without an untracked flight segment.
     x(axis_n) = nearest(boundary_value, inward_normal(axis_n))
-    x(axis_t1) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*counter_uniform(rng_seed, rng_counter, 2_i64)
-    x(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*counter_uniform(rng_seed, rng_counter, 3_i64)
+    x(axis_t1) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*uniform(2)
+    x(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*uniform(3)
   end subroutine sample_reservoir_face_particle_counter
 
   !> 標準正規分布の PDF を返す。

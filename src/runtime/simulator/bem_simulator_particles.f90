@@ -5,7 +5,7 @@ submodule(bem_simulator) bem_simulator_particles
   use bem_config_helpers, only: species_temperature_k
   use bem_photoelectron_injection, only: sample_photo_emission_velocity, build_tangent_basis, &
                                          canonicalize_periodic_emission_position
-  use bem_particles, only: append_particles, allocate_particles, trim_particles
+  use bem_particles, only: allocate_particles, extend_particles, reserve_particles, particle_capacity
   use bem_outflow_spectrum, only: outflow_spectrum_bin
   use bem_particle_stepper, only: particle_substep_needs_halving
   use bem_counter_rng, only: counter_child_id
@@ -14,6 +14,7 @@ contains
 
   module procedure prepare_batch_state
   integer(i32), allocatable :: slot_ids(:)
+  integer(i64) :: total, ranks, capacity
 
   batch_idx = stats%batches + 1_i32
   call workspace%reset_before_injection()
@@ -23,10 +24,14 @@ contains
       app, batch_idx, injection_layout, state=inject_state, mesh=mesh, mpi=mpi, snapshot=snapshot, &
       source_plan=source_plan &
       )
-    call allocate_particles(pcls_batch, injection_layout%total_slots)
-    pcls_batch%alive = .false.
+    ! A rank starts with room for its even share plus a quarter and one chunk; process_particle_batch grows it
+    ! between claims when this rank takes more of the pool.
+    total = int(injection_layout%total_slots, i64)
+    ranks = int(max(1_i32, mpi%size), i64)
+    capacity = min(total, total/ranks + total/(4_i64*ranks) + int(max(1_i32, app%sim%particle_pool_chunk), i64))
+    call allocate_particles(pcls_batch, int(capacity, i32))
     pcls_batch%n = 0_i32
-    call workspace%prepare_particle_flags(injection_layout%total_slots)
+    call workspace%prepare_particle_flags(int(capacity, i32))
     return
   end if
   injection_layout = batch_injection_layout_type()
@@ -45,9 +50,10 @@ contains
   module procedure process_particle_batch
   integer(i32) :: i, tid, nth, species_idx, slot, local_index, claimed_count, rank_next_slot, rank_end_slot
   integer(i64) :: thread_step_counts(6, size(workspace%dq_thread, 2))
-  integer(i64) :: pool_first, pool_chunk
+  integer(i64) :: pool_first, pool_chunk, rank_claimed_slots
   real(dp) :: h_min, claim_t0, claim_t1
-  logical :: adaptive_substeps, adaptive_nonzero_mode, shared_pool, pool_exhausted, step_growth
+  logical :: adaptive_substeps, adaptive_nonzero_mode, shared_pool, pool_exhausted, pool_full, step_growth
+  integer(i32) :: pool_capacity, grown_capacity
   integer(i32) :: growth_chunk_max
   real(dp) :: growth_change_max
   !> step 伸長時の仕事の床値は運動エネルギーの `step_growth_energy_fraction` 倍（1e-4 eV との大きい方）。遠方の弱い場では
@@ -97,9 +103,6 @@ contains
   if (shared_pool) then
     if (.not. injection_layout%ready) error stop 'shared particle pool requires a batch injection layout.'
     if (.not. pool_counter%active) error stop 'shared particle pool counter is not initialized.'
-    if (size(pcls_batch%q) < injection_layout%total_slots) then
-      error stop 'shared particle pool batch capacity is smaller than the layout.'
-    end if
     pool_chunk = int(max(1_i32, app%sim%particle_pool_chunk), i64)
   end if
   ! Replayed adaptive trials require an identical particle-index partition.
@@ -119,79 +122,99 @@ contains
     if (shared_pool .and. generation == 0_i32) then
       ! The rank claims chunks from the global counter, and its threads take single slots from the
       ! current chunk, so thread-level balance stays as fine as schedule(dynamic,1).
+      ! A rank holds particles only for the slots it claimed. When the next chunk might not fit, its threads
+      ! finish the current chunk and leave the parallel region, the arrays grow, and claiming resumes.
       rank_next_slot = 1_i32
       rank_end_slot = 0_i32
+      rank_claimed_slots = 0_i64
       pool_exhausted = .false.
-      !$omp parallel default(none) num_threads(nth) &
-      !$omp shared(app,mesh,injection_layout,pcls_batch,workspace,pool_counter,pool_chunk,claimed_count) &
-      !$omp shared(nth,actual_team_size,pool_claims,pool_claim_seconds,rank_next_slot,rank_end_slot,pool_exhausted) &
-      !$omp private(tid,slot,local_index,pool_first,claim_t0,claim_t1) &
-      !$omp private(slot_x,slot_v,slot_w,slot_q,slot_m,slot_species,slot_element,slot_status,slot_bounce,slot_emitted)
-      tid = 1_i32
-!$    tid = omp_get_thread_num() + 1
-      !$omp single
-!$    actual_team_size = int(omp_get_num_threads(), i32)
-      !$omp end single
-      claim_loop: do
-        ! The critical section also serializes the MPI call for MPI_THREAD_SERIALIZED.
-        !$omp critical (beach_particle_pool_claim)
-        if (rank_next_slot > rank_end_slot .and. .not. pool_exhausted) then
-          claim_t0 = wall_seconds()
-          call pool_counter%claim(pool_chunk, pool_first)
-          claim_t1 = wall_seconds()
-          pool_claims = pool_claims + 1_i64
-          pool_claim_seconds = pool_claim_seconds + (claim_t1 - claim_t0)
-          if (pool_first >= int(injection_layout%total_slots, i64)) then
-            pool_exhausted = .true.
+      pool_capacity = particle_capacity(pcls_batch)
+      do
+        pool_full = .false.
+        !$omp parallel default(none) num_threads(nth) &
+        !$omp shared(app,mesh,injection_layout,pcls_batch,workspace,pool_counter,pool_chunk,claimed_count) &
+        !$omp shared(nth,actual_team_size,pool_claims,pool_claim_seconds,rank_next_slot,rank_end_slot,pool_exhausted) &
+        !$omp shared(pool_full,pool_capacity,rank_claimed_slots) &
+        !$omp private(tid,slot,local_index,pool_first,claim_t0,claim_t1) &
+        !$omp private(slot_x,slot_v,slot_w,slot_q,slot_m,slot_species,slot_element,slot_status,slot_bounce,slot_emitted)
+        tid = 1_i32
+!$      tid = omp_get_thread_num() + 1
+        !$omp single
+!$      actual_team_size = int(omp_get_num_threads(), i32)
+        !$omp end single
+        claim_loop: do
+          ! The critical section also serializes the MPI call for MPI_THREAD_SERIALIZED.
+          !$omp critical (beach_particle_pool_claim)
+          if (rank_next_slot > rank_end_slot .and. .not. pool_exhausted .and. .not. pool_full) then
+            if (pool_capacity < injection_layout%total_slots .and. &
+                rank_claimed_slots + pool_chunk > int(pool_capacity, i64)) then
+              pool_full = .true.
+            else
+              claim_t0 = wall_seconds()
+              call pool_counter%claim(pool_chunk, pool_first)
+              claim_t1 = wall_seconds()
+              pool_claims = pool_claims + 1_i64
+              pool_claim_seconds = pool_claim_seconds + (claim_t1 - claim_t0)
+              if (pool_first >= int(injection_layout%total_slots, i64)) then
+                pool_exhausted = .true.
+              else
+                rank_next_slot = int(pool_first, i32) + 1_i32
+                rank_end_slot = int(min(pool_first + pool_chunk, int(injection_layout%total_slots, i64)), i32)
+                rank_claimed_slots = rank_claimed_slots + int(rank_end_slot - rank_next_slot + 1_i32, i64)
+              end if
+            end if
+          end if
+          if (rank_next_slot > rank_end_slot) then
+            slot = injection_layout%total_slots + 1_i32
           else
-            rank_next_slot = int(pool_first, i32) + 1_i32
-            rank_end_slot = int(min(pool_first + pool_chunk, int(injection_layout%total_slots, i64)), i32)
+            slot = rank_next_slot
+            rank_next_slot = rank_next_slot + 1_i32
+            ! The window owner serves the other ranks' claims whenever one of its threads passes here.
+            call pool_counter%progress()
           end if
-        end if
-        if (pool_exhausted) then
-          slot = injection_layout%total_slots + 1_i32
-        else
-          slot = rank_next_slot
-          rank_next_slot = rank_next_slot + 1_i32
-          ! The window owner serves the other ranks' claims whenever one of its threads passes here.
-          call pool_counter%progress()
-        end if
-        !$omp end critical (beach_particle_pool_claim)
-        if (slot > injection_layout%total_slots) exit claim_loop
-        call generate_batch_slot( &
-          app, injection_layout, slot, mesh, slot_x, slot_v, slot_w, slot_q, slot_m, slot_species, slot_element, &
-          slot_emitted, slot_status, slot_bounce &
-          )
-        if (slot_status /= collision_query_ok) then
-          call record_collision_failure(slot_status, slot, 0_i32, slot_x, slot_v)
-          cycle
-        end if
-        if (.not. slot_emitted) cycle
-        !$omp atomic capture
-        claimed_count = claimed_count + 1_i32
-        local_index = claimed_count
-        !$omp end atomic
-        pcls_batch%x(:, local_index) = slot_x
-        pcls_batch%v(:, local_index) = slot_v
-        pcls_batch%q(local_index) = slot_q
-        pcls_batch%m(local_index) = slot_m
-        pcls_batch%w(local_index) = slot_w
-        pcls_batch%species_id(local_index) = slot_species
-        pcls_batch%source_element(local_index) = slot_element
-        pcls_batch%alive(local_index) = .true.
-        workspace%rng_id(local_index) = int(slot, i64)
-        if (slot_element > 0_i32) then
-          if (app%particle_species(slot_species)%deposit_opposite_charge_on_emit) then
-            !$omp atomic update
-            workspace%photo_emission_dq(slot_element, slot_species) = &
-              workspace%photo_emission_dq(slot_element, slot_species) - slot_q*slot_w
+          !$omp end critical (beach_particle_pool_claim)
+          if (slot > injection_layout%total_slots) exit claim_loop
+          call generate_batch_slot( &
+            app, injection_layout, slot, mesh, slot_x, slot_v, slot_w, slot_q, slot_m, slot_species, slot_element, &
+            slot_emitted, slot_status, slot_bounce &
+            )
+          if (slot_status /= collision_query_ok) then
+            call record_collision_failure(slot_status, slot, 0_i32, slot_x, slot_v)
+            cycle
           end if
-        end if
-        call track_particle(local_index, tid)
-      end do claim_loop
-      !$omp end parallel
+          if (.not. slot_emitted) cycle
+          !$omp atomic capture
+          claimed_count = claimed_count + 1_i32
+          local_index = claimed_count
+          !$omp end atomic
+          pcls_batch%x(:, local_index) = slot_x
+          pcls_batch%v(:, local_index) = slot_v
+          pcls_batch%q(local_index) = slot_q
+          pcls_batch%m(local_index) = slot_m
+          pcls_batch%w(local_index) = slot_w
+          pcls_batch%species_id(local_index) = slot_species
+          pcls_batch%source_element(local_index) = slot_element
+          pcls_batch%alive(local_index) = .true.
+          workspace%rng_id(local_index) = int(slot, i64)
+          if (slot_element > 0_i32) then
+            if (app%particle_species(slot_species)%deposit_opposite_charge_on_emit) then
+              !$omp atomic update
+              workspace%photo_emission_dq(slot_element, slot_species) = &
+                workspace%photo_emission_dq(slot_element, slot_species) - slot_q*slot_w
+            end if
+          end if
+          call track_particle(local_index, tid)
+        end do claim_loop
+        !$omp end parallel
+        if (.not. pool_full) exit
+        ! Every claimed particle is finished here, so the first claimed_count entries move to larger arrays.
+        pcls_batch%n = claimed_count
+        grown_capacity = grown_pool_capacity()
+        call workspace%extend_particle_flags(pool_capacity, grown_capacity)
+        call reserve_particles(pcls_batch, grown_capacity)
+        pool_capacity = grown_capacity
+      end do
       pcls_batch%n = claimed_count
-      call trim_particles(pcls_batch, claimed_count)
       first_particle = 1_i32
       last_particle = claimed_count
     else
@@ -488,10 +511,8 @@ contains
   !> records also carry reaction charge into the existing surface-emission channel.
   subroutine append_spawned_particles(first, last)
     integer(i32), intent(inout) :: first, last
-    integer(i32), allocatable :: starts(:), counts(:), species(:), elements(:)
-    integer(i64), allocatable :: child_rng_id(:)
-    real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
-    integer(i32) :: thread, j, parent, index, added, old_count
+    integer(i32), allocatable :: starts(:), counts(:)
+    integer(i32) :: thread, j, parent, index, added, old_count, species, element
     type(secondary_spawn_type) :: child
 
     added = sum(spawn%n)
@@ -503,36 +524,35 @@ contains
         counts(parent) = counts(parent) + 1_i32
       end do
     end do
-    index = 0_i32
+    old_count = pcls_batch%n
+    index = old_count
     do parent = first, last
       starts(parent) = index
       index = index + counts(parent)
     end do
-    allocate (x(3, added), v(3, added), q(added), m(added), w(added), species(added), elements(added), &
-              child_rng_id(added))
+    call extend_particles(pcls_batch, added)
+    call workspace%extend_particle_flags(old_count, pcls_batch%n)
     do thread = 1, nth
       do j = 1, spawn(thread)%n
         child = spawn(thread)%particles(j)
         index = starts(child%parent) + child%ordinal
-        x(:, index) = child%x
-        v(:, index) = child%v
-        w(index) = child%w
-        species(index) = child%species_idx
-        elements(index) = child%element
-        q(index) = app%particle_species(child%species_idx)%q_particle
-        m(index) = app%particle_species(child%species_idx)%m_particle
+        pcls_batch%x(:, index) = child%x
+        pcls_batch%v(:, index) = child%v
+        pcls_batch%w(index) = child%w
+        pcls_batch%species_id(index) = child%species_idx
+        pcls_batch%source_element(index) = child%element
+        pcls_batch%q(index) = app%particle_species(child%species_idx)%q_particle
+        pcls_batch%m(index) = app%particle_species(child%species_idx)%m_particle
         ! A child's rng id derives from its parent's, so it does not depend on the local index.
-        child_rng_id(index) = counter_child_id(workspace%rng_id(child%parent), int(child%ordinal, i64))
+        workspace%rng_id(index) = counter_child_id(workspace%rng_id(child%parent), int(child%ordinal, i64))
       end do
     end do
-    do index = 1, added
-      workspace%photo_emission_dq(elements(index), species(index)) = &
-        workspace%photo_emission_dq(elements(index), species(index)) - q(index)*w(index)
+    do index = old_count + 1_i32, pcls_batch%n
+      species = pcls_batch%species_id(index)
+      element = pcls_batch%source_element(index)
+      workspace%photo_emission_dq(element, species) = &
+        workspace%photo_emission_dq(element, species) - pcls_batch%q(index)*pcls_batch%w(index)
     end do
-    old_count = pcls_batch%n
-    call append_particles(pcls_batch, x, v, q, m, w, species, elements)
-    call workspace%extend_particle_flags(old_count, pcls_batch%n)
-    workspace%rng_id(old_count + 1:pcls_batch%n) = child_rng_id
     first = old_count + 1_i32
     last = pcls_batch%n
   end subroutine append_spawned_particles
@@ -569,6 +589,12 @@ contains
     end if
     !$omp end critical (beach_collision_query_failure)
   end subroutine record_collision_failure
+
+  !> 共有 pool の容量を、次の chunk が入り、少なくとも 1.5 倍になる大きさへ広げる（global slot 数が上限）。
+  integer(i32) function grown_pool_capacity() result(capacity)
+    capacity = int(min(int(injection_layout%total_slots, i64), &
+                       max(rank_claimed_slots + pool_chunk, int(pool_capacity, i64) + int(pool_capacity/2_i32, i64))), i32)
+  end function grown_pool_capacity
 
   !> claim の所要時間計測用の壁時計 [s]。OpenMP なしでは `system_clock` に落ちる。
   real(dp) function wall_seconds()
