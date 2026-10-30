@@ -56,6 +56,8 @@ program test_mpi_hybrid
   real(dp) :: replicated_field(3), distributed_field(3), probe(3)
   integer(i32) :: node_idx, coeff_idx, mismatches
   character(len=1024) :: periodic_rng_path, resolved_checkpoint_dir
+  !> reservoir 継続 fixture の macro 粒子 1 個の電荷の大きさ [C]。
+  real(dp), parameter :: reservoir_macro_charge = 1.0e-13_dp
 
   call mpi_initialize(mpi)
 
@@ -121,7 +123,7 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(13)
+  call test_init(14)
 
   call test_begin('mpi_rank_count_matches_launcher_request')
   call check_requested_rank_count(mpi)
@@ -209,8 +211,14 @@ program test_mpi_hybrid
   call test_end()
 
   call test_begin('mpi_checkpoint_continues_on_one_rank')
-  call run_mpi_rank_change_continuation_test(mpi, 'shared')
-  call run_mpi_rank_change_continuation_test(mpi, 'static')
+  call run_mpi_rank_change_continuation_test(mpi, 'photo', 'shared', checkpoint_on_all_ranks=.true.)
+  call run_mpi_rank_change_continuation_test(mpi, 'photo', 'static', checkpoint_on_all_ranks=.true.)
+  call run_mpi_rank_change_continuation_test(mpi, 'reservoir', 'shared', checkpoint_on_all_ranks=.true.)
+  call test_end()
+
+  call test_begin('mpi_one_rank_checkpoint_continues_on_all_ranks')
+  call run_mpi_rank_change_continuation_test(mpi, 'reservoir', 'shared', checkpoint_on_all_ranks=.false.)
+  call run_mpi_rank_change_continuation_test(mpi, 'reservoir', 'static', checkpoint_on_all_ranks=.false.)
   call test_end()
 
   call test_begin('mpi_history')
@@ -719,98 +727,208 @@ contains
     call cleanup_pool_dir(mpi, pool_dir)
   end subroutine run_mpi_shared_pool_test
 
-  !> A checkpoint written by all ranks after batch 1 is continued for batch 2 on one rank and compared with an
-  !! uninterrupted two-batch run. Batch 2 draws new rays keyed on the global batch and slot and adds their
-  !! charge to the restored one, so a replayed batch key, a rank-dependent slot key or a lost charge or ledger
-  !! separates the two runs. The emission current is so small that the batch-1 charge cannot push a batch-2
-  !! orbit out through a side of the box, which neutral_return does not accept.
-  subroutine run_mpi_rank_change_continuation_test(mpi, distribution)
+  !> A checkpoint written after batch 1 is continued for batch 2 with another rank count and compared with an
+  !! uninterrupted two-batch run: written by all ranks and continued on one, or written by one rank and continued
+  !! on all. Batch 2 draws new particles keyed on the global batch and slot and adds their charge to the restored
+  !! one, so a replayed batch key, a rank-dependent slot key or a lost charge or ledger separates the two runs.
+  !! The photo fixture keeps the emission current so small that the batch-1 charge cannot push a batch-2 orbit out
+  !! through a side of the box, which neutral_return does not accept. The reservoir fixture carries a fractional
+  !! macro-particle residual into batch 2, and its batch-1 charge visibly bends the batch-2 orbits.
+  subroutine run_mpi_rank_change_continuation_test(mpi, fixture, distribution, checkpoint_on_all_ranks)
     type(mpi_context), intent(in) :: mpi
-    character(len=*), intent(in) :: distribution
+    character(len=*), intent(in) :: fixture, distribution
+    logical, intent(in) :: checkpoint_on_all_ranks
     integer(i32), parameter :: signature_size = 13_i32
     character(len=*), parameter :: continue_dir = 'test_mpi_hybrid_continue_tmp'
-    type(mesh_type) :: reference_mesh, split_mesh, continued_mesh
+    type(mesh_type) :: reference_mesh, split_mesh, continued_mesh, unfielded_mesh
     type(app_config) :: reference_cfg, split_cfg, continued_cfg
     type(sim_stats) :: reference_stats, split_stats, resume_stats, continued_stats
-    type(charge_ledger_type) :: reference_ledger, split_ledger, continued_ledger
-    type(injection_state) :: continued_state
+    type(charge_ledger_type) :: reference_ledger, split_ledger, continued_ledger, unfielded_ledger
+    type(injection_state) :: reference_state, split_state, continued_state, unfielded_state
     real(dp) :: reference_signature(signature_size), continued_signature(signature_size), charge_scale, tolerance
+    real(dp) :: split_residual, bent_charge
     integer(i64) :: reference_counts(4), continued_counts(4)
     integer(i32) :: value_index
     logical :: has_restart
-    character(len=128) :: assertion_message
+    character(len=160) :: label, assertion_message
     character(len=1024) :: checkpoint_dir
 
+    write (label, '(a,1x,a,a,l1)') fixture, distribution, ' checkpoint_on_all_ranks=', checkpoint_on_all_ranks
     call cleanup_pool_dir(mpi, continue_dir)
     if (mpi_is_root(mpi)) call ensure_directory(continue_dir)
     call mpi_world_barrier(mpi)
 
-    call setup_continuation_fixture(split_mesh, split_cfg, distribution, 1_i32)
-    split_cfg%output_dir = continue_dir
-    split_cfg%checkpoint_stride = 1_i32
-    call seed_particles_from_config(split_cfg, mpi=mpi)
-    call run_absorption_insulator(split_mesh, split_cfg, split_stats, mpi=mpi, charge_ledger=split_ledger)
+    if (checkpoint_on_all_ranks .or. mpi_is_root(mpi)) then
+      call setup_continuation_fixture(split_mesh, split_cfg, split_state, fixture, distribution, 1_i32)
+      split_cfg%output_dir = continue_dir
+      split_cfg%checkpoint_stride = 1_i32
+      if (checkpoint_on_all_ranks) then
+        call seed_particles_from_config(split_cfg, mpi=mpi)
+        call run_absorption_insulator(split_mesh, split_cfg, split_stats, inject_state=split_state, mpi=mpi, &
+                                      charge_ledger=split_ledger)
+      else
+        call seed_particles_from_config(split_cfg)
+        call run_absorption_insulator(split_mesh, split_cfg, split_stats, inject_state=split_state, &
+                                      charge_ledger=split_ledger)
+      end if
+    end if
     call mpi_world_barrier(mpi)
 
+    call setup_continuation_fixture(continued_mesh, continued_cfg, continued_state, fixture, distribution, 2_i32)
+    if (checkpoint_on_all_ranks) then
+      if (mpi_is_root(mpi)) then
+        call resolve_latest_checkpoint_dir(continue_dir, checkpoint_dir)
+        call load_restart_checkpoint( &
+          trim(checkpoint_dir), continued_mesh, resume_stats, has_restart, continued_state, mpi_rank=0_i32, &
+          mpi_size=1_i32, app=continued_cfg, charge_ledger=continued_ledger &
+          )
+        call assert_true(has_restart, 'multi-rank checkpoint must load on a single rank: '//trim(label))
+        call run_absorption_insulator(continued_mesh, continued_cfg, continued_stats, initial_stats=resume_stats, &
+                                      inject_state=continued_state, charge_ledger=continued_ledger)
+      end if
+    else
+      call resolve_latest_checkpoint_dir(continue_dir, checkpoint_dir)
+      call load_restart_checkpoint( &
+        trim(checkpoint_dir), continued_mesh, resume_stats, has_restart, continued_state, mpi=mpi, &
+        app=continued_cfg, charge_ledger=continued_ledger &
+        )
+      call assert_true(has_restart, 'single-rank checkpoint must load on every rank: '//trim(label))
+      call run_absorption_insulator(continued_mesh, continued_cfg, continued_stats, initial_stats=resume_stats, &
+                                    inject_state=continued_state, mpi=mpi, charge_ledger=continued_ledger)
+    end if
+
     if (mpi_is_root(mpi)) then
-      call setup_continuation_fixture(reference_mesh, reference_cfg, distribution, 2_i32)
+      call assert_equal_i32(resume_stats%batches, 1_i32, 'continuation must start after the checkpointed batch')
+      call assert_equal_i32(continued_stats%batches, 2_i32, 'continuation batch count: '//trim(label))
+      call setup_continuation_fixture(reference_mesh, reference_cfg, reference_state, fixture, distribution, 2_i32)
       call seed_particles_from_config(reference_cfg)
-      call run_absorption_insulator(reference_mesh, reference_cfg, reference_stats, charge_ledger=reference_ledger)
+      call run_absorption_insulator(reference_mesh, reference_cfg, reference_stats, inject_state=reference_state, &
+                                    charge_ledger=reference_ledger)
       call pack_neutral_return_signature(reference_mesh, reference_ledger, reference_signature)
       reference_counts = [reference_ledger%emitted_count(1), reference_ledger%absorbed_count(1), &
                           reference_ledger%discarded_unresolved_count(1), reference_stats%processed_particles]
-
-      call resolve_latest_checkpoint_dir(continue_dir, checkpoint_dir)
-      call setup_continuation_fixture(continued_mesh, continued_cfg, distribution, 2_i32)
-      allocate (continued_state%macro_residual(1), continued_state%boundary_macro_residual(6, 1))
-      continued_state%macro_residual = 0.0_dp
-      continued_state%boundary_macro_residual = 0.0_dp
-      call load_restart_checkpoint( &
-        trim(checkpoint_dir), continued_mesh, resume_stats, has_restart, continued_state, mpi_rank=0_i32, &
-        mpi_size=1_i32, app=continued_cfg, charge_ledger=continued_ledger &
-        )
-      call assert_true(has_restart, 'multi-rank checkpoint must load on a single rank')
-      call assert_equal_i32(resume_stats%batches, 1_i32, 'continuation must start after the checkpointed batch')
-      call run_absorption_insulator(continued_mesh, continued_cfg, continued_stats, initial_stats=resume_stats, &
-                                    inject_state=continued_state, charge_ledger=continued_ledger)
-      call assert_equal_i32(continued_stats%batches, 2_i32, 'single-rank continuation batch count')
       call pack_neutral_return_signature(continued_mesh, continued_ledger, continued_signature)
       continued_counts = [continued_ledger%emitted_count(1), continued_ledger%absorbed_count(1), &
                           continued_ledger%discarded_unresolved_count(1), continued_stats%processed_particles]
 
-      ! Charges are about 1e-18 C while scales and fractions are of order one, so each value is compared on
+      ! Charges are far from one while scales and fractions are of order one, so each value is compared on
       ! its own magnitude with the element charge scale as the floor.
       charge_scale = maxval(abs(reference_signature(1:4)))
-      call assert_true(charge_scale > 0.0_dp, 'continuation fixture must charge the surface')
+      call assert_true(charge_scale > 0.0_dp, 'continuation fixture must charge the surface: '//trim(label))
       do value_index = 1_i32, signature_size
         tolerance = 1.0e-10_dp*max(abs(reference_signature(value_index)), charge_scale)
-        write (assertion_message, '(a,a,a,i0)') 'continued ', distribution, &
-          ' run differs from the uninterrupted run: signature index ', value_index
+        write (assertion_message, '(a,a,i0)') trim(label), &
+          ': continued run differs from the uninterrupted run at signature index ', value_index
         call assert_close_dp(continued_signature(value_index), reference_signature(value_index), tolerance, &
                              trim(assertion_message))
       end do
       do value_index = 1_i32, 4_i32
-        write (assertion_message, '(a,a,a,i0)') 'continued ', distribution, &
-          ' run differs from the uninterrupted run: count index ', value_index
+        write (assertion_message, '(a,a,i0)') trim(label), &
+          ': continued run differs from the uninterrupted run at count index ', value_index
         call assert_equal_i64(continued_counts(value_index), reference_counts(value_index), trim(assertion_message))
       end do
+
+      if (fixture == 'reservoir') then
+        ! Batch 1 leaves 120.6 - 120 macro-particles of budget, which the checkpoint must carry into batch 2.
+        split_residual = split_state%boundary_macro_residual(6, 1)
+        call assert_close_dp(split_residual, 0.6_dp, 1.0e-9_dp, 'reservoir fixture must leave a fractional residual')
+        call assert_close_dp(continued_state%boundary_macro_residual(6, 1), &
+                             reference_state%boundary_macro_residual(6, 1), 1.0e-12_dp, &
+                             'continued reservoir residual differs from the uninterrupted run: '//trim(label))
+
+        ! Batch 2 started from the restored mesh without its charge must hit the plate elsewhere; otherwise the
+        ! fixture could not tell a continuation that ignores the restored field from a correct one.
+        call setup_continuation_fixture(unfielded_mesh, continued_cfg, unfielded_state, fixture, distribution, 2_i32)
+        call load_restart_checkpoint( &
+          trim(checkpoint_dir), unfielded_mesh, resume_stats, has_restart, unfielded_state, mpi_rank=0_i32, &
+          mpi_size=1_i32, app=continued_cfg, charge_ledger=unfielded_ledger &
+          )
+        unfielded_mesh%q_elem = 0.0_dp
+        call run_absorption_insulator(unfielded_mesh, continued_cfg, continued_stats, initial_stats=resume_stats, &
+                                      inject_state=unfielded_state, charge_ledger=unfielded_ledger)
+        bent_charge = maxval(abs((reference_mesh%q_elem - split_mesh%q_elem) - unfielded_mesh%q_elem))
+        write (*, '(a,a,es12.4,a,es12.4)') trim(label), ': batch-2 charge moved by the batch-1 field=', bent_charge, &
+          ' macro charge=', reservoir_macro_charge
+        call assert_true(bent_charge > 2.5_dp*reservoir_macro_charge, &
+                         'batch-1 charge must move several batch-2 hits: '//trim(label))
+      end if
     end if
     call mpi_world_barrier(mpi)
     call cleanup_pool_dir(mpi, continue_dir)
   end subroutine run_mpi_rank_change_continuation_test
 
-  subroutine setup_continuation_fixture(fixture_mesh, fixture_cfg, distribution, batches)
+  subroutine setup_continuation_fixture(fixture_mesh, fixture_cfg, fixture_state, fixture, distribution, batches)
     type(mesh_type), intent(out) :: fixture_mesh
     type(app_config), intent(out) :: fixture_cfg
-    character(len=*), intent(in) :: distribution
+    type(injection_state), intent(out) :: fixture_state
+    character(len=*), intent(in) :: fixture, distribution
     integer(i32), intent(in) :: batches
 
-    call setup_mpi_neutral_return_fixture(fixture_mesh, fixture_cfg, 2048_i32)
+    if (fixture == 'photo') then
+      call setup_mpi_neutral_return_fixture(fixture_mesh, fixture_cfg, 2048_i32)
+      fixture_cfg%particle_species(1)%emit_current_density_a_m2 = 1.0e-18_dp
+    else
+      call setup_reservoir_plate_fixture(fixture_mesh, fixture_cfg)
+    end if
     fixture_cfg%sim%particle_distribution = distribution
     fixture_cfg%sim%particle_pool_chunk = 5_i32
     fixture_cfg%sim%batch_count = batches
-    fixture_cfg%particle_species(1)%emit_current_density_a_m2 = 1.0e-18_dp
+    allocate (fixture_state%macro_residual(1), fixture_state%boundary_macro_residual(6, 1))
+    fixture_state%macro_residual = 0.0_dp
+    fixture_state%boundary_macro_residual = 0.0_dp
   end subroutine setup_continuation_fixture
+
+  !> Cold reservoir electrons fall from z_high onto a plate at z=0.25 that is split at x=0.3. The face budget is
+  !! 120.6 macro-particles per batch. The batch-1 plate charge repels the batch-2 electrons sideways across the
+  !! split and out through the open sides; no step crosses two box faces, and the explicit closure accepts escapes.
+  subroutine setup_reservoir_plate_fixture(mesh, cfg)
+    type(mesh_type), intent(out) :: mesh
+    type(app_config), intent(out) :: cfg
+    real(dp) :: tri_v0(3, 4), tri_v1(3, 4), tri_v2(3, 4)
+
+    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
+    tri_v1(:, 1) = [0.3_dp, 0.0_dp, 0.25_dp]
+    tri_v2(:, 1) = [0.3_dp, 1.0_dp, 0.25_dp]
+    tri_v0(:, 2) = [0.0_dp, 0.0_dp, 0.25_dp]
+    tri_v1(:, 2) = [0.3_dp, 1.0_dp, 0.25_dp]
+    tri_v2(:, 2) = [0.0_dp, 1.0_dp, 0.25_dp]
+    tri_v0(:, 3) = [0.3_dp, 0.0_dp, 0.25_dp]
+    tri_v1(:, 3) = [1.0_dp, 0.0_dp, 0.25_dp]
+    tri_v2(:, 3) = [1.0_dp, 1.0_dp, 0.25_dp]
+    tri_v0(:, 4) = [0.3_dp, 0.0_dp, 0.25_dp]
+    tri_v1(:, 4) = [1.0_dp, 1.0_dp, 0.25_dp]
+    tri_v2(:, 4) = [0.3_dp, 1.0_dp, 0.25_dp]
+    call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
+    mesh%elem_vacuum_sign = 1_i32
+    mesh%vacuum_normals = mesh%normals
+
+    call default_app_config(cfg)
+    cfg%sim%rng_seed = 4242_i32
+    cfg%sim%batch_count = 1_i32
+    cfg%sim%batch_duration = 1.0_dp
+    cfg%sim%has_batch_duration = .true.
+    cfg%sim%dt = 0.1_dp
+    cfg%sim%max_step = 20_i32
+    cfg%sim%q_floor = 1.0e-30_dp
+    cfg%sim%field_solver = 'direct'
+    cfg%field%backend = 'direct'
+    cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+    cfg%sim%use_box = .true.
+    cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    cfg%n_particle_species = 1_i32
+    cfg%particle_species(1) = species_from_defaults()
+    cfg%particle_species(1)%source_mode = 'volume_seed'
+    cfg%particle_species(1)%npcls_per_step = 0_i32
+    cfg%particle_species(1)%q_particle = -1.0_dp
+    cfg%particle_species(1)%m_particle = 1.0_dp
+    cfg%particle_species(1)%w_particle = -reservoir_macro_charge/cfg%particle_species(1)%q_particle
+    cfg%particle_species(1)%has_w_particle = .true.
+    cfg%particle_species(1)%number_density_m3 = 120.6_dp*cfg%particle_species(1)%w_particle
+    cfg%particle_species(1)%temperature_k = 0.0_dp
+    cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
+    cfg%particle_species(1)%boundary_inflow_high(3) = particle_inflow_reservoir
+  end subroutine setup_reservoir_plate_fixture
 
   subroutine cleanup_pool_dir(mpi, pool_dir)
     type(mpi_context), intent(in) :: mpi
