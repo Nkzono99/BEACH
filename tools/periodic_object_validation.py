@@ -19,7 +19,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 try:
     import tomllib
@@ -3588,7 +3588,6 @@ def _case_result(
     try:
         run = Beach(output, config_path=config_path)
         result = run.result
-        charges = [float(value) for value in result.charges]
         row = {
             "case": case,
             "status": "available",
@@ -3604,7 +3603,7 @@ def _case_result(
             "escaped_boundary": result.summary.escaped_boundary,
             "survived_max_step": result.summary.survived_max_step,
             "last_rel_change": result.summary.last_rel_change,
-            "total_charge_C": math.fsum(charges),
+            "total_charge_C": math.fsum(result.charges),
             "mesh_fingerprint": result.receipts.mesh_fingerprint or "",
             "message": "",
         }
@@ -3616,6 +3615,30 @@ def _case_result(
             "source_version": source_version,
             "message": str(exc),
         }, None
+
+
+def _mesh_potential_rows(
+    run_rows: Sequence[Mapping[str, Any]],
+    runs: Mapping[str, Beach | None],
+) -> Iterator[dict[str, Any]]:
+    """Yield per-element saved potential rows; the writer streams them to disk."""
+
+    for row in run_rows:
+        run = runs[str(row["case"])]
+        if run is None:
+            yield {"case": row["case"], "status": row["status"]}
+            continue
+        potential = run.result.mesh.mesh_potential_v
+        if potential is None:
+            yield {"case": row["case"], "status": "not_recorded"}
+            continue
+        for index, value in enumerate(potential, start=1):
+            yield {
+                "case": row["case"],
+                "elem_idx": index,
+                "potential_V": float(value),
+                "status": "available",
+            }
 
 
 def _history_rows(case: str, paths: Sequence[Path]) -> list[dict[str, Any]]:
@@ -3898,6 +3921,11 @@ def _collect_charge_snapshots(
 
     rows: list[dict[str, Any]] = []
     unique_meshes = sorted(set(int(value) for value in mesh_ids_array))
+    # The geometry is fixed across snapshots, so each scope mask is built once.
+    scopes = (
+        ("run", "", np.ones(mesh_ids_array.size, dtype=bool)),
+        *(("object", mesh_id, mesh_ids_array == mesh_id) for mesh_id in unique_meshes),
+    )
     for (_kind, _batch), snapshot in snapshots.items():
         charges = np.asarray(snapshot["charges"], dtype=np.float64)
         if charges.shape != mesh_ids_array.shape or not np.all(np.isfinite(charges)):
@@ -3905,17 +3933,7 @@ def _collect_charge_snapshots(
         snapshot_id = f"{case}:{snapshot['sample_kind']}:{snapshot['resolved_batch']}"
         snapshot["snapshot_id"] = snapshot_id
         source_file = Path(snapshot["source_file"])
-        for scope, mesh_id, mask in (
-            ("run", "", np.ones(charges.size, dtype=bool)),
-            *(
-                (
-                    "object",
-                    mesh_id,
-                    mesh_ids_array == mesh_id,
-                )
-                for mesh_id in unique_meshes
-            ),
-        ):
+        for scope, mesh_id, mask in scopes:
             selected = charges[mask]
             rows.append(
                 {
@@ -7694,12 +7712,10 @@ def _analyze_validation_impl(
     )
 
     ledger_rows: list[dict[str, Any]] = []
-    potential_rows: list[dict[str, Any]] = []
     for row in run_rows:
         run = runs[str(row["case"])]
         if run is None:
             ledger_rows.append({"case": row["case"], "status": row["status"]})
-            potential_rows.append({"case": row["case"], "status": row["status"]})
             continue
         result = run.result
         ledger = result.ledger
@@ -7725,18 +7741,6 @@ def _analyze_validation_impl(
                     "residual_C": result.diagnostics.charge_ledger_residual_c or "",
                 }
             )
-        if result.mesh.mesh_potential_v is None:
-            potential_rows.append({"case": row["case"], "status": "not_recorded"})
-        else:
-            for index, value in enumerate(result.mesh.mesh_potential_v, start=1):
-                potential_rows.append(
-                    {
-                        "case": row["case"],
-                        "elem_idx": index,
-                        "potential_V": float(value),
-                        "status": "available",
-                    }
-                )
     _write_csv(
         analysis / "particle_ledger_pair.csv",
         CSV_SCHEMAS["particle_ledger_pair.csv"],
@@ -7745,7 +7749,7 @@ def _analyze_validation_impl(
     _write_csv(
         analysis / "mesh_potential_pair.csv",
         CSV_SCHEMAS["mesh_potential_pair.csv"],
-        potential_rows,
+        _mesh_potential_rows(run_rows, runs),
     )
 
     (
