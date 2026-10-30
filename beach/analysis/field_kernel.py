@@ -151,39 +151,65 @@ def calc_object_forces_kernel(
     else:
         _require_run_kernel(context, kernel, operation=operation)
         evaluator = _restoring_charges(kernel)
-    records: list[KernelObjectForceRecord] = []
     with evaluator as kernel:
-        for mesh_id in target_ids:
-            mask = mesh_ids == mesh_id
-            if not np.any(mask):
-                continue
-            source_q = np.asarray(charges, dtype=np.float64).copy()
-            source_q[mask] = 0.0
-            kernel.update_charges(source_q)
-            target_q = np.asarray(charges[mask], dtype=np.float64)
-            target_triangles = triangles[mask]
-            target_centers = centers[mask]
-            target_points, target_weights, _ = panel_target_quadrature(
-                target_triangles,
-                target_q,
-                7,
+        return _object_force_records(
+            kernel,
+            triangles=triangles,
+            centers=centers,
+            charges=charges,
+            mesh_ids=mesh_ids,
+            target_ids=target_ids,
+            step=step,
+        )
+
+
+def _object_force_records(
+    kernel: FieldKernel,
+    *,
+    triangles: np.ndarray,
+    centers: np.ndarray,
+    charges: np.ndarray,
+    mesh_ids: np.ndarray,
+    target_ids: Iterable[int],
+    step: int | None,
+) -> tuple[KernelObjectForceRecord, ...]:
+    """Net force/torque on each target object from all other source charges.
+
+    The target's own charges are zeroed in ``kernel`` and its panels integrated
+    with seventh-order Gauss-Duffy quadrature about the target centroid. The
+    caller owns ``kernel`` and restores its charges.
+    """
+
+    records: list[KernelObjectForceRecord] = []
+    for mesh_id in target_ids:
+        mask = mesh_ids == mesh_id
+        if not np.any(mask):
+            continue
+        source_q = np.asarray(charges, dtype=np.float64).copy()
+        source_q[mask] = 0.0
+        kernel.update_charges(source_q)
+        target_q = np.asarray(charges[mask], dtype=np.float64)
+        target_points, target_weights, _ = panel_target_quadrature(
+            triangles[mask],
+            target_q,
+            7,
+        )
+        center = np.asarray(centers[mask].mean(axis=0), dtype=np.float64)
+        force, torque = kernel.force_on_charges(
+            target_points,
+            target_weights,
+            origin=center,
+        )
+        records.append(
+            KernelObjectForceRecord(
+                mesh_id=mesh_id,
+                step=step,
+                total_charge_C=float(np.sum(target_q)),
+                center_m=center,
+                force_N=force,
+                torque_Nm=torque,
             )
-            center = target_centers.mean(axis=0)
-            force, torque = kernel.force_on_charges(
-                target_points,
-                target_weights,
-                origin=center,
-            )
-            records.append(
-                KernelObjectForceRecord(
-                    mesh_id=mesh_id,
-                    step=step,
-                    total_charge_C=float(np.sum(target_q)),
-                    center_m=center,
-                    force_N=force,
-                    torque_Nm=torque,
-                )
-            )
+        )
     return tuple(records)
 
 
