@@ -6,6 +6,7 @@ import subprocess
 import tomllib
 
 import pytest
+from config_fixtures import free_space_beam_config
 
 from beach.config import (
     ConfigError,
@@ -55,7 +56,7 @@ def test_flat_input_is_rejected(runtime, tmp_path):
 
 
 def test_boundary_only_species_has_no_standalone_source():
-    runtime = default_config()
+    runtime = free_space_beam_config()
     runtime['sim']['batch_duration'] = 1e-6
     item = runtime['particles']['species'][0]
     for key in ('pos_low', 'pos_high', 'drift_velocity', 'temperature_k'):

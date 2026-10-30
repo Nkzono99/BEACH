@@ -9,6 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - ドキュメントに、計算サイクル、粒子源・境界、周期場、放出モデル、再開と後処理を説明する日本語の概念図を 24 点追加した。
 
+### Changed
+
+- 公式チュートリアルと `beachx config init` が生成する設定を、プラズマ中の浮遊金属板の帯電に替えた
+  （`examples/tutorial_floating_plate.toml`）。密度 1 cm⁻³、温度 1 eV の電子と陽子を z-high 面から境界 reservoir
+  （`source_vdf`）で流入させ、x/y 周期（`periodic2`、`cached_kneq0`）の浮遊導体平面が、電子と陽子の電流が釣り合う
+  浮遊電位（流入面に対して −3.76 V）まで帯電する 10000 batch（5 s）を追う。`examples/tutorial_floating_analysis.py` は
+  電位差、板の電荷、粒子種ごとの吸収数を電流の釣り合いの式と比べる。電子ビームのケース
+  （`examples/tutorial_electron_beam.toml`、`examples/tutorial_beam_analysis.py`）は削除した。
+
 ## [4.1.0] - 2026-10-30
 
 ### Added

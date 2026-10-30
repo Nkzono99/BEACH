@@ -51,38 +51,35 @@ from .schema import (
 
 
 def default_config() -> dict[str, Any]:
-    """Return the official tutorial config: a 5 eV electron beam charging a floating plate."""
+    """Return the official tutorial config: a floating plate charged by an electron-proton plasma."""
+
+    def plasma_species(key: str, charge: float, mass: float, target: int) -> dict[str, Any]:
+        return {
+            "species_key": key,
+            "q_particle": charge,
+            "m_particle": mass,
+            "number_density_cm3": 1.0,
+            "temperature_ev": 1.0,
+            "drift_velocity": [0.0, 0.0, 0.0],
+            "target_macro_particles_per_batch": target,
+            "boundary_inflow": {"z_high": "reservoir"},
+        }
 
     return {
         "sim": {
-            "dt": 2.0e-10,
-            "batch_count": 150,
-            "batch_duration": 1.0e-8,
-            "max_step": 1500,
+            "batch_count": 10000,
             "rng_seed": 12345,
-            "field_solver": "direct",
+            "batch_duration": 5.0e-4,
+            "dt": 1.0e-8,
+            "max_step": 3000,
+            "field_solver": "fmm",
+            "field_periodic_far_correction": "cached_kneq0",
+            "field_periodic_image_layers": 1,
         },
         "domain": {
             "box_min": [0.0, 0.0, 0.0],
-            "box_max": [0.04, 0.04, 0.07],
-            "periodic_axes": [],
-        },
-        "field_boundary": {"mode": "free"},
-        "particle_boundary": {"z_low": "open", "z_high": "open"},
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "volume_seed",
-                    "q_particle": -1.602176634e-19,
-                    "m_particle": 9.1093837139e-31,
-                    "w_particle": 4000.0,
-                    "npcls_per_step": 200,
-                    "pos_low": [0.008, 0.008, 0.06],
-                    "pos_high": [0.032, 0.032, 0.06],
-                    "drift_velocity": [0.0, 0.0, -1.3262e6],
-                    "temperature_ev": 0.01,
-                },
-            ]
+            "box_max": [0.1, 0.1, 0.11],
+            "periodic_axes": ["x", "y"],
         },
         "mesh": {
             "parts": [
@@ -91,20 +88,36 @@ def default_config() -> dict[str, Any]:
                     "enabled": True,
                     "surface_model": "conductor",
                     "surface_side": "normal_plus",
-                    "size_x": 0.02,
-                    "size_y": 0.02,
-                    "nx": 10,
-                    "ny": 10,
-                    "center": [0.02, 0.02, 0.01],
+                    "size_x": 0.1,
+                    "size_y": 0.1,
+                    "nx": 2,
+                    "ny": 2,
+                    "center": [0.05, 0.05, 0.01],
                 }
             ],
+        },
+        "particle_boundary": {"z_low": "open", "z_high": "open"},
+        "reservoir": {"inflow_model": "source_vdf"},
+        "particles": {
+            "species": [
+                plasma_species("electron", -1.602176634e-19, 9.1093837139e-31, 1500),
+                # -1 reuses the electron weight.
+                plasma_species("proton", 1.602176634e-19, 1.67262192369e-27, -1),
+            ]
+        },
+        "field_boundary": {"mode": "periodic2"},
+        "periodic2": {
+            "nonzero_mode_backend": "cached_kneq0",
+            "zero_mode_policy": "exclude_k0",
+            "lower_boundary_model": "e_bottom_zero",
         },
         "output": {
             "write_files": True,
             "dir": "outputs/tutorial",
-            "history_stride": 1,
-            "write_mesh_potential": True,
+            "history_stride": 10,
             "write_potential_history": True,
+            "checkpoint_stride": 5000,
+            "write_mesh_potential": True,
         },
     }
 

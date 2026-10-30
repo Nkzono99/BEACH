@@ -33,8 +33,7 @@ title: 粒子をどこから入れるか
 囲む直方体から、速度は設定したドリフト付き Maxwell 分布から標本化します。
 
 物理的な面流束から個数を求める source ではありません。そのため `run.batch.duration_s=0` でも実行できますが、
-その batch に物理秒を割り当てることはできません。公式の
-[入門チュートリアル](../start/Tutorial.md)は、この方法で batch 間の表面帯電 feedback を見せます。
+その batch に物理秒を割り当てることはできません。
 
 ## 外部 reservoir から入れる: `inflow`
 
@@ -50,6 +49,7 @@ title: 粒子をどこから入れるか
 z_high = "reservoir"
 ```
 
+[入門チュートリアル](../start/Tutorial.md)は、この流入で上端面から電子と陽子を入れます。
 Maxwell 分布、面ごとの流束と端数、無限遠の plasma 電位から境界までの補正は
 [境界から粒子を流入させる](ReservoirInjection.md)で説明します。このモデルは box 外の軌道や
 自己無撞着な外部 sheath を解きません。外部 sheath 応答そのものが必要なら

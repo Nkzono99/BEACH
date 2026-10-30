@@ -27,8 +27,8 @@ beachx lint case.toml
 - 観測したい量は電荷、電位、吸収率、escape、または計算時間のどれか
 - どの保存則、基準解、収束幅を満たせば結果を採用するか
 
-公式チュートリアルは batch 間の帯電 feedback を学ぶ教材です。そこで使う粒子重みや
-`run.batch.duration_s=0` を、そのまま特定の実環境の時間発展とは解釈できません。先に合格条件を決めると、
+公式チュートリアルは、一様な周期平面で電流の釣り合いを学ぶ教材です。そこで使う密度、温度、流入面までの距離は、
+特定の実環境を表しません。先に合格条件を決めると、
 後の mesh 分割、粒子数、solver 精度を必要な範囲へ絞れます。
 
 ## 2. 形状を選ぶ
@@ -56,8 +56,8 @@ beachx lint case.toml
 kind = "sphere"
 enabled = true
 surface_side = "outward_closed"
-center = [0.5, 0.5, 0.5]
-radius = 0.2
+center = [0.05, 0.05, 0.05]
+radius = 0.02
 subdivisions = 2
 ```
 
@@ -90,16 +90,16 @@ surface_model = "insulator"
 | 命中位置へ電荷を蓄積する | `insulator` | 表面内伝導、bulk 漏洩、誘電分極を解かない |
 | 物体の総電荷を保って等電位化する | `conductor` | 浮遊導体。free-space と `periodic2` の両方で使える |
 
-チュートリアルは `insulator` です。導体へ変える場合は対象の `[[mesh.parts]]` で
+チュートリアルは `conductor` です。命中位置へ電荷を残す絶縁体へ変える場合は対象の `[[mesh.parts]]` で
 次の 1 行を変更します。
 
 ```toml
 # 対象の既存 mesh.parts 内で変更
-surface_model = "conductor"
+surface_model = "insulator"
 ```
 
-`dielectric`、`epsilon_r`、抵抗性表面は現行入力では利用できません。導体へ変えたケースは、チュートリアルの
-結果を基準にせず、物体電位と総電荷を別に検証します。モデルの意味と制約は
+`dielectric`、`epsilon_r`、抵抗性表面は現行入力では利用できません。表面 model を変えたケースは、チュートリアルの
+結果を基準にせず、要素ごとの電荷と電位を別に検証します。モデルの意味と制約は
 [表面はどう帯電するか](../models/SurfaceModels.md)を参照してください。
 
 ## 4. 粒子源を選ぶ
@@ -113,24 +113,22 @@ surface_model = "conductor"
 | `photo_raycast` | 照射 ray が命中した表面から放出 | 電流密度 × 投影面積 × `run.batch.duration_s` | `sampling.rays_per_batch` と ray の命中率 |
 | `secondary_emission` | 吸収時に入射種から生成。同一バッチで追跡 | [二次電子放出](../models/SecondaryElectronEmission.md) |
 
-チュートリアルの `volume_seed` を維持して供給量や領域だけ変えるなら、既存 species entry の次の値だけを
-調整します。
-
-```toml
-[particles.species.sampling]
-volume_macro_particles_per_batch = 500
-
-[particles.species.source]
-pos_low = [0.2, 0.2, 0.8]
-pos_high = [0.8, 0.8, 0.8]
-
-[particles.species.distribution]
-drift_velocity_m_s = [0.0, 0.0, -1.0e6]
-```
-
 外部 plasma から非周期の box 面全体を通す流入は `source.mode` ではなく
 `[particles.species.inflow]` です。境界流入だけの species では、物理パラメータと流入面を指定し、
-`source.mode` と `sampling.volume_macro_particles_per_batch` は省略します。選択の詳細は
+`source.mode` と `sampling.volume_macro_particles_per_batch` は省略します。チュートリアルの電子と陽子は
+この流入です。流入を維持して plasma の条件や標本数だけ変えるなら、既存 species entry の次の値を調整します。
+
+```toml
+[particles.species.distribution]
+number_density_cm3 = 5.0
+temperature_ev = 10.0
+drift_velocity_m_s = [0.0, 0.0, -4.0e5]
+
+[particles.species.sampling]
+target_macro_particles_per_batch = 3000
+```
+
+選択の詳細は
 [粒子をどこから入れるか](ParticleSourcesBoundaries.md)、境界流入は
 [境界から粒子を流入させる](ReservoirInjection.md)、光電子は
 [光電子の放出とライフサイクル](../models/PhotoelectronEmission.md)を参照してください。
@@ -161,8 +159,8 @@ drift_velocity_m_s = [0.0, 0.0, -1.0e6]
 | `fmm` | 大規模計算、多数の評価点、通常の `periodic2` | `fields.solver.tree.theta` と `fields.solver.tree.leaf_max` を変えて Direct と比較する |
 | `auto` | 自由空間で要素数に応じ自動選択 | 出力で実際に選ばれた solver を確認する |
 
-チュートリアルの基準計算は `fields.solver.method="direct"` のまま残します。高速 solver を採用する前に、同じ mesh と
-粒子条件を縮小したケースで Direct との差を測ります。互換性と選択基準は
+チュートリアルは `periodic2` の通常の組合せ（`fmm` と `cached_kneq0`）を使います。自由空間のケースで高速 solver を
+採用する前に、同じ mesh と粒子条件を縮小したケースで Direct との差を測ります。互換性と選択基準は
 [場の評価方法](FieldSolvers.md)、FMM の設定と精度調整は [FMM を使う](FMM.md)を参照してください。
 
 吸収時の `secondary_emission` は独立した注入源を持たない種です。入射種の放出条件と組にして設定します
@@ -193,12 +191,12 @@ drift_velocity_m_s = [0.0, 0.0, -1.0e6]
 | `inflow` | `sampling.target_macro_particles_per_batch` を増やす、または固定 `sampling.weight` を減らす。両方は指定しない | 分布、密度または流束、面積、`run.batch.duration_s` |
 | `photo_raycast` | `sampling.rays_per_batch` を増やす | 光電流密度、照射方向、形状、`run.batch.duration_s` |
 
-`sampling.volume_macro_particles_per_batch` は **1 batch 当たり**の生成数です。例えば入門ケースの
+`sampling.volume_macro_particles_per_batch` は **1 batch 当たり**の生成数です。例えば
 `sampling.volume_macro_particles_per_batch=200, sampling.weight=4000` を `400, 2000` にすると、投入する実粒子数を保って
 標本数を 2 倍にできます。粒子数だけを増やすと、投入電荷も増えて別の物理条件になります。
 光電子のマクロ粒子数は ray の命中率にも依存します。
 
-`volume_seed` でも、入門ケースのように `run.batch.duration_s` を与えれば、1 batch の実粒子数から電流が決まります
+`volume_seed` でも `run.batch.duration_s` を与えれば、1 batch の実粒子数から電流が決まります
 （電流 = 粒子数 × 重み × 電荷 ÷ `run.batch.duration_s`）。時間幅比較と適応進行は
 [`run.batch.duration_s` をどう決めるか](BatchDurationStability.md)を参照してください。
 

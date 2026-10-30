@@ -41,6 +41,7 @@ def test_schema_distinguishes_fortran_integer_storage_from_real_values():
         assert schema_errors(config, schema)
     config = to_grouped_layout(default_config())
     config['particles']['species'][0]['distribution']['number_density_m3'] = 10**12
+    del config['particles']['species'][0]['distribution']['number_density_cm3']
     assert schema_errors(config, schema) == []
 
 

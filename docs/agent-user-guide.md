@@ -46,7 +46,7 @@ make run CONFIG=examples/beach.toml
 
 | 目的 | 出発点 | 次に読むページ |
 |---|---|---|
-| 入門の帯電更新 | `examples/tutorial_electron_beam.toml` | [入門チュートリアル](start/Tutorial.md) |
+| 入門の帯電更新 | `examples/tutorial_floating_plate.toml` | [入門チュートリアル](start/Tutorial.md) |
 | 1 粒子の開発用 smoke | `examples/smoke_single_electron.toml` | [設定レシピ](guide/ConfigurationRecipes.md) |
 | 外部 plasma reservoir | `[particles.species.inflow]` | [Reservoir 注入](guide/ReservoirInjection.md) |
 | 閉じた光電子再分配 | `examples/closed_photoelectron.toml` | [光電子放出](models/PhotoelectronEmission.md) |

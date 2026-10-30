@@ -11,7 +11,7 @@ Lang: [日本語](Configuration.md) | [English](Configuration.en.md)
 [シミュレーションケースを設計する](ConfigurationRecipes.html)にまとめています。
 
 - Fortran 実行系 `beach` は `beach.toml` を直接読みます。
-- `beachx config init` は、多数粒子・20 batch の公式チュートリアル設定を作ります。
+- `beachx config init` は、公式チュートリアル（プラズマ中の金属板の浮遊電位）の設定を作ります。
 - 全キーと、読み込み時に値を計算する座標・配置パラメータは[入力パラメータリファレンス](Parameters.html)にまとめています。
 
 ## 1. 基本フロー
@@ -43,11 +43,11 @@ beachx config init run.toml
 beachx config init --force
 ```
 
-生成内容は[`examples/tutorial_electron_beam.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_electron_beam.toml)と
-同一です。`volume_seed` で作る 5 eV の電子ビーム（12.8 μA）を 20 mm 四方の浮遊導体板へ 1.5 μs 当て続け、
-板が電子を押し返して帯電が止まるまでを追う公式入門ケースです。理解しやすい
-`fields.solver.method="direct"` と `[fields] boundary="free"` を使い、周期境界、ion species、
-`photo_raycast` は含みません。
+生成内容は[`examples/tutorial_floating_plate.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_floating_plate.toml)と
+同一です。密度 1 cm⁻³、温度 1 eV の電子と陽子を上端面から流入させ、x/y 周期の浮遊導体板が
+電子電流と陽子電流の釣り合う浮遊電位まで帯電する 5 s（10000 batch）を追う公式入門ケースです。
+`[fields] boundary="periodic2"`、`fields.solver.method="fmm"`、境界 reservoir 流入を使い、
+光電子と二次電子は含みません。
 
 ### 2.2 `lint`
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 from pathlib import Path
 
 import pytest
@@ -94,12 +95,18 @@ def _photo_raycast_species(**overrides: object) -> dict[str, object]:
 def test_estimate_workload_accepts_generated_and_tutorial_configs() -> None:
     generated = estimate_workload(default_config(), threads=1)
     tutorial = estimate_workload(
-        load_toml(ROOT / "examples" / "tutorial_electron_beam.toml"),
+        load_toml(ROOT / "examples" / "tutorial_floating_plate.toml"),
         threads=1,
     )
 
-    assert generated["batch_totals"] == [200] * 150
-    assert tutorial["batch_totals"] == [200] * 150
+    assert tutorial["batch_totals"] == generated["batch_totals"]
+    assert len(generated["batch_totals"]) == 10000
+    # 1500 electrons per batch; protons share the electron weight, so their count is scaled by
+    # the one-sided Maxwellian flux ratio sqrt(m_e / m_p) at equal density and temperature.
+    # The carried fractional remainder may leave each species one particle short.
+    electrons = 1500 * 10000
+    protons = electrons * math.sqrt(9.1093837139e-31 / 1.67262192369e-27)
+    assert abs(generated["total_particles"] - (electrons + protons)) <= 2
 
 
 def test_estimate_workload_accepts_current_boundary_policy_keys() -> None:

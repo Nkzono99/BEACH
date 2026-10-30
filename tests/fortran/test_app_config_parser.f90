@@ -607,13 +607,19 @@ program test_app_config_parser
 
   call test_begin('tutorial_config')
   call default_app_config(cfg)
-  call load_app_config('examples/tutorial_electron_beam.toml', cfg)
-  call assert_true(trim(cfg%sim%field_solver) == 'direct', 'tutorial field solver mismatch')
-  call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'tutorial field boundary mismatch')
-  call assert_equal_i32(cfg%n_particle_species, 1_i32, 'tutorial species count mismatch')
-  call assert_true(cfg%particle_species(1)%npcls_per_step > 0_i32, 'tutorial must seed a volume beam')
-  call assert_equal_i32(particles_per_batch_from_config(cfg), cfg%particle_species(1)%npcls_per_step, &
-                        'tutorial batch must consist of its single volume species')
+  call load_app_config('examples/tutorial_floating_plate.toml', cfg)
+  call assert_true(trim(cfg%sim%field_bc_mode) == 'periodic2', 'tutorial field boundary mismatch')
+  call assert_true(trim(cfg%sim%field_periodic_far_correction) == 'cached_kneq0', 'tutorial far correction mismatch')
+  call assert_true(trim(cfg%periodic2%lower_boundary_model) == 'e_bottom_zero', 'tutorial lower boundary mismatch')
+  call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'tutorial must use source VDF inflow')
+  call assert_equal_i32(cfg%n_particle_species, 2_i32, 'tutorial species count mismatch')
+  call assert_true(cfg%particle_species(1)%q_particle < 0.0_dp .and. cfg%particle_species(2)%q_particle > 0.0_dp, &
+                   'tutorial must inject electrons and protons')
+  call assert_equal_i32(cfg%particle_species(1)%boundary_inflow_high(3), particle_inflow_reservoir, &
+                        'tutorial electron z-high inflow mismatch')
+  call assert_equal_i32(cfg%particle_species(2)%boundary_inflow_high(3), particle_inflow_reservoir, &
+                        'tutorial proton z-high inflow mismatch')
+  call assert_equal_i32(particles_per_batch_from_config(cfg), 0_i32, 'tutorial must not seed volume particles')
   call test_end()
 
   call test_begin('closed_photoelectron_config')

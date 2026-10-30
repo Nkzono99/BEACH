@@ -16,9 +16,10 @@ import subprocess
 
 import pytest
 import tomli_w
+from config_fixtures import free_space_beam_config
 
 from beach.cli.lint import run as run_lint
-from beach.config import default_config, to_grouped_layout, to_runtime_layout
+from beach.config import to_grouped_layout, to_runtime_layout
 from beach.config._toml import load_toml_file
 
 
@@ -26,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 def _periodic2_cell() -> dict:
-    config = default_config()
+    config = free_space_beam_config()
     config["domain"]["periodic_axes"] = ["x", "y"]
     config["field_boundary"]["mode"] = "periodic2"
     config["sim"].update(
@@ -40,7 +41,7 @@ def _schema_cases() -> list:
     # Key names, types, and ranges belong to the JSON Schema (and the finite-number
     # check of the Python loader), so lint rejects these before any native check.
     cases = []
-    config = to_grouped_layout(default_config())
+    config = to_grouped_layout(free_space_beam_config())
     config["particles"]["tracking"]["dtt"] = 1.0e-8
     cases.append(pytest.param(config, "('dtt' was unexpected)", id="dtt-1e-08"))
     for key, value, diagnostic in (
@@ -52,30 +53,30 @@ def _schema_cases() -> list:
         ("max_step", 0, "schema error at particles.tracking.max_steps_per_particle"),
         ("e0_phi_z_deg", 90.0, "schema error at fields.external"),  # requires e0_abs
     ):
-        config = default_config()
+        config = free_space_beam_config()
         config["sim"][key] = value
         cases.append(pytest.param(config, diagnostic, id=f"{key}-{value}"))
 
-    config = default_config()
+    config = free_space_beam_config()
     config["sim"].update(e0=[0.0, 0.0, -1.0], e0_abs=1.0)
     cases.append(pytest.param(
         config, "'required': ['electric_v_m', 'electric_magnitude_v_m']",
         id="e0-vector-and-magnitude",
     ))
 
-    config = default_config()
+    config = free_space_beam_config()
     config["output"].update(resume=True, write_files=False)
     cases.append(pytest.param(config, "schema error at output.enabled", id="resume-without-file-output"))
 
-    config = default_config()
+    config = free_space_beam_config()
     config["mesh"]["parts"][0]["kind"] = "unknown"
     cases.append(pytest.param(config, "schema error at mesh.parts[0].kind", id="unsupported-template-kind"))
 
-    config = default_config()
+    config = free_space_beam_config()
     config["mesh"]["groups"] = {"g" * 65: {"scale": 1.0}}
     cases.append(pytest.param(config, "schema error at mesh.groups", id="mesh-group-name-length-65"))
 
-    config = default_config()
+    config = free_space_beam_config()
     config["sim"].update(batch_duration=1.0, batch_duration_step=1.0)
     cases.append(pytest.param(
         config, "'required': ['duration_s', 'duration_steps']", id="exclusive-batch-duration",
@@ -87,7 +88,7 @@ def _schema_cases() -> list:
         reservoir, "'required': ['number_density_cm3', 'number_density_m3']",
         id="reservoir-two-density-forms",
     ))
-    config = default_config()
+    config = free_space_beam_config()
     config["particles"]["species"][0]["target_macro_particles_per_batch"] = 10
     cases.append(pytest.param(
         config, "'required': ['target_macro_particles_per_batch']",
@@ -107,22 +108,22 @@ def _preflight_cases() -> list:
         ("tree_theta", -1.0),  # inactive for direct evaluation
         ("field_solver", "DIRECT"),
     ):
-        config = default_config()
+        config = free_space_beam_config()
         config["sim"][key] = value
         cases.append(pytest.param(config, None, id=f"{key}-{value}"))
 
-    config = default_config()
+    config = free_space_beam_config()
     config["sim"].update(field_solver="treecode", tree_theta=-1.0)
     cases.append(pytest.param(
         config, "fields.solver.tree.theta must satisfy 0 < theta <= 1", id="active-tree-theta",
     ))
 
-    config = default_config()
+    config = free_space_beam_config()
     config["mesh"]["groups"] = {"g" * 64: {"scale": 1.0}}
     cases.append(pytest.param(config, None, id="mesh-group-name-length-64"))
 
     for dt, steps, label in ((1.0e308, 1.0e308, "overflow"), (1.0e-300, 1.0e-300, "underflow")):
-        config = default_config()
+        config = free_space_beam_config()
         del config["sim"]["batch_duration"]
         config["sim"].update(dt=dt, batch_duration_step=steps)
         cases.append(pytest.param(
@@ -130,7 +131,7 @@ def _preflight_cases() -> list:
             id=f"resolved-batch-duration-{label}",
         ))
 
-    config = default_config()
+    config = free_space_beam_config()
     config["domain"] = {"box_origin": [0.0, 0.0, 0.0], "box_size": [1.0, 1.0, 1.0]}
     cases.append(pytest.param(config, None, id="domain-authoring"))
 
@@ -138,7 +139,7 @@ def _preflight_cases() -> list:
         (False, "[particles.boundary] requires a finite [domain]"),
         (True, "particles.species[1].boundary requires a finite [domain]"),
     ):
-        config = default_config()
+        config = free_space_beam_config()
         del config["domain"]
         config["particle_boundary"] = {}
         if species_override:
@@ -154,12 +155,12 @@ def _preflight_cases() -> list:
         id="species-override-of-periodic-face",
     ))
 
-    config = default_config()
+    config = free_space_beam_config()
     config["particles"]["species"][0]["q_particle"] = 0.0
     cases.append(pytest.param(
         config, "particles.species[1].charge_c must be finite and non-zero", id="zero-charge",
     ))
-    config = default_config()
+    config = free_space_beam_config()
     species = copy.deepcopy(config["particles"]["species"][0])
     species.update(species_key="species_1", enabled=False)
     config["particles"]["species"].append(species)
@@ -168,13 +169,13 @@ def _preflight_cases() -> list:
         id="duplicate-disabled-species-key",
     ))
 
-    config = default_config()
+    config = free_space_beam_config()
     config["particles"]["species"][0]["enabled"] = False
     cases.append(pytest.param(
         config, "At least one enabled [[particles.species]] entry", id="disabled-only-workload",
     ))
 
-    config = default_config()
+    config = free_space_beam_config()
     disabled = copy.deepcopy(config["particles"]["species"][0])
     disabled.update(enabled=False, q_particle=0.0)
     config["particles"]["species"].append(disabled)
@@ -240,7 +241,7 @@ def _preflight_cases() -> list:
         ("absent", {}), ("empty", {"parts": []}),
         ("disabled", {"parts": [{"kind": "plane", "enabled": False}]}),
     ):
-        config = default_config()
+        config = free_space_beam_config()
         config["mesh"] = mesh
         cases.append(pytest.param(config, None, id=f"no-enabled-mesh-{label}"))
     return cases
@@ -302,7 +303,7 @@ def _wrong_sign_absorbed_target() -> dict:
 
 
 def _no_volume_macro_particles() -> dict:
-    config = default_config()
+    config = free_space_beam_config()
     config["particles"]["species"][0]["npcls_per_step"] = 0
     return config
 
@@ -334,7 +335,7 @@ def test_lint_reports_the_fortran_diagnostic(
 def test_lint_requires_the_beach_executable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path = _write_config(default_config(), tmp_path)
+    path = _write_config(free_space_beam_config(), tmp_path)
     monkeypatch.delenv("BEACH_CONFIG_CHECK_EXE", raising=False)
     monkeypatch.setenv("PATH", str(tmp_path))
     with pytest.raises(SystemExit, match="beach executable not found"):
@@ -361,7 +362,7 @@ def test_removed_particle_source_inputs_are_rejected(
     removed: str, schema_diagnostic: str, native_diagnostic: str,
     native_checker: Path, tmp_path: Path,
 ) -> None:
-    config = to_grouped_layout(default_config())
+    config = to_grouped_layout(free_space_beam_config())
     config["particles"]["species"][0]["source"]["normal" if removed == "source_normal" else "mode"] = (
         [0.0, 0.0, -1.0] if removed == "source_normal" else removed
     )
@@ -374,7 +375,7 @@ def test_removed_particle_source_inputs_are_rejected(
 def test_removed_ordinary_open_key_is_rejected(
     value: str, native_checker: Path, tmp_path: Path,
 ) -> None:
-    config = to_grouped_layout(default_config())
+    config = to_grouped_layout(free_space_beam_config())
     config["particles"]["boundary"]["open_model"] = value
     _assert_rejected_by_lint_and_native(
         config, "('open_model' was unexpected)", "particles.boundary.open_model",
@@ -403,7 +404,7 @@ def _assert_rejected_by_lint_and_native(
 def test_native_species_diagnostic_uses_public_key_and_index(
     charge: float | str, native_checker: Path, tmp_path: Path,
 ) -> None:
-    config = default_config()
+    config = free_space_beam_config()
     second = copy.deepcopy(config["particles"]["species"][0])
     second["q_particle"] = charge
     config["particles"]["species"].append(second)
@@ -417,8 +418,8 @@ def test_native_species_diagnostic_uses_public_key_and_index(
     assert "q_particle" not in native.stderr
 
 
-def _photo_raycast_tutorial() -> dict:
-    config = default_config()
+def _photo_raycast_case() -> dict:
+    config = free_space_beam_config()
     config["particles"]["species"] = [{
         "source_mode": "photo_raycast",
         "q_particle": -1.602176634e-19,
@@ -450,7 +451,7 @@ def _without_domain(config: dict) -> dict:
      "ray_direction must point inward"),
 ])
 def test_photo_raycast_inputs_are_owned_by_preflight(edit, diagnostic, native_checker, tmp_path):
-    path = _write_config(edit(_photo_raycast_tutorial()), tmp_path)
+    path = _write_config(edit(_photo_raycast_case()), tmp_path)
     native = subprocess.run([str(native_checker), "--check-config", str(path)], cwd=tmp_path,
                             text=True, capture_output=True, timeout=20)
     if diagnostic is None:
@@ -474,7 +475,7 @@ def test_photo_raycast_inputs_are_owned_by_preflight(edit, diagnostic, native_ch
     ({"kind": "plane", "tessellation": "uniform"}, "tessellation"),
 ])
 def test_mesh_part_combinations_are_owned_by_preflight(part, diagnostic, native_checker, tmp_path):
-    config = default_config()
+    config = free_space_beam_config()
     part = {**part, "surface_side": "normal_plus"}
     if part.get("kind") != "obj":
         part["center"] = [0, 0, 0]

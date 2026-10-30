@@ -3,15 +3,16 @@ title: 後処理チュートリアル
 # 後処理チュートリアル
 
 BEACH の後処理は、実行概要を CLI で確認し、電荷履歴を動画にし、必要なときだけ Python で独自解析へ進むのが
-基本です。通常の BEACH Python package だけで、作成済みの公式入門ケースの完走確認、電荷分布、保存済みの最終絶対電位、
-保存 batch の選択まで実行できます。電位履歴の再構成と電位断面は、native field kernel を用意した追加経路です。
+基本です。通常の BEACH Python package だけで、作成済みの公式入門ケースの完走確認、電荷分布、保存済みの電位、
+保存 batch の選択まで実行できます。
 
 **前提:** [入門チュートリアル](../start/Tutorial.md)を完了し、現在のディレクトリに、その実行で使った
 `beach.toml` と `outputs/tutorial` があります。repository の clone、repository root、
-`examples/tutorial_electron_beam.toml` は必要ありません。
+`examples/tutorial_floating_plate.toml` は必要ありません。
 
 `outputs/tutorial` には少なくとも `summary.txt`、`charges.csv`、`mesh_triangles.csv`、
-`mesh_sources.csv`、`charge_history.csv`、`mesh_potential.csv`、`potential_history.csv` が必要です。
+`mesh_sources.csv`、`charge_history.csv`、`mesh_potential.csv`、`potential_history.csv`、
+`top_reference_history.csv` が必要です。
 不足する場合は[入門チュートリアル](../start/Tutorial.md)へ戻って実行し直してください。file の意味は
 [出力ファイルを調べる](OutputGuide.md)、全 class・関数は
 [Python 後処理 API リファレンス](../reference/PythonPostprocessAPI.md)を参照してください。
@@ -31,7 +32,7 @@ beachx inspect outputs/tutorial
 公式入門ケースでは、少なくとも次を確認します。
 
 - `directory=outputs/tutorial`
-- `processed_particles=30000` と `batches=150`
+- `processed_particles=15350054` と `batches=10000`
 - `absorbed`、`escaped`、`charge_sum` が表示される
 - 保存済み `mesh_potential.csv` の `potential_min` と `potential_max` が表示される
 - `charge_history_shape` と保存された batch index が表示される
@@ -54,8 +55,8 @@ beachx inspect outputs/tutorial --save-dir outputs/tutorial/figures
 
 ## 2. `beachx animate` で batch 間の変化を見る
 
-公式入門ケースは `output.history.stride_batches=1` なので、150 個の電荷 snapshot があります。標準配布だけで使える
-表面電荷密度の GIF を作ります。
+公式入門ケースは `output.history.stride_batches=10` なので、1000 個の電荷 snapshot があります。標準配布だけで使える
+表面電荷密度の GIF を作ります。板は一様に帯電するので、全要素が同じ色のまま濃くなります。
 
 ```bash
 beachx animate outputs/tutorial \
@@ -64,11 +65,11 @@ beachx animate outputs/tutorial \
   --total-frames 30
 ```
 
-正常終了すると、`saved=outputs/tutorial/charge_history.gif`、`snapshots=150`、
+正常終了すると、`saved=outputs/tutorial/charge_history.gif`、`snapshots=1000`、
 `rendered_frames=30` が表示されます。
 
 `animate` は `charge_history.csv` の保存済み snapshot を使います。`potential` mode では、その電荷と
-場の再構成情報に加えて native field kernel が必要です。履歴がない別の run は、`output.history.stride_batches` を
+場の再構成情報に加えて native field kernel が必要です（4 節）。履歴がない別の run は、`output.history.stride_batches` を
 正にして simulation を再実行する必要があります。
 
 ## 3. Python API で図と保存 batch を選ぶ
@@ -84,9 +85,9 @@ run = Beach(
     config_path="beach.toml",
 )
 
-print("absorbed:", run.result.absorbed)
-print("escaped:", run.result.escaped)
-print("batches:", run.result.batches)
+print("absorbed:", run.result.summary.absorbed)
+print("escaped:", run.result.summary.escaped)
+print("batches:", run.result.summary.batches)
 print("mesh ids:", run.mesh_ids)
 
 bar_fig, _ = run.plot_bar()
@@ -99,9 +100,9 @@ potential_fig, _ = run.plot_potential()
 potential_fig.savefig("outputs/tutorial/python_potential.png", dpi=150)
 ```
 
-`plot_potential()` の既定 `reference_point=None` は `mesh_potential.csv` に保存された最終絶対電位を使うため、
-このケースでは native field kernel は不要です。`reference_point="species1_injection_center"` のように保存値と
-異なる基準で再評価する場合と、`source="kernel"` で保存値を使わずに再計算する場合は、次節の kernel が必要です。
+`plot_potential()` の既定 `reference_point=None` は `mesh_potential.csv` に保存された最終電位を使うため、
+native field kernel は不要です。保存値と異なる基準点で再評価する場合（`reference_point=`）と、`source="kernel"` で
+保存値を使わずに再計算する場合は kernel が必要で、4 節のとおりこのケースでは使えません。
 
 ### 特定の mesh と batch を選ぶ
 
@@ -115,68 +116,42 @@ final_mesh = run.get_mesh(mesh_id, step=None)
 final_charge = run.get_mesh_charge(mesh_id, step=None)
 print(final_mesh.triangles.shape, final_charge.shape)
 
-# 公式ケースは history_stride=1 なので batch 10 が保存されています。
-mesh_at_10 = run.get_mesh(mesh_id, step=10)
-charge_at_10 = run.get_mesh_charge(mesh_id, step=10)
-print(mesh_at_10.triangles.shape, charge_at_10.shape)
+# 公式ケースは 10 batch ごとに保存するので、batch 5001 が保存されています。
+mesh_at_5001 = run.get_mesh(mesh_id, step=5001)
+charge_at_5001 = run.get_mesh_charge(mesh_id, step=5001)
+print(mesh_at_5001.triangles.shape, charge_at_5001.shape)
 ```
 
-## 4. native field kernel で電位履歴と断面を再構成する
+## 4. 保存した電位履歴から電位差を描く
 
-通常の Python package install には `libbeach_field_kernel.so` が含まれません。電位履歴を再構成する
-`animate --quantity potential` と、任意点を評価する `slices` を使う場合だけ、Fortran compiler と `fpm` が
-使える BEACH source checkout で library を build します。`/path/to/BEACH` は実際の checkout へ置き換えます。
-
-```bash
-make -C /path/to/BEACH build-kernel
-export BEACH_FIELD_KERNEL_LIB=/path/to/BEACH/build/libbeach_field_kernel.so
-```
-
-環境変数を設定した shell で、まず電位履歴を作ります。
-
-```bash
-beachx animate outputs/tutorial \
-  --quantity potential \
-  --save outputs/tutorial/potential_history.gif \
-  --total-frames 30
-```
-
-正常終了すると、`saved=outputs/tutorial/potential_history.gif`、`snapshots=150`、
-`rendered_frames=30` が表示されます。次に、simulation box 中央の XY / YZ / XZ 断面を作ります。
-
-```bash
-beachx slices outputs/tutorial \
-  --config beach.toml \
-  --grid-n 200 \
-  --save outputs/tutorial/potential_slices.png
-```
-
-正常終了すると `saved=outputs/tutorial/potential_slices.png` が表示されます。
-
-Python から同じ再構成を行う場合は、`Beach` を `with` 文で開きます。セッションは最初の重い呼び出しで kernel を
-1 回だけ構築し、同じ plan の呼び出しで使い回して、`with` を抜けるときに閉じます。
+公式入門ケースは、10 batch ごとの要素電位（`potential_history.csv`）と流入面の平均電位（`top_reference_history.csv`）を
+保存しています。板と流入面の電位差の時間変化は、この 2 つの差として kernel なしで描けます。
 
 ```python
-from beach import Beach
+import matplotlib.pyplot as plt
+import numpy as np
+from beach import load_run
 
-with Beach(
-    "outputs/tutorial",
-    config_path="beach.toml",
-    library_path="/path/to/BEACH/build/libbeach_field_kernel.so",
-) as run:
-    potential = run.compute_potential(source="kernel")
-    print("recomputed potential range [V]:", potential.min(), potential.max())
-    slice_fig, _ = run.plot_potential_slices(
-        box_min=[0.0, 0.0, 0.0],
-        box_max=[0.04, 0.04, 0.07],
-        grid_n=100,
-    )
-    slice_fig.savefig("outputs/tutorial/python_potential_slices.png", dpi=150)
+result = load_run("outputs/tutorial")
+batches = result.history.potential.batch_indices
+plate = result.history.potential.as_array().mean(axis=0)
+inlet = np.array([row.potential_mean_v for row in result.top_reference_history])
+
+fig, ax = plt.subplots()
+ax.plot(batches * 5.0e-4, plate - inlet)
+ax.set_xlabel("time [s]")
+ax.set_ylabel("plate - inlet potential [V]")
+fig.savefig("outputs/tutorial/python_dphi.png", dpi=150)
+print("last dphi [V]:", plate[-1] - inlet[-1])
 ```
 
-`box_min` / `box_max` は入門ケースの `[domain]` の値です。CLI と Python のどちらの結果も、保存電荷から
-場を再構成する解析であり、mesh や solver に対する収束確認の代わりにはなりません。研究結果として採用する前に
-[計算結果の妥当性確認](ValidationGuide.md)に従ってください。
+`5.0e-4` は `run.batch.duration_s` です。最後の行は `last dphi [V]: -3.77...` のように、
+[入門チュートリアル](../start/Tutorial.md#4-見積もりと比べる)の `dphi_V` と同じ値を表示します。
+
+保存していない点の電位や電場を表面電荷から計算し直す native field kernel（`beachx animate --quantity potential`、
+`beachx slices`、`source="kernel"`）は、自由空間と有限 image の periodic2 の run が対象です。公式入門ケースが使う
+`fields.periodic.backend="cached_kneq0"` では、kernel が面平均成分を含まないため、これらは停止します。
+kernel の用意と対象は[Python 後処理 API リファレンス](../reference/PythonPostprocessAPI.md#native-kernel-を用意する)を参照してください。
 
 ## 5. 複数物体の解析へ進む
 

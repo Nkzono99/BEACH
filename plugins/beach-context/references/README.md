@@ -35,13 +35,13 @@ mkdir beach-tutorial
 cd beach-tutorial
 beachx config init beach.toml
 beachx lint beach.toml
-OMP_NUM_THREADS=1 beach beach.toml
+OMP_NUM_THREADS=8 beach beach.toml
 beachx inspect outputs/tutorial
 ```
 
 実行前には `beachx lint` を実行し、`status=ok` を確認してください。
-この公式入門ケースは、毎 batch 200 個のマクロ電子を 20 batch 入射し、蓄積した負電荷が
-後続電子を反射し始めるところまでを確認します。設定の意味、期待出力、図の読み方は
+この公式入門ケースは、電子と陽子のプラズマに置いた金属板が、両者の電流が釣り合う
+浮遊電位まで帯電する様子を確認します。設定の意味、期待出力、図の読み方は
 [10 分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) にまとめています。
 このサイトは `main` branch の挙動を説明します。PyPI の安定版は同じ入門設定をまだ含まない場合があるため、
 上の最初の実行では GitHub 版を使用します。
