@@ -7,7 +7,7 @@ import inspect
 import textwrap
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Iterator, Mapping
+from typing import Any, Callable, Concatenate, Iterator, Mapping, ParamSpec, TypeVar
 
 import numpy as np
 
@@ -41,16 +41,22 @@ from .plot.mesh import plot_charge_mesh, plot_charges, plot_potential_mesh
 from .plot.slices import plot_potential_slices
 
 _NO_KERNEL = object()
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
 _PLAN_ARGUMENTS = ("periodic2", "theta", "leaf_max", "order")
 
 
 def _forward(
-    func: Callable[..., Any],
+    func: Callable[Concatenate[Any, _P], _R],
     *,
     kernel_step: object = _NO_KERNEL,
     needs_kernel: Callable[["Beach", Mapping[str, Any]], bool] | None = None,
-) -> Callable[..., Any]:
+) -> Callable[Concatenate["Beach", _P], _R]:
     """Expose ``func`` as a ``Beach`` method that keeps its signature and defaults.
+
+    The ``ParamSpec`` annotation carries ``func``'s parameters after ``result``
+    and its return type to type checkers and editors, so the methods complete
+    and check like the functions without a second, hand-written signature.
 
     The method passes the session as ``result`` and the session's
     ``library_path`` when none is given. With ``kernel_step`` it also passes a
@@ -111,7 +117,7 @@ def _forward(
             "for the call instead."
         )
     method.__doc__ = f"{inspect.cleandoc(func.__doc__ or '')}\n\nNotes\n-----\n{textwrap.fill(note, 88)}"
-    return method
+    return method  # type: ignore[return-value]
 
 
 def _potential_needs_kernel(run: "Beach", arguments: Mapping[str, Any]) -> bool:
