@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from config_fixtures import (
     _write_base_config,
+    free_space_beam_config,
 )
 
 from beach.config import (
@@ -33,7 +34,7 @@ def test_load_config_file_accepts_direct_beach_toml(tmp_path: Path) -> None:
 
 
 def test_declared_enum_normalization_preserves_leading_spaces() -> None:
-    config = default_config()
+    config = free_space_beam_config()
     config["sim"]["field_solver"] = "DIRECT "
     assert normalize_config_document(to_grouped_layout(config))["sim"]["field_solver"] == "direct"
     config["sim"]["field_solver"] = " DIRECT"
@@ -41,12 +42,9 @@ def test_declared_enum_normalization_preserves_leading_spaces() -> None:
         normalize_config_document(to_grouped_layout(config))
 
 
-def test_default_config_uses_free_space_without_periodic_options() -> None:
+def test_default_config_omits_removed_keys() -> None:
     config = default_config()
 
-    assert config["domain"]["periodic_axes"] == []
-    assert config["field_boundary"]["mode"] == "free"
-    assert "field_periodic_far_correction" not in config["sim"]
     assert "softening" not in config["sim"]
     assert "field" not in config
 
@@ -56,7 +54,7 @@ def test_default_config_uses_free_space_without_periodic_options() -> None:
     ["softening", "multiple_box_events_soft_discard_count_limit"],
 )
 def test_config_rejects_removed_sim_keys(key: str) -> None:
-    config = default_config()
+    config = free_space_beam_config()
     config = to_grouped_layout(config)
     config["particles"]["tracking"][key] = 1.0
 
@@ -66,12 +64,12 @@ def test_config_rejects_removed_sim_keys(key: str) -> None:
 
 def test_default_config_matches_official_tutorial_case() -> None:
     assert normalize_config_document(to_grouped_layout(default_config())) == load_config_file(
-        Path("examples/tutorial_electron_beam.toml")
+        Path("examples/tutorial_floating_plate.toml")
     )
 
 
 def test_normalization_preserves_case_in_paths_and_species_identifiers() -> None:
-    config = default_config()
+    config = free_space_beam_config()
     config["sim"]["field_solver"] = "DIRECT"
     config["output"]["dir"] = "Outputs/MixedCase"
     config["particles"]["species"][0]["species_key"] = "ElectronA"
@@ -85,7 +83,7 @@ def test_normalization_preserves_case_in_paths_and_species_identifiers() -> None
 
 
 def test_separated_boundary_tables_preserve_the_local_source_contract() -> None:
-    runtime = default_config()
+    runtime = free_space_beam_config()
     authoring = copy.deepcopy(runtime)
     authoring["reservoir"] = {"inflow_model": "infinity_barrier", "phi_infty": 1.0}
 
@@ -224,12 +222,12 @@ rng_seed = 1
 
 
 def test_config_rejects_unimplemented_dielectric_inputs() -> None:
-    config = default_config()
+    config = free_space_beam_config()
     config["mesh"]["parts"][0]["surface_model"] = "dielectric"
     with pytest.raises(ConfigValidationError, match="surface_model.*dielectric"):
         normalize_config_document(to_grouped_layout(config))
 
-    config = default_config()
+    config = free_space_beam_config()
     config["mesh"]["parts"][0]["epsilon_r"] = 3.9
     with pytest.raises(ConfigValidationError, match="epsilon_r"):
         normalize_config_document(to_grouped_layout(config))
@@ -250,7 +248,7 @@ def test_config_rejects_unimplemented_dielectric_inputs() -> None:
 def test_active_soft_discard_controls_reject_invalid_values(
     key: str, value: object,
 ) -> None:
-    config = default_config()
+    config = free_space_beam_config()
     config["sim"]["multiple_box_events_policy"] = "soft_discard"
     config["sim"][key] = value
 

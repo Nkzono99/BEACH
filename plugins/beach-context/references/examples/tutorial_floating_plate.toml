@@ -1,0 +1,97 @@
+#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
+# Official tutorial: a floating metal plate in a 1 eV electron-proton plasma charges until the
+# electron and proton currents balance. Both species enter from the top face as one-sided
+# Maxwellian fluxes; the expected plate potential relative to the top face is
+# (Te/e) ln(J_i0/J_e0) = -3.76 V. See docs/start/Tutorial.md.
+
+[run]
+batch_count = 10000
+rng_seed = 12345
+
+[run.batch]
+duration_s = 5.0e-4
+
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [0.1, 0.1, 0.11]
+periodic_axes = ["x", "y"]
+
+[[mesh.parts]]
+kind = "plane"
+enabled = true
+surface_model = "conductor"
+surface_side = "normal_plus"
+size_x = 0.1
+size_y = 0.1
+nx = 2
+ny = 2
+center = [0.05, 0.05, 0.01]
+
+[particles.tracking]
+dt_s = 1.0e-8
+max_steps_per_particle = 3000
+
+[particles.boundary]
+z_low = "open"
+z_high = "open"
+
+[particles.reservoir]
+inflow_model = "source_vdf"
+
+[[particles.species]]
+species_key = "electron"
+charge_c = -1.602176634e-19
+mass_kg = 9.1093837139e-31
+
+[particles.species.distribution]
+number_density_cm3 = 1.0
+temperature_ev = 1.0
+drift_velocity_m_s = [0.0, 0.0, 0.0]
+
+[particles.species.sampling]
+target_macro_particles_per_batch = 1500
+
+[particles.species.inflow]
+z_high = "reservoir"
+
+[[particles.species]]
+species_key = "proton"
+charge_c = 1.602176634e-19
+mass_kg = 1.67262192369e-27
+
+[particles.species.distribution]
+number_density_cm3 = 1.0
+temperature_ev = 1.0
+drift_velocity_m_s = [0.0, 0.0, 0.0]
+
+[particles.species.sampling]
+# -1 reuses the electron weight, so one macro proton carries the charge of one macro electron.
+target_macro_particles_per_batch = -1
+
+[particles.species.inflow]
+z_high = "reservoir"
+
+[fields]
+boundary = "periodic2"
+
+[fields.solver]
+method = "fmm"
+
+[fields.periodic]
+backend = "cached_kneq0"
+image_layers = 1
+lower_boundary_model = "e_bottom_zero"
+
+[output]
+enabled = true
+dir = "outputs/tutorial"
+
+[output.history]
+stride_batches = 10
+potential = true
+
+[output.checkpoint]
+stride_batches = 5000
+
+[output.final]
+mesh_potential = true
