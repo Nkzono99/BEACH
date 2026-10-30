@@ -775,19 +775,6 @@ def _write_json(path: Path, value: Any) -> None:
     )
 
 
-def _write_json_atomic(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(
-            json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     try:
@@ -4560,52 +4547,6 @@ def _comparison_artifact_contract(
         "bad_status_rows": bad_status_rows,
         "numerically_unqualified_rows": numerical_status_rows,
     }
-
-
-def _placeholder_object_rows(
-    case_rows: Sequence[Mapping[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    wrenches: list[dict[str, Any]] = []
-    paths: list[dict[str, Any]] = []
-    for row in case_rows:
-        if row.get("status") == "available":
-            status = "not_evaluated"
-            message = "physics evaluation is deferred when target mesh/native kernel is unavailable"
-        else:
-            status = str(row.get("status"))
-            message = str(row.get("message", ""))
-        wrenches.append(
-            {
-                "case": row["case"],
-                "periodic_model": "configured",
-                "mesh_id": "",
-                "component": "",
-                "status": status,
-                "message": message,
-            }
-        )
-        paths.append(
-            {
-                "case": row["case"],
-                "periodic_model": "configured",
-                "mesh_id": "",
-                "path_status": "not_evaluated",
-                "speed_status": "contact_model_required",
-                "status": status,
-                "message": message,
-            }
-        )
-    return wrenches, paths
-
-
-def _load_json_if_exists(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return value if isinstance(value, dict) else {}
 
 
 def _load_json_object_if_exists(path: Path, *, label: str) -> dict[str, Any]:
