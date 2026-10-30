@@ -35,6 +35,10 @@ $$
 
 ## 固定幅を比較する
 
+![同じ物理時間を幅 h の 4 バッチと幅 h/2 の 8 バッチで進め、各区切りで場を更新する比較図。](../media/concepts/batch-width.svg)
+
+幅を半分にした比較ではバッチ数を倍にし、同じ物理時刻の電荷・電位を比べます。
+
 ### 比較条件を揃える
 
 - `output.enabled=true`、`output.history.stride_batches > 0` とし、`summary.txt` と `charge_history.csv` を保存します。
@@ -162,6 +166,10 @@ beachx inspect outputs/adaptive
 解決済み `run.batch.duration_s` を $h_0$ とすると、BEACH は各 accepted batch で
 $h_0,h_0/2,h_0/4,\ldots$ を試します。候補電荷が作る $k\ne0$ 電位変化を全 panel 重心で評価し、
 最大絶対値が上限以下となる最初の幅を受理します。
+
+![適応バッチの候補電荷を検査し、受理なら確定反映、棄却なら開始状態へ戻して幅を半分にして再試行する図。](../media/concepts/batch-trials.svg)
+
+棄却した試行は電荷・物理時間・履歴へ反映せず、同じバッチを短い幅でやり直します。
 
 ### 期待する出力を確認する
 

@@ -51,6 +51,10 @@ charge_sum=-4.978924e-12
 
 ## 最初に見るファイル
 
+![出力先の最終状態ファイル、任意の履歴、直下と二つのスロットに保存される checkpoint の関係を示す図。](../media/concepts/output-layout.svg)
+
+最終状態と履歴は結果の確認に使い、再開は完了情報を持つ checkpoint 一式から行います。
+
 | 確認したいこと | 最初に見る場所 |
 | --- | --- |
 | 実行件数、batch 数、最終変化量 | `summary.txt` と `beachx inspect` |

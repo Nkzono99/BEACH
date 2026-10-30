@@ -61,6 +61,10 @@ $$
 
 ## 距離に応じてnodeをまとめる
 
+![三軸二分の八分木と、遠方同符号群の単極近似、近傍または相殺する群を子へ分解する Treecode の判断を示す図。](../media/concepts/octree-near-far.svg)
+
+三角形の広がりと符号を見て遠方近似を選び、近傍や電荷が相殺する群は細かく評価します。
+
 leafでは全sourceをDirectに評価します。内部nodeでは、node半径$R$、node中心から評価点までの距離$d$、
 `fields.solver.tree.theta`を使い、
 

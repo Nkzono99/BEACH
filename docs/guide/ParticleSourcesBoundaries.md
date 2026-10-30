@@ -13,6 +13,10 @@ title: 粒子をどこから入れるか
 
 ## 生成位置から選ぶ
 
+![指定領域の体積生成、非周期面全体からの境界流入、光線の命中面からの光電子放出を比較する図。](../media/concepts/particle-sources.svg)
+
+体積・境界面・表面のどこで生成するかによって、個数を直接与える方法と流束から決める方法を使い分けます。
+
 | 目的 | 選ぶ設定 | 粒子数を決める量 | 生成位置 |
 | --- | --- | --- | --- |
 | 初期粒子や軌道試験を指定個数で作る | `source.mode="volume_seed"` | `sampling.volume_macro_particles_per_batch` | `source.pos_low` と `source.pos_high` の間 |

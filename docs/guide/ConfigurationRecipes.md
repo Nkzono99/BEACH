@@ -79,6 +79,10 @@ surface_model = "insulator"
 [組み込み形状と OBJ のリファレンス](../reference/Parameters.md#mesh)、複数形状の実例は
 [`examples/beach.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/beach.toml)を参照してください。
 
+![三角形の総電荷と一定面密度、開いた面の正負法線、閉じた面の外向き真空側を比較する図。](../media/concepts/mesh-normals.svg)
+
+`surface_side` は場を評価する真空側を指定し、閉じた整合面では `outward_closed` が外側を解決します。
+
 ## 3. 表面 model を選ぶ
 
 | 目的 | `surface_model` | 現行モデルの範囲 |

@@ -53,6 +53,10 @@ lower_boundary_model = "symmetric_vacuum"
 
 ## 有限画像
 
+![中央セルと周囲 1 層の 3×3 有限画像、さらに外の周期画像、面内変動成分と面平均成分の分離を示す図。](../media/concepts/periodic-cell.svg)
+
+`image_layers=1` は中央を含む 3×3 セルで、`cached_kneq0` はその外側と物理的な面平均成分も含めます。
+
 `fields.periodic.image_layers` $=N$ は、セルの周囲 $N$ 層の複製 $(i,j)\in[-N,N]^2$ を直接足します。
 
 | $N$ | 足すセル |
@@ -117,6 +121,10 @@ $Q=\sum_iq_i$ はセルの総電荷です。総電荷が 0 なら `symmetric_vac
 外部シースとの接続では層内の平均場を表面電荷から計算し、`e_top_from_sheath` を選ぶと外部根の法線電場を境界値として加えます。
 
 ## 上部真空の Fourier 評価への切替
+
+![全三角形より上に切替面を置き、その上の非零成分を Fourier 和、下を FMM と cached 補正で評価し、面平均を共通に加える図。](../media/concepts/upper-fourier.svg)
+
+切り替えるのは面内変動成分だけで、面平均成分と一様外部場の合成方法は共通です。
 
 上端 H 付近の局所展開誤差を避けるには、`cached_kneq0` と組み合わせて次を設定します。
 

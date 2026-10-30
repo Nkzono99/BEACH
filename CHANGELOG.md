@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- ドキュメントに、計算サイクル、粒子源・境界、周期場、放出モデル、再開と後処理を説明する日本語の概念図を 24 点追加した。
+
 ## [4.1.0] - 2026-10-30
 
 ### Added

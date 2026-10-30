@@ -115,6 +115,10 @@ beachx profile outputs/tutorial/performance_profile.csv \
 
 ## checkpointから一度再開する
 
+![最終出力と二つのスロットの完全な候補を検査し、最大バッチ数 B の状態から累積 N バッチまで続行する図。](../media/concepts/restart-flow.svg)
+
+`run.batch_count` は追加回数ではなく、再開前を含めた到達バッチ数です。
+
 正常終了時の最終出力は、`output.checkpoint.stride_batches=0` でも checkpoint として再開できます。
 最初の再開確認では、元の `outputs/tutorial` を残し、続きを別のディレクトリへ書く方法を推奨します。
 
