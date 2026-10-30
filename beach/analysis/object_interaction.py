@@ -67,6 +67,34 @@ class _VerticalSamples:
         )
 
 
+def _concat_samples(
+    first: _VerticalSamples | None,
+    second: _VerticalSamples,
+) -> _VerticalSamples:
+    if first is None:
+        return second
+    return _VerticalSamples(
+        displacement_m=np.concatenate((first.displacement_m, second.displacement_m)),
+        force_N=np.concatenate((first.force_N, second.force_N)),
+        torque_Nm=np.concatenate((first.torque_Nm, second.torque_Nm)),
+        torque_origin_m=np.concatenate((first.torque_origin_m, second.torque_origin_m)),
+        potential_energy_J=np.concatenate(
+            (first.potential_energy_J, second.potential_energy_J)
+        ),
+        component_force_N={
+            name: np.concatenate((values, second.component_force_N[name]))
+            for name, values in first.component_force_N.items()
+        },
+        component_torque_Nm={
+            name: np.concatenate((values, second.component_torque_Nm[name]))
+            for name, values in first.component_torque_Nm.items()
+        },
+        peak_target_batch_size=max(
+            first.peak_target_batch_size, second.peak_target_batch_size
+        ),
+    )
+
+
 class ObjectInteractionSnapshot:
     """Immutable source geometry and charge state for object-level probes."""
 
@@ -759,8 +787,9 @@ class ObjectProbe:
     ) -> ObjectForcePath:
         """Evaluate a frozen-source vertical translation path.
 
-        With ``adaptive`` the midpoint of every interval is evaluated each round
-        and kept where the force, work, or work/potential test fails. The path is
+        With ``adaptive`` the midpoint of every interval is tested each round
+        and kept where the force, work, or work/potential test fails; each
+        displacement is evaluated once and reused by later rounds. The path is
         accepted only when, in addition, the trapezoid work on the grid that is
         returned matches the potential difference within the tolerances; until
         ``max_refinement`` rounds are spent a path mismatch refines further.
@@ -797,21 +826,36 @@ class ObjectProbe:
         if adaptive:
             status = "not_converged"
             status_reason = "max_refinement_reached"
+            # Samples are frozen-source evaluations, so a point is evaluated once:
+            # grid points carry over, and the midpoint of an interval that was not
+            # split is reused by the next round. mid_source[i] indexes the stored
+            # midpoint of interval i in mid_samples, or is -1 when it is new.
+            mid_samples: _VerticalSamples | None = None
+            mid_source = np.full(grid.size - 1, -1, dtype=np.int64)
             for refinement_round in range(refinement_limit + 1):
                 middle = 0.5 * (grid[:-1] + grid[1:])
                 candidate_grid = np.empty(2 * grid.size - 1, dtype=np.float64)
                 candidate_grid[0::2] = grid
                 candidate_grid[1::2] = middle
                 self._validate_vertical_geometry(candidate_grid)
-                candidate = self._evaluate_vertical_samples(
-                    candidate_grid,
+                missing = mid_source < 0
+                new_mid = self._evaluate_vertical_samples(
+                    middle[missing],
                     torque_origin=torque_origin,
                     components=components,
                 )
                 peak_target_batch_size = max(
                     peak_target_batch_size,
-                    candidate.peak_target_batch_size,
+                    new_mid.peak_target_batch_size,
                 )
+                mid_index = mid_source.copy()
+                stored = 0 if mid_samples is None else mid_samples.displacement_m.size
+                mid_index[missing] = stored + np.arange(np.count_nonzero(missing))
+                mid_samples = _concat_samples(mid_samples, new_mid).take(mid_index)
+                order = np.empty(candidate_grid.size, dtype=np.int64)
+                order[0::2] = np.arange(grid.size)
+                order[1::2] = grid.size + np.arange(middle.size)
+                candidate = _concat_samples(samples, mid_samples).take(order)
                 force_left = candidate.force_N[0:-2:2]
                 force_middle = candidate.force_N[1::2]
                 force_right = candidate.force_N[2::2]
@@ -883,6 +927,12 @@ class ObjectProbe:
                 refinement_rounds += 1
                 grid = candidate_grid[keep]
                 samples = candidate.take(keep)
+                # A split interval becomes two new intervals without midpoints; an
+                # unsplit one keeps its evaluated midpoint for the next round.
+                mid_source = np.repeat(
+                    np.where(failing, -1, np.arange(failing.size)),
+                    np.where(failing, 2, 1),
+                )
 
         path_check = _path_work_check(grid, samples, work_absolute, relative)
         if not adaptive and path_check.failing:

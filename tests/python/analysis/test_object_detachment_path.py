@@ -488,3 +488,38 @@ def test_vertical_path_splits_large_targets_below_the_batch_limit(
     np.testing.assert_allclose(split.potential_energy_J, whole.potential_energy_J, rtol=1.0e-13)
     for name, values in whole.component_force_N.items():
         np.testing.assert_allclose(split.component_force_N[name], values, rtol=1.0e-13)
+
+
+def test_adaptive_path_evaluates_each_displacement_once(
+    tmp_path: Path,
+    analytic_kernel,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_config(config)
+    analytic_kernel.mode = "sharp"
+    calls: list[np.ndarray] = []
+    eval_e = analytic_kernel.eval_e
+
+    def recording_eval_e(self, points: np.ndarray) -> np.ndarray:
+        # The flat target sits at z = 0, so every point's z is its displacement.
+        calls.append(np.unique(np.asarray(points)[:, 2]))
+        return eval_e(self, points)
+
+    monkeypatch.setattr(analytic_kernel, "eval_e", recording_eval_e)
+    with ObjectInteractionSnapshot.from_result(
+        _result(tmp_path), step=None, config_path=config
+    ) as snapshot:
+        probe = snapshot.object_probe(1)
+        probe.vertical_path(np.array([0.0, 1.0]), adaptive=False)
+        heights, counts = np.unique(np.concatenate(calls), return_counts=True)
+        calls_per_evaluation = int(counts[0])
+        calls.clear()
+        refined = probe.vertical_path(
+            np.array([0.0, 1.0]), relative_tolerance=1.0e-3, max_refinement=6
+        )
+
+    assert refined.numerical_metadata["refinement_rounds"] > 1
+    heights, counts = np.unique(np.concatenate(calls), return_counts=True)
+    assert set(refined.displacement_m) <= set(heights)
+    assert np.all(counts == calls_per_evaluation)
