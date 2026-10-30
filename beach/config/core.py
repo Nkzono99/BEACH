@@ -10,9 +10,8 @@ from typing import Any
 from ._layout import TOP_LEVEL_ORDER, is_grouped, to_grouped_layout, to_runtime_layout
 
 from ._authoring import (
-    _resolve_domain_high_level,
+    _resolve_box_shorthand,
     _resolve_mesh_high_level,
-    _resolve_sim_high_level,
     _resolve_species_high_level,
     _resolved_box_bounds,
 )
@@ -196,10 +195,10 @@ def normalize_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
     resolved = copy.deepcopy(dict(config))
     sim = resolved.get("sim")
     if isinstance(sim, Mapping):
-        resolved["sim"] = _resolve_sim_high_level(dict(sim))
+        resolved["sim"] = _resolve_box_shorthand(dict(sim))
     domain = resolved.get("domain")
     if isinstance(domain, Mapping):
-        resolved["domain"] = _resolve_domain_high_level(dict(domain))
+        resolved["domain"] = _resolve_box_shorthand(dict(domain))
     box_min, box_max = _resolved_box_bounds(resolved)
 
     particles = resolved.get("particles")
