@@ -454,6 +454,15 @@ contains
     call run_self_probe('--numeric-csv-probe', matching_probe_log, exit_status)
     call assert_true(exit_status /= 0, 'malformed ledger CSV must fail')
     call assert_true(file_contains(matching_probe_log, 'Failed to parse charge_ledger.csv'), 'ledger CSV diagnostic')
+    ! Ledger counts only grow during a run, so the checkpoint reader is their only nonnegativity check.
+    open (newunit=u, file=out_dir//'/charge_ledger.csv', status='replace')
+    write (u, '(a)') 'batch,species_idx,legacy_charges_C,counts', '2,1,0,0,0,0,0,0,0,0,-1,0,0,0,0'
+    close (u)
+    call run_self_probe('--numeric-csv-probe', matching_probe_log, exit_status)
+    call assert_true(exit_status /= 0, 'negative ledger count must fail on resume')
+    call assert_true( &
+      file_contains(matching_probe_log, 'Resume charge ledger counts must be nonnegative'), 'negative count diagnostic' &
+      )
     call cleanup_restart_fixture(out_dir)
   end subroutine test_numeric_csv_records
 
