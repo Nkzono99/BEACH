@@ -45,7 +45,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(50)
+  call test_init(52)
 
   call test_begin('volume_batch_count_integer_boundary')
   call default_app_config(cfg)
@@ -77,10 +77,18 @@ program test_app_config_parser
   call test_end()
 
   call test_begin('grouped_input_restart')
-  call write_grouped_config(input_contract_path, '[run.restart]')
+  call write_grouped_config(input_contract_path, '[run.restart]', output_enabled=.true.)
   call default_app_config(cfg)
   call load_app_config(input_contract_path, cfg)
   call assert_true(cfg%resume_output, 'restart table presence enables resume')
+  call write_grouped_config(input_contract_path, '[run.restart]')
+  call assert_config_rejected(input_contract_path, 'run.restart requires output.enabled=true')
+  call test_end()
+
+  call test_begin('preflight_rejects_zero_max_steps_per_particle')
+  call write_first_line_variant(zhao_refresh_variant_path, 'max_steps_per_particle =', 'max_steps_per_particle = 0')
+  call assert_config_rejected(zhao_refresh_variant_path, 'particles.tracking.max_steps_per_particle must be >= 1')
+  call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
   call test_begin('mesh_parts_public_contract')
@@ -232,6 +240,13 @@ program test_app_config_parser
     input_contract_path, '1.0e6', 'species_key = "electron"'//new_line('a')//'mass_kg = 0.0', 'outputs/test' &
     )
   call assert_config_rejected(input_contract_path, 'particles.species[1].mass_kg must be finite and > 0')
+  call delete_file_if_exists(input_contract_path)
+  call test_end()
+
+  call test_begin('preflight_rejects_volume_seed_target_without_inflow')
+  call write_volume_seed_config(input_contract_path, sampling_extra='target_macro_particles_per_batch = 10')
+  call assert_config_rejected(input_contract_path, 'particles.species[1].sampling.target_macro_particles_per_batch '// &
+                              'requires particles.species[1].inflow')
   call delete_file_if_exists(input_contract_path)
   call test_end()
 
@@ -703,9 +718,14 @@ program test_app_config_parser
 
 contains
 
-  subroutine write_grouped_config(path, extra)
+  subroutine write_grouped_config(path, extra, output_enabled)
     character(len=*), intent(in) :: path, extra
+    logical, intent(in), optional :: output_enabled
     integer :: unit
+    logical :: enabled
+
+    enabled = .false.
+    if (present(output_enabled)) enabled = output_enabled
     open (newunit=unit, file=path, status='replace', action='write')
     write (unit, '(a)') '[run]'
     write (unit, '(a)') 'batch_count = 12'
@@ -728,7 +748,7 @@ contains
     write (unit, '(a)') '[fields.external]'
     write (unit, '(a)') 'electric_v_m = [0.0, 0.0, -5.0]'
     write (unit, '(a)') '[output]'
-    write (unit, '(a)') 'enabled = false'
+    write (unit, '(a)') 'enabled = '//trim(merge('true ', 'false', enabled))
     if (len_trim(extra) > 0) write (unit, '(a)') extra
     close (unit)
   end subroutine write_grouped_config
@@ -771,9 +791,9 @@ contains
   end subroutine write_periodic_grouped_config
 
   !> reservoir 流入を持たない volume_seed 1 種の構成。省略した値は有効な既定値を書く。
-  subroutine write_volume_seed_config(path, mass, weight, temperature, pos_high)
+  subroutine write_volume_seed_config(path, mass, weight, temperature, pos_high, sampling_extra)
     character(len=*), intent(in) :: path
-    character(len=*), intent(in), optional :: mass, weight, temperature, pos_high
+    character(len=*), intent(in), optional :: mass, weight, temperature, pos_high, sampling_extra
     integer :: unit
     open (newunit=unit, file=path, status='replace', action='write')
     write (unit, '(a)') '[particles.tracking]'
@@ -798,6 +818,7 @@ contains
     write (unit, '(a)') '[particles.species.sampling]'
     write (unit, '(a)') 'volume_macro_particles_per_batch = 4'
     if (present(weight)) write (unit, '(a)') 'weight = '//weight
+    if (present(sampling_extra)) write (unit, '(a)') sampling_extra
     write (unit, '(a)') '[output]'
     write (unit, '(a)') 'enabled = false'
     close (unit)

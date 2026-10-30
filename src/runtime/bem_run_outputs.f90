@@ -6,7 +6,7 @@ module bem_run_outputs
   use bem_output_writer, only: open_history_writer, open_potential_history_writer, open_top_reference_history_writer, &
                                open_matching_plane_history_writer, open_fixed_current_history_writer, &
                                open_matching_plane_spectrum_history_writer, open_secondary_emission_history_writer, &
-                               remove_previous_run_outputs, trim_history_files
+                               remove_previous_run_outputs, trim_history_files, summary_identity_type
   use bem_periodic_checkpoint, only: invalidate_output_checkpoints
   implicit none
   private
@@ -34,6 +34,8 @@ module bem_run_outputs
     !> 終了時に要素重心の電位を mesh_potential_v へ求める（root rank だけ）。
     logical :: mesh_potential = .false.
     real(dp), allocatable :: mesh_potential_v(:)
+    !> 主ループが開始時に作った summary の不変量。最終出力の summary.txt はこれを使う。
+    type(summary_identity_type) :: summary_identity
   end type run_outputs_type
 
 contains

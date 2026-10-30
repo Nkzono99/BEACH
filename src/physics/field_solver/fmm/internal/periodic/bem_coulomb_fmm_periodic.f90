@@ -92,7 +92,7 @@ contains
     end do
   end subroutine apply_periodic2_minimum_image
 
-  !> periodic2 領域内へ点座標を折り返す。
+  !> periodic2 領域内へ点座標を折り返す。評価点はここで一度だけ正準化し、以降の leaf 探索と展開は同じ座標を使う。
   !! @param[in] plan FMM 計画。
   !! @param[inout] p 点座標。
   subroutine wrap_periodic2_point(plan, p)
@@ -103,25 +103,33 @@ contains
     if (.not. plan%options%use_periodic2) return
     do k = 1_i32, 2_i32
       axis = plan%options%periodic_axes(k)
-      p(axis) = plan%options%target_box_min(axis) &
-                + modulo(p(axis) - plan%options%target_box_min(axis), plan%options%periodic_len(k))
+      p(axis) = wrap_periodic_coordinate(p(axis), plan%options%target_box_min(axis), plan%options%periodic_len(k))
     end do
   end subroutine wrap_periodic2_point
+
+  !> 周期座標を `[lo, lo+length)` へ折り返す。lo の 1 ulp 未満下の点では剰余が length に丸まり、
+  !! また `lo + 剰余` が `lo + length` に丸まることがある。上端の seam は下端と同じ点なので lo にする。
+  !! 浮動小数点の折り返しは冪等ではないので、結果をもう一度折り返さない。
+  pure real(dp) function wrap_periodic_coordinate(x, lo, length) result(wrapped)
+    real(dp), intent(in) :: x, lo, length
+
+    wrapped = lo + modulo(x - lo, length)
+    if (wrapped >= lo + length) wrapped = lo
+  end function wrap_periodic_coordinate
 
   !> plan 内の全ソース位置を primary cell `[target_box_min, target_box_min+L)` へ折り返す。
   !! @param[inout] plan FMM 計画（`plan%src_pos` が変更される）。
   subroutine wrap_src_pos_to_primary_cell(plan)
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32) :: i, k, axis
-    real(dp) :: len_k, lo
 
     if (.not. plan%options%use_periodic2) return
     do i = 1_i32, plan%nsrc
       do k = 1_i32, 2_i32
         axis = plan%options%periodic_axes(k)
-        len_k = plan%options%periodic_len(k)
-        lo = plan%options%target_box_min(axis)
-        plan%src_pos(axis, i) = lo + modulo(plan%src_pos(axis, i) - lo, len_k)
+        plan%src_pos(axis, i) = wrap_periodic_coordinate( &
+                                plan%src_pos(axis, i), plan%options%target_box_min(axis), plan%options%periodic_len(k) &
+                                )
       end do
     end do
   end subroutine wrap_src_pos_to_primary_cell

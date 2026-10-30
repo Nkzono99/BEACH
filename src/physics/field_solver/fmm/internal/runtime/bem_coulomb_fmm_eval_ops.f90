@@ -873,21 +873,21 @@ contains
     call accumulate_point_charge_potential(q, sx_img, sy_img, sz_img, tx, ty, tz, soft2, phi)
   end subroutine accumulate_point_charge_shifted_potential
 
-  integer(i32) function locate_target_leaf(plan, r)
+  !> 評価点を含む target leaf を返す。periodic2 の点は呼び出し側が wrap_periodic2_point で正準化済みで、
+  !! 展開と near 項も同じ座標を使うので、ここでは折り返さない。
+  integer(i32) function locate_target_leaf(plan, r_eval)
     type(fmm_plan_type), intent(in) :: plan
-    real(dp), intent(in) :: r(3)
+    real(dp), intent(in) :: r_eval(3)
     integer(i32) :: oct, child_k, child, cand, axis
     logical :: use_target_tree
     real(dp) :: best_dist2, dist2, dx, dy, dz, extent_eps
-    real(dp) :: r_eval(3), root_center(3), root_half(3), node_center_curr(3), cand_center(3)
+    real(dp) :: root_center(3), root_half(3), node_center_curr(3), cand_center(3)
 
     locate_target_leaf = 0_i32
     if (plan%nnode <= 0_i32) return
     use_target_tree = plan%target_tree_ready
     if (active_tree_nnode(plan, use_target_tree) <= 0_i32) return
 
-    r_eval = r
-    if (use_target_tree .and. plan%options%use_periodic2) call wrap_periodic2_point(plan, r_eval)
     if (use_target_tree .or. .not. plan%options%use_periodic2) then
       root_center = active_tree_node_center(plan, use_target_tree, 1_i32)
       root_half = active_tree_node_half_size(plan, use_target_tree, 1_i32)

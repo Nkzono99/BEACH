@@ -193,7 +193,13 @@ contains
       call stop_config_error(species_config_path(species_idx)//'.source.pos_high must be >= '// &
                              species_config_path(species_idx)//'.source.pos_low in every component.')
     end if
-    ! target_macro_particles_per_batch から導く流入重みは、解決する resolve_boundary_inflow_weight が検査する。
+    ! target_macro_particles_per_batch は流入 flux から重みを導くので、reservoir 流入面がないと意味を持たない。
+    if (spec%has_target_macro_particles_per_batch .and. .not. has_boundary_inflow) then
+      call stop_config_error(species_config_path(species_idx)//'.sampling.target_macro_particles_per_batch requires '// &
+                             species_config_path(species_idx)//'.inflow; volume_seed uses '// &
+                             species_config_path(species_idx)//'.sampling.weight.')
+    end if
+    ! 流入重みは、解決する resolve_boundary_inflow_weight が検査する。
     if (has_boundary_inflow .and. spec%has_target_macro_particles_per_batch) return
     if (.not. ieee_is_finite(spec%w_particle) .or. spec%w_particle <= 0.0_dp) then
       call stop_config_error(species_config_path(species_idx)//'.sampling.weight must be finite and > 0.')

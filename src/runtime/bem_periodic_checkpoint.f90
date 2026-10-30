@@ -8,7 +8,7 @@ module bem_periodic_checkpoint
                                      publish_checkpoint_manifest
   use bem_filesystem, only: atomic_rename, filesystem_success, remove_file_if_exists
   use bem_mpi, only: mpi_bcast_i32_array, mpi_context, mpi_is_root, mpi_world_barrier, mpi_world_size
-  use bem_output_writer, only: ensure_output_dir, write_checkpoint_state_files
+  use bem_output_writer, only: ensure_output_dir, write_checkpoint_state_files, summary_identity_type
   use bem_restart, only: write_macro_residuals_file
   implicit none
   private
@@ -25,13 +25,15 @@ module bem_periodic_checkpoint
 contains
 
   !> 設定した stride の accepted batch で、非active slotへ完全な再開状態を書いてからindexを切り替える。
-  subroutine maybe_write_periodic_checkpoint(app, mesh, stats, state, mpi, charge_ledger)
+  subroutine maybe_write_periodic_checkpoint(app, mesh, stats, state, mpi, charge_ledger, identity)
     type(app_config), intent(in) :: app
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
     type(injection_state), intent(in), optional :: state
     type(mpi_context), intent(in) :: mpi
     type(charge_ledger_type), intent(in), optional :: charge_ledger
+    !> run 開始時に作った summary の不変量。省略時は書くたびに計算する。
+    type(summary_identity_type), intent(in), optional :: identity
 
     integer(i32) :: slot_values(1), inactive_slot
     character(len=1024) :: checkpoint_dir
@@ -54,7 +56,8 @@ contains
     if (mpi_is_root(mpi)) then
       call ensure_output_dir(trim(checkpoint_dir))
       call write_checkpoint_state_files( &
-        trim(checkpoint_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), charge_ledger=charge_ledger &
+        trim(checkpoint_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), charge_ledger=charge_ledger, &
+        identity=identity &
         )
     end if
     ! 非root rankがslot directoryの作成より先にcheckpoint fileを書き始めないよう同期する。

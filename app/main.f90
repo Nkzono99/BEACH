@@ -73,12 +73,13 @@ program main
         call write_result_files( &
           trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), &
           mesh_potential_v=run_outputs%mesh_potential_v, &
-          charge_ledger=charge_ledger, electrostatic_diagnostics=electrostatic_diagnostics &
+          charge_ledger=charge_ledger, electrostatic_diagnostics=electrostatic_diagnostics, &
+          identity=run_outputs%summary_identity &
           )
       else
         call write_result_files( &
           trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics &
+          electrostatic_diagnostics=electrostatic_diagnostics, identity=run_outputs%summary_identity &
           )
       end if
       call perf_region_end(perf_region_write_results, perf_t0)

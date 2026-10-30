@@ -14,6 +14,7 @@ submodule(bem_simulator) bem_simulator_loop
   use bem_mpi, only: mpi_allreduce_max_real_dp_array
   use bem_periodic_checkpoint, only: maybe_write_periodic_checkpoint, periodic_checkpoint_due
   use bem_run_outputs, only: flush_run_outputs
+  use bem_output_writer, only: summary_identity_type
   use bem_charge_ledger, only: finite_charge_sum
   implicit none
   integer(i32), parameter :: adaptive_max_halvings = 24_i32
@@ -64,6 +65,7 @@ contains
   integer(i64) :: secondary_counts(3, app%n_particle_species)
   real(dp) :: secondary_values(2, app%n_particle_species)
   type(sim_stats) :: stats_candidate
+  type(summary_identity_type) :: summary_identity
 
   call initialize_run()
   call resolve_history_outputs()
@@ -89,7 +91,7 @@ contains
       if (present(outputs) .and. periodic_checkpoint_due(app, stats%batches)) call flush_run_outputs(outputs)
     end if
     call perf_region_end(perf_region_history_write, t0)
-    call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx, charge_ledger)
+    call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx, charge_ledger, summary_identity)
     call perf_region_end(perf_region_batch_total, batch_t0)
   end do
   if (shared_pool) call pool_counter%destroy()
@@ -161,7 +163,14 @@ contains
     call validate_soft_discard_initial_state(app%sim, stats)
     call enforce_soft_discard_limits(app%sim, stats, stats%batches, 0_i64, 0_i64, 0.0_dp, mpi_ctx)
     call workspace%init(mesh%nelem, app%n_particle_species, nth, candidate_charge_enabled=adaptive_nonzero_mode)
-    call evaluate_surface_closure(app, surface_closure, cell)
+    ! 初期 model と mesh の識別子は run 中に変わらないので、summary を書く checkpoint と最終出力はこれを使う。
+    allocate (summary_identity%initial_model)
+    call evaluate_surface_current_model(app, summary_identity%initial_model, cell)
+    surface_closure = summary_identity%initial_model%surface_closure_contract_type
+    if (mpi_is_root(mpi_ctx) .and. app%write_output) then
+      summary_identity%mesh_fingerprint = mesh_fingerprint(mesh)
+      summary_identity%ready = .true.
+    end if
   end subroutine initialize_run
 
   !> 出力先の unit と間隔を取り出す。unit=-1 の history は書かない。間隔が 0 以下なら matching-plane・spectrum・
@@ -577,6 +586,7 @@ contains
     real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max
 
     if (present(outputs)) then
+      outputs%summary_identity = summary_identity
       if (outputs%mesh_potential .and. mpi_is_root(mpi_ctx)) then
         call snapshot%refresh(mesh)
         allocate (outputs%mesh_potential_v(mesh%nelem))

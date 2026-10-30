@@ -29,6 +29,8 @@ contains
   module procedure write_summary_file
   type(irradiation_cell_contract_type) :: cell
   type(surface_current_model_result_type) :: current_model
+  character(len=16) :: fingerprint
+  logical :: use_identity
   type(field_physics_config) :: field_config
   type(panel_kernel_config) :: panel_config
   character(len=1024) :: summary_path
@@ -41,7 +43,15 @@ contains
 
   call resolve_irradiation_cell_contract(cfg, cell, boundary_status, boundary_message)
   if (boundary_status /= irradiation_cell_ok) error stop trim(boundary_message)
-  call evaluate_surface_current_model(cfg, current_model, cell)
+  use_identity = .false.
+  if (present(identity)) use_identity = identity%ready
+  if (use_identity) then
+    current_model = identity%initial_model
+    fingerprint = identity%mesh_fingerprint
+  else
+    call evaluate_surface_current_model(cfg, current_model, cell)
+    fingerprint = mesh_fingerprint(mesh)
+  end if
   call derive_field_panel_config(cfg%sim, field_config, panel_config)
   call resolve_field_solver_tree_params( &
     mesh%nelem, cfg%sim, resolved_tree_theta, resolved_tree_leaf_max &
@@ -58,7 +68,7 @@ contains
   write (u, '(a,a)') 'build_version_mode=', beach_version_mode
   write (u, '(a,a)') 'build_source_commit=', beach_source_commit
   write (u, '(a,a)') 'build_id=', beach_build_id
-  write (u, '(a,a)') 'mesh_fingerprint=', mesh_fingerprint(mesh)
+  write (u, '(a,a)') 'mesh_fingerprint=', fingerprint
   write (u, '(a,i0)') 'mesh_nelem=', mesh%nelem
   write (u, '(a,i0)') 'mesh_count=', max(1_i32, maxval(mesh%elem_mesh_id))
   write (u, '(a,i0)') 'mpi_world_size=', world_size

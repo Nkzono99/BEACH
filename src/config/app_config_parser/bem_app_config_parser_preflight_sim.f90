@@ -10,6 +10,9 @@ contains
 
   if (cfg%sim%dt <= 0.0_dp) error stop 'particles.tracking.dt_s must be > 0.'
   if (cfg%sim%batch_count <= 0_i32) error stop 'run.batch_count must be > 0.'
+  if (cfg%sim%max_step < 1_i32) error stop 'particles.tracking.max_steps_per_particle must be >= 1.'
+  ! 再開は checkpoint を読み、新しい checkpoint と出力を output.dir へ書く前提なので、ファイル出力を止められない。
+  if (cfg%resume_output .and. .not. cfg%write_output) error stop 'run.restart requires output.enabled=true.'
   if (trim(cfg%sim%particle_distribution) /= 'static' .and. trim(cfg%sim%particle_distribution) /= 'shared') then
     error stop 'run.batch.particle_distribution must be "static" or "shared".'
   end if
