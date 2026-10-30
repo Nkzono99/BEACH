@@ -6,7 +6,8 @@ import argparse
 from pathlib import Path
 
 from beach import Beach
-from beach.analysis.periodic import periodic2_from_sim
+from beach.analysis.context import find_config_path_near_output
+from beach.analysis.periodic import _sim_with_separated_boundaries, periodic2_from_sim
 from beach.config import ConfigError, load_config_file
 
 from . import _options
@@ -83,15 +84,9 @@ def _find_config_path(output_dir: Path, explicit: Path | None) -> Path:
             raise SystemExit(f'Config file is not found: "{explicit}".')
         return explicit
 
-    candidates = (
-        output_dir / "beach.toml",
-        output_dir.parent / "beach.toml",
-        output_dir.parent.parent / "beach.toml",
-    )
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-
+    found = find_config_path_near_output(output_dir)
+    if found is not None:
+        return found
     raise SystemExit(
         "beach.toml is required to read domain.box_min/box_max. "
         "Pass --config <path/to/beach.toml>."
@@ -131,18 +126,12 @@ def _load_sim_box(
             )
 
     use_box = isinstance(domain, dict) or bool(sim.get("use_box", False))
-    periodic_sim = dict(sim)
-    if isinstance(domain, dict):
-        periodic_sim["box_min"] = box_min
-        periodic_sim["box_max"] = box_max
-        axes = domain.get("periodic_axes", [])
-        for axis in ("x", "y", "z"):
-            mode = "periodic" if axis in axes else "open"
-            periodic_sim[f"bc_{axis}_low"] = mode
-            periodic_sim[f"bc_{axis}_high"] = mode
     field_boundary = config.get("field_boundary")
-    if isinstance(field_boundary, dict):
-        periodic_sim["field_bc_mode"] = field_boundary.get("mode", "free")
+    periodic_sim = _sim_with_separated_boundaries(
+        sim,
+        domain=domain if isinstance(domain, dict) else None,
+        field_boundary=field_boundary if isinstance(field_boundary, dict) else None,
+    )
     try:
         periodic2 = periodic2_from_sim(
             periodic_sim,
