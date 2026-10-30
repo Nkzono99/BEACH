@@ -49,21 +49,28 @@ def _coerce_group_selection(
     return _build_mesh_selection(result, tuple(mesh_ids), step=requested_step)
 
 
-def _build_mesh_selection(
-    result: RunResult, mesh_ids: tuple[int, ...], *, step: int | None
-) -> MeshSelection:
-    context = RunContext.from_value(result)
+def _mesh_element_indices(
+    context: RunContext, mesh_ids: tuple[int, ...]
+) -> tuple[tuple[int, ...], np.ndarray]:
+    """Validate mesh ids and return them de-duplicated with their element indices."""
+
     unique_mesh_ids = tuple(dict.fromkeys(int(mid) for mid in mesh_ids))
     all_mesh_ids = context.mesh_ids_or_default()
     available = set(int(mid) for mid in np.unique(all_mesh_ids))
     missing = [mid for mid in unique_mesh_ids if mid not in available]
     if missing:
         raise ValueError(f"unknown mesh id(s): {missing}. available={sorted(available)}")
+    mask = np.isin(all_mesh_ids, np.asarray(unique_mesh_ids, dtype=np.int64))
+    return unique_mesh_ids, np.flatnonzero(mask)
 
+
+def _build_mesh_selection(
+    result: RunResult, mesh_ids: tuple[int, ...], *, step: int | None
+) -> MeshSelection:
+    context = RunContext.from_value(result)
+    unique_mesh_ids, elem_indices = _mesh_element_indices(context, mesh_ids)
     triangles = context.require_triangles()
     charges = context.charges_at(step)
-    mask = np.isin(all_mesh_ids, np.asarray(unique_mesh_ids, dtype=np.int64))
-    elem_indices = np.flatnonzero(mask)
 
     return MeshSelection(
         directory=result.directory,

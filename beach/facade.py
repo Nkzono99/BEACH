@@ -11,7 +11,7 @@ from typing import Any, Callable, Iterator, Mapping
 
 import numpy as np
 
-from .analysis._selection import _build_mesh_selection
+from .analysis._selection import _build_mesh_selection, _mesh_element_indices
 from .analysis.context import RunContext
 from .analysis.coulomb import calc_coulomb
 from .analysis.field_kernel import (
@@ -364,10 +364,18 @@ class Beach:
             Charge array for each requested mesh.
         """
 
-        selection = self.get_mesh(*mesh_ids, step=step)
-        if isinstance(selection, tuple):
-            return tuple(mesh.charges.copy() for mesh in selection)
-        return selection.charges.copy()
+        if len(mesh_ids) == 0:
+            raise ValueError("at least one mesh id must be provided.")
+        indices = [
+            _mesh_element_indices(self.context, (int(mesh_id),))[1]
+            for mesh_id in mesh_ids
+        ]
+        charges = np.asarray(self.context.charges_at(step))
+        # Integer indexing copies, so each returned array is independent.
+        selected = tuple(charges[index] for index in indices)
+        if len(selected) == 1:
+            return selected[0]
+        return selected
 
     calc_coulomb = _forward(calc_coulomb, kernel_step=-1)
     analyze_coulomb_mobility = _forward(analyze_coulomb_mobility)
