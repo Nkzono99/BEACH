@@ -23,6 +23,7 @@ program test_templates_importers_runtime
   character(len=*), parameter :: missing_obj_path = 'test_templates_runtime_missing.obj'
 
   character(len=*), parameter :: crlf_obj_path = 'test_templates_runtime_crlf.obj'
+  character(len=*), parameter :: long_obj_path = 'test_templates_runtime_long.obj'
 
   call get_command_argument(1, run_mode)
   if (trim(run_mode) == '--empty-mesh-probe') then
@@ -32,7 +33,7 @@ program test_templates_importers_runtime
     error stop 'empty mesh probe unexpectedly completed'
   end if
 
-  call test_init(11)
+  call test_init(12)
 
   call test_begin('uniform_annulus_large_ring_angle_order')
   ! Ring counts fit int32; their angle-comparison cross products exceed it.
@@ -195,6 +196,19 @@ program test_templates_importers_runtime
   call assert_equal_i32(mesh%nelem, 2_i32, 'CRLF OBJ triangulation count mismatch')
   call assert_close_dp(sum(mesh%panel_area), 1.0_dp, 1.0e-14_dp, 'CRLF OBJ geometry mismatch')
   call delete_file_if_exists(crlf_obj_path)
+  call test_end()
+
+  call test_begin('obj_import_long_lines')
+  call write_obj_long_line_fixture(long_obj_path, long_vertex=.false.)
+  call load_obj_mesh(long_obj_path, mesh)
+  ! The quad's fourth index lies past column 1024; a truncated read would import one triangle instead of two.
+  call assert_equal_i32(mesh%nelem, 3_i32, 'long OBJ face lines must keep every face token')
+  call assert_close_dp(sum(mesh%panel_area(1:2)), 1.0_dp, 1.0e-14_dp, 'long quad line geometry')
+  call write_obj_long_line_fixture(long_obj_path, long_vertex=.true.)
+  call load_obj_mesh(long_obj_path, mesh)
+  call assert_allclose_1d(mesh%v2(:, 3), [0.5_dp, 0.5_dp, 1.0_dp], 0.0_dp, &
+                          'long vertex line and unterminated last face line must be read')
+  call delete_file_if_exists(long_obj_path)
   call test_end()
 
   call test_begin('obj_import_slash_formats')
@@ -388,6 +402,7 @@ program test_templates_importers_runtime
   call delete_file_if_exists(obj_path)
   call delete_file_if_exists(missing_obj_path)
   call delete_file_if_exists(crlf_obj_path)
+  call delete_file_if_exists(long_obj_path)
 
   call test_summary()
 
@@ -578,6 +593,31 @@ contains
     write (u) 'f 1 2 3 4'//CR//char(10)
     close (u)
   end subroutine write_obj_crlf_fixture
+
+  !> 1024文字を超える面行（と任意で頂点行）、改行のない最終行を含むOBJフィクスチャを作成する。
+  subroutine write_obj_long_line_fixture(path, long_vertex)
+    character(len=*), intent(in) :: path
+    logical, intent(in) :: long_vertex
+    integer :: u, ios
+    character(len=1100) :: pad
+
+    pad = ''
+    open (newunit=u, file=trim(path), status='replace', action='write', &
+          form='unformatted', access='stream', iostat=ios)
+    if (ios /= 0) error stop 'failed to open long-line OBJ fixture'
+    write (u) 'v 0.0 0.0 0.0'//char(10)
+    write (u) 'v 1.0 0.0 0.0'//char(10)
+    write (u) 'v 1.0 1.0 0.0'//char(10)
+    write (u) 'v 0.0 1.0 0.0'//char(10)
+    if (long_vertex) then
+      write (u) 'v 0.5 0.5'//pad//'1.0'//char(10)
+    else
+      write (u) 'v 0.5 0.5 1.0'//char(10)
+    end if
+    write (u) 'f 1 2 3'//pad//'4'//char(10)
+    write (u) 'f 1 2 5'
+    close (u)
+  end subroutine write_obj_long_line_fixture
 
   !> slash付きvertex参照3形式を含むOBJフィクスチャを作成する。
   subroutine write_obj_slash_fixture(path)

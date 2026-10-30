@@ -410,6 +410,24 @@ def test_restart_segments_verify_and_history_combines_without_duplicates(
         tool.verify_run(second, 280000)
 
 
+def test_history_total_charge_uses_compensated_sum(tmp_path: Path) -> None:
+    tool = _load_tool()
+    history = tmp_path / "segment" / "charge_history.csv"
+    history.parent.mkdir()
+    history.write_text(
+        "batch,processed_particles,rel_change,charge_C\n"
+        "1,10,0.0,1e-15\n"
+        "1,10,0.0,1e-32\n"
+        "1,10,0.0,-1e-15\n",
+        encoding="utf-8",
+    )
+
+    rows = tool._history_rows("case", [history])
+
+    # Naive left-to-right addition loses 1e-32 against 1e-15 and returns 0.0.
+    assert [row["total_charge_C"] for row in rows] == [1e-32]
+
+
 def test_restart_child_revalidation_detects_parent_output_change(
     archive_run: Path,
     binary: Path,

@@ -510,6 +510,36 @@ def test_stage_rejects_nonempty_validation_root(
 
     with pytest.raises(tool.ValidationError, match="must be empty"):
         tool.stage_validation(archive_run, validation_root, binary)
+    assert (validation_root / "cache/periodic2/operator.bin").read_bytes() == b"stale"
+
+
+@pytest.mark.parametrize("root_exists", [False, True])
+def test_failed_stage_attempt_leaves_root_ready_for_retry(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    root_exists: bool,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    if root_exists:
+        validation_root.mkdir()
+
+    # Job scripts are written after the configs and the read-only source snapshot.
+    def fail_after_partial_staging(*_args, **_kwargs):
+        raise tool.ValidationError("injected job-script failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(tool, "_write_jobs", fail_after_partial_staging)
+        with pytest.raises(tool.ValidationError, match="injected"):
+            tool.stage_validation(archive_run, validation_root, binary)
+
+    assert validation_root.exists() is root_exists
+    assert not root_exists or not any(validation_root.iterdir())
+    manifest = tool.stage_validation(archive_run, validation_root, binary)
+    assert (validation_root / "manifest.json").is_file()
+    assert manifest["validation_root"] == str(validation_root.resolve())
 
 
 @pytest.mark.parametrize("location", ["repository", "archive"])
