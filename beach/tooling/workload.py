@@ -9,9 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from beach.config import ConfigError, normalize_high_level_config
-from beach.config._toml import load_toml_file
 from beach.config._layout import to_runtime_layout
-from beach.config.schema import schema_definition_defaults, schema_definition_property_names
+from beach.config._toml import load_toml_file
+from beach.config.schema import (
+    schema_definition_defaults,
+    schema_definition_property_names,
+)
 from beach.io.summary import load_summary_file
 
 K_BOLTZMANN = 1.380649e-23
@@ -102,7 +105,9 @@ def _defaults_from_schema(
         elif key in fallbacks:
             defaults[key] = copy.deepcopy(fallbacks[key])
         else:
-            raise ValueError(f"BEACH schema has no default for $defs.{definition}.{key}")
+            raise ValueError(
+                f"BEACH schema has no default for $defs.{definition}.{key}"
+            )
     return defaults
 
 
@@ -296,9 +301,13 @@ def _parse_boundary_inflow_surfaces(
         raise SystemExit("particles.species.boundary_inflow must be a table.")
     unknown = set(raw_inflow) - _FACES.keys()
     if unknown:
-        raise SystemExit("Unknown key in particles.species.boundary_inflow: " + sorted(unknown)[0])
+        raise SystemExit(
+            "Unknown key in particles.species.boundary_inflow: " + sorted(unknown)[0]
+        )
     if any(value != "reservoir" for value in raw_inflow.values()):
-        raise SystemExit('particles.species.boundary_inflow values must be "reservoir".')
+        raise SystemExit(
+            'particles.species.boundary_inflow values must be "reservoir".'
+        )
     box_min = [float(x) for x in sim_cfg["box_min"]]
     box_max = [float(x) for x in sim_cfg["box_max"]]
     return [
@@ -553,7 +562,9 @@ def _normalized_sections(config: dict[str, Any]) -> dict[str, Any]:
     particles_raw = config.get("particles", {})
     if not isinstance(particles_raw, dict):
         raise SystemExit("[particles] section must be a table.")
-    unknown_particles_keys = sorted(set(particles_raw) - {"species", "secondary_emission_max_generations"})
+    unknown_particles_keys = sorted(
+        set(particles_raw) - {"species", "secondary_emission_max_generations"}
+    )
     if unknown_particles_keys:
         raise SystemExit(f"Unknown key in [particles]: {unknown_particles_keys[0]}")
 
@@ -596,7 +607,9 @@ def _resolved_sim_config(normalized_config: dict[str, Any]) -> dict[str, Any]:
     return sim_cfg
 
 
-def _species_with_defaults(species_list_raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _species_with_defaults(
+    species_list_raw: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Merge each species over the defaults and record which inputs were given."""
 
     species_list: list[dict[str, Any]] = []
@@ -618,7 +631,9 @@ def _species_with_defaults(species_list_raw: list[dict[str, Any]]) -> list[dict[
     return species_list
 
 
-def _remaining_batch_count(sim_cfg: dict[str, Any], completed_batches: int) -> tuple[int, int]:
+def _remaining_batch_count(
+    sim_cfg: dict[str, Any], completed_batches: int
+) -> tuple[int, int]:
     target_batch_count = int(sim_cfg["batch_count"])
     if target_batch_count <= 0:
         raise SystemExit("sim.batch_count must be > 0")
@@ -676,7 +691,14 @@ def _source_parameters(
     return parameters
 
 
-_FACE_INDEX = {"x_low": 0, "x_high": 1, "y_low": 2, "y_high": 3, "z_low": 4, "z_high": 5}
+_FACE_INDEX = {
+    "x_low": 0,
+    "x_high": 1,
+    "y_low": 2,
+    "y_high": 3,
+    "z_low": 4,
+    "z_high": 5,
+}
 
 
 def _initial_residual_state(

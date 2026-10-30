@@ -99,10 +99,7 @@ def plot_field_lines_3d(
 
     if line_color is None:
         cmap = plt.get_cmap(line_cmap)
-        colors = [
-            cmap(index / max(len(lines) - 1, 1))
-            for index in range(len(lines))
-        ]
+        colors = [cmap(index / max(len(lines) - 1, 1)) for index in range(len(lines))]
     else:
         colors = [line_color] * len(lines)
     for line, color in zip(lines, colors):

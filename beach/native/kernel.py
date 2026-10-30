@@ -16,7 +16,6 @@ from beach.tooling._cache import default_periodic_cache_dir
 
 from .periodic2 import Periodic2Input, coerce_periodic2
 
-
 _STATUS_MESSAGES = {
     0: "ok",
     1: "invalid kernel handle",
@@ -551,9 +550,7 @@ class FieldKernel:
             field = self.eval_e(np.ascontiguousarray(target_pos.T))
             force_i = target_q[:, None] * field
             rel_pos = target_pos.T - origin_arr[None, :]
-            return np.sum(force_i, axis=0), np.sum(
-                np.cross(rel_pos, force_i), axis=0
-            )
+            return np.sum(force_i, axis=0), np.sum(np.cross(rel_pos, force_i), axis=0)
         force = np.zeros(3, dtype=np.float64)
         torque = np.zeros(3, dtype=np.float64)
         status = self._lib.beach_kernel_force_on_charges(
@@ -716,9 +713,7 @@ class FieldKernel:
 def _coerce_resolved_field_solver(value: object) -> str:
     resolved = str(value).strip().lower()
     if resolved not in {"direct", "treecode", "fmm"}:
-        raise ValueError(
-            "resolved_field_solver must be direct, treecode, or fmm."
-        )
+        raise ValueError("resolved_field_solver must be direct, treecode, or fmm.")
     return resolved
 
 

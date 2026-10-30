@@ -11,7 +11,6 @@ from beach.io._numeric import _finite_scalar, _readonly
 
 from .kernel import FieldKernelError, _load_kernel_library
 
-
 _STATUS_MESSAGES = {
     0: "ok",
     1: "invalid zero-mode handle",
@@ -186,7 +185,9 @@ def _configure_zero_mode_library(lib: ctypes.CDLL) -> None:
         "beach_zero_mode_eval",
     )
     try:
-        create, destroy, build, update, evaluate = (getattr(lib, name) for name in names)
+        create, destroy, build, update, evaluate = (
+            getattr(lib, name) for name in names
+        )
     except AttributeError as exc:
         raise FieldKernelError(
             "periodic zero-mode symbols are unavailable; rebuild with `make build-kernel`."

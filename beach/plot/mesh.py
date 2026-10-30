@@ -243,8 +243,14 @@ def plot_potential_mesh(
         periodic2_repeat=periodic2_repeat,
         context=context,
     )
-    title = "Electric potential mesh" if resolved_reference is None else "Electric potential difference mesh"
-    colorbar_label = "potential [V]" if resolved_reference is None else "potential difference [V]"
+    title = (
+        "Electric potential mesh"
+        if resolved_reference is None
+        else "Electric potential difference mesh"
+    )
+    colorbar_label = (
+        "potential [V]" if resolved_reference is None else "potential difference [V]"
+    )
     return _plot_scalar_mesh(
         plot_triangles,
         phi,

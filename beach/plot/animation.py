@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Literal, Mapping, TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable, Literal, Mapping
 
 import numpy as np
 
@@ -151,8 +151,16 @@ def animate_history_mesh(
             library_path=library_path,
             kernel=kernel,
         )
-        colorbar_label = "potential [V]" if resolved_reference is None else "potential difference [V]"
-        title_prefix = "Electric potential history" if resolved_reference is None else "Electric potential difference history"
+        colorbar_label = (
+            "potential [V]"
+            if resolved_reference is None
+            else "potential difference [V]"
+        )
+        title_prefix = (
+            "Electric potential history"
+            if resolved_reference is None
+            else "Electric potential difference history"
+        )
         use_cmap = DEFAULT_POTENTIAL_CMAP if cmap is None else cmap
     else:
         raise ValueError("quantity must be one of {'charge', 'potential'}.")

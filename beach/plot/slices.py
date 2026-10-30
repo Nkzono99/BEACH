@@ -150,7 +150,11 @@ def plot_potential_slices(
         ax.set_aspect("equal", adjustable="box")
 
     if mappable is not None:
-        label = "potential [V]" if resolved_reference is None else "potential difference [V]"
+        label = (
+            "potential [V]"
+            if resolved_reference is None
+            else "potential difference [V]"
+        )
         fig.colorbar(mappable, ax=axes, shrink=0.9, label=label)
     return fig, axes
 

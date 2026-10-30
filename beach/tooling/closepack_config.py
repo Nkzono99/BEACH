@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from beach.config._toml import load_toml_file, render_toml_document
 from beach.config._layout import TOP_LEVEL_ORDER, to_grouped_layout, to_runtime_layout
+from beach.config._toml import load_toml_file, render_toml_document
 
 SQRT2 = math.sqrt(2.0)
 DEFAULT_FLOOR_Z = 0.02
@@ -61,8 +61,7 @@ DEFAULT_BASE_CONFIG: dict[str, Any] = {
             },
         ]
     },
-    "mesh": {
-    },
+    "mesh": {},
     "output": {
         "write_files": True,
         "dir": "./outputs/latest",
@@ -114,7 +113,10 @@ class ClosePackSpec:
             raise ValueError("sphere_n_lon must be >= 3.")
         if self.sphere_n_lat < 2:
             raise ValueError("sphere_n_lat must be >= 2.")
-        if self.sphere_subdivisions is not None and not 0 <= self.sphere_subdivisions <= 10:
+        if (
+            self.sphere_subdivisions is not None
+            and not 0 <= self.sphere_subdivisions <= 10
+        ):
             raise ValueError("sphere_subdivisions must be in [0, 10] when provided.")
         if self.box_height is not None and not (
             math.isfinite(self.box_height) and self.box_height > 0.0
@@ -201,9 +203,15 @@ def generate_closepack_sphere_templates(
     dz = layer_spacing(spec.radius)
     templates: list[dict[str, Any]] = []
     if spec.sphere_subdivisions is None:
-        tessellation: dict[str, Any] = {"n_lon": spec.sphere_n_lon, "n_lat": spec.sphere_n_lat}
+        tessellation: dict[str, Any] = {
+            "n_lon": spec.sphere_n_lon,
+            "n_lat": spec.sphere_n_lat,
+        }
     else:
-        tessellation = {"tessellation": "icosphere", "subdivisions": spec.sphere_subdivisions}
+        tessellation = {
+            "tessellation": "icosphere",
+            "subdivisions": spec.sphere_subdivisions,
+        }
     for layer_index in range(spec.layers):
         basis = basis_a if layer_index % 2 == 0 else basis_b
         center_z = z0 + layer_index * dz
@@ -234,7 +242,9 @@ def build_closepack_config(
     """Build a BEACH config with a close-packed floor + sphere stack."""
 
     spec.validate()
-    config = copy.deepcopy(dict(base_config if base_config is not None else default_base_config()))
+    config = copy.deepcopy(
+        dict(base_config if base_config is not None else default_base_config())
+    )
     _ensure_table(config, "sim")
     domain = _ensure_table(config, "domain")
     particles = _ensure_table(config, "particles")
@@ -277,7 +287,9 @@ def build_closepack_config(
         _fit_species_face_to_box(species, box_min=box_min, box_max=box_max)
 
     mesh["parts"] = [
-        _build_floor_plane_template(spec=spec, box_min=box_min, width_x=width_x, width_y=width_y),
+        _build_floor_plane_template(
+            spec=spec, box_min=box_min, width_x=width_x, width_y=width_y
+        ),
         *generate_closepack_sphere_templates(spec, box_min=box_min),
     ]
 

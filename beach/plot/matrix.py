@@ -93,8 +93,7 @@ def plot_coulomb_force_matrix(
     if len(target_specs) == 0:
         available_kinds = sorted({spec.kind for spec in object_specs})
         raise ValueError(
-            "target_kinds did not match any objects. "
-            f"available={available_kinds}"
+            f"target_kinds did not match any objects. available={available_kinds}"
         )
 
     source_labels = [spec.label for spec in object_specs] + ["net"]
