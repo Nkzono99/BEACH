@@ -1750,130 +1750,24 @@ def stage_validation(
         }
 
     cache_dir = root / "cache/periodic2"
-    case_definitions = [
-        (
-            "cache_prime",
-            root / "input/cache_prime/infinite_physical.toml",
-            root / "run/cache_prime/infinite_physical",
-            "infinite_physical",
-            1,
-            1,
-            False,
-            None,
-            "miss",
-            "cache_prime",
-        ),
-        (
-            "smoke_finite_configured",
-            root / "input/smoke/finite_configured.toml",
-            root / "run/smoke/finite_configured",
-            "finite_configured",
-            100,
-            10,
-            False,
-            None,
-            "none",
-            "smoke",
-        ),
-        (
-            "smoke_infinite_physical",
-            root / "input/smoke/infinite_physical.toml",
-            root / "run/smoke/infinite_physical",
-            "infinite_physical",
-            100,
-            10,
-            False,
-            None,
-            "hit",
-            "smoke",
-        ),
-        (
-            "full_finite_configured",
-            root / "input/full/finite_configured.toml",
-            root / "run/full/finite_configured/canonical",
-            "finite_configured",
-            280000,
-            1000,
-            False,
-            None,
-            "none",
-            "canonical",
-        ),
-        (
-            "full_infinite_physical",
-            root / "input/full/infinite_physical.toml",
-            root / "run/full/infinite_physical/canonical",
-            "infinite_physical",
-            280000,
-            1000,
-            False,
-            None,
-            "hit",
-            "canonical",
-        ),
-        (
-            "full_finite_configured_140000",
-            root / "input/full/segments/finite_configured_140000.toml",
-            root / "run/full/finite_configured/140000",
-            "finite_configured",
-            140000,
-            1000,
-            False,
-            None,
-            "none",
-            "segment",
-        ),
-        (
-            "full_finite_configured_280000",
-            root / "input/full/segments/finite_configured_280000.toml",
-            root / "run/full/finite_configured/280000",
-            "finite_configured",
-            280000,
-            1000,
-            True,
-            root / "run/full/finite_configured/140000",
-            "none",
-            "segment",
-        ),
-        (
-            "full_infinite_physical_140000",
-            root / "input/full/segments/infinite_physical_140000.toml",
-            root / "run/full/infinite_physical/140000",
-            "infinite_physical",
-            140000,
-            1000,
-            False,
-            None,
-            "hit",
-            "segment",
-        ),
-        (
-            "full_infinite_physical_280000",
-            root / "input/full/segments/infinite_physical_280000.toml",
-            root / "run/full/infinite_physical/280000",
-            "infinite_physical",
-            280000,
-            1000,
-            True,
-            root / "run/full/infinite_physical/140000",
-            "hit",
-            "segment",
-        ),
-    ]
     cases: dict[str, dict[str, Any]] = {}
-    for definition in case_definitions:
-        (
-            name,
-            config_path,
-            output_dir,
-            periodic_model,
-            batch_count,
-            history_stride,
-            resume,
-            restart_from,
-            cache_expectation,
-            role,
-        ) = definition
+    # EXPECTED_CASE_GRAPH is the one declaration of the case DAG: staging writes
+    # it here and verify_inputs checks the manifest against it.
+    for name, expected in EXPECTED_CASE_GRAPH.items():
+        config_path = root / str(expected["config_relative"])
+        output_dir = root / str(expected["output_relative"])
+        periodic_model = str(expected["periodic_model"])
+        batch_count = int(expected["batch_count"])
+        history_stride = int(expected["history_stride"])
+        resume = bool(expected["resume"])
+        restart_case = expected["restart_case"]
+        restart_from = (
+            None
+            if restart_case is None
+            else root / str(EXPECTED_CASE_GRAPH[str(restart_case)]["output_relative"])
+        )
+        cache_expectation = str(expected["cache_expectation"])
+        role = str(expected["role"])
         config = _case_config(
             archive_config,
             periodic_model=periodic_model,
