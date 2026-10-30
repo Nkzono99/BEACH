@@ -649,6 +649,16 @@ class ObjectProbe:
             target_points_m=target_points,
             primary=self._primary,
         )
+        physical_fields = _physical_field_components(fields)
+        physical = {
+            name: _aggregate_wrench(
+                target_points,
+                self._target_charge_weights_C,
+                *physical_fields[name],
+                torque_origin_m,
+            )
+            for name in (_PHYSICAL_COMPONENTS if components else ("total_external",))
+        }
         p_other = fields["p_other"]
         z_other = fields["z_other"]
         p_target = fields["p_target"]
@@ -656,44 +666,6 @@ class ObjectProbe:
         trace_other = fields["trace_other"]
         trace_target = fields["trace_target"]
         direct = fields["direct"]
-        uniform = fields["uniform"]
-
-        other_field = p_other[0] + z_other[0]
-        other_phi = p_other[1] + z_other[1]
-        images_field = p_target[0] + z_target[0] - direct[0]
-        images_phi = p_target[1] + z_target[1] - direct[1]
-        total_field = other_field + images_field + uniform[0]
-        total_phi = other_phi + images_phi + uniform[1]
-        physical = {
-            "other_objects_all_images": _aggregate_wrench(
-                target_points,
-                self._target_charge_weights_C,
-                other_field,
-                other_phi,
-                torque_origin_m,
-            ),
-            "target_periodic_images": _aggregate_wrench(
-                target_points,
-                self._target_charge_weights_C,
-                images_field,
-                images_phi,
-                torque_origin_m,
-            ),
-            "external_uniform": _aggregate_wrench(
-                target_points,
-                self._target_charge_weights_C,
-                uniform[0],
-                uniform[1],
-                torque_origin_m,
-            ),
-            "total_external": _aggregate_wrench(
-                target_points,
-                self._target_charge_weights_C,
-                total_field,
-                total_phi,
-                torque_origin_m,
-            ),
-        }
         total = physical["total_external"]
         cached = (
             self._snapshot._options.periodic2 is not None
