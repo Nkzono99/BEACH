@@ -97,6 +97,10 @@ def test_probe_periodic_oracles_deeply_validates_payload_before_publish(
         tool.probe_periodic_oracles(validation_root, library)
 
     assert not receipt.exists()
+    # The failed attempt's cache and config must not block a corrected retry.
+    oracle = _fake_periodic_kernel_oracle()
+    assert tool.probe_periodic_oracles(validation_root, library)["status"] == "qualified"
+    assert receipt.is_file()
 
 
 @pytest.mark.parametrize("shared_operator", [False, True])

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import contextlib
 import copy
 import csv
 import hashlib
@@ -820,6 +821,34 @@ def _write_json(path: Path, value: Any) -> None:
         json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+
+
+@contextlib.contextmanager
+def _discard_attempt_on_failure(*directories: Path) -> Iterator[None]:
+    """Undo a failed attempt's writes to directories that were empty or absent.
+
+    The callers check that each directory is empty before writing, so everything
+    in it on failure belongs to the failed attempt. Removing it lets the next
+    attempt start, while a completed result still meets the non-empty guard.
+    """
+
+    existed = [directory.exists() for directory in directories]
+    try:
+        yield
+    except BaseException:
+        for directory, kept in zip(directories, existed):
+            if directory.is_symlink() or not directory.is_dir():
+                continue
+            # Source snapshots are made read-only; restore write access to delete.
+            for path in directory.rglob("*"):
+                if path.is_dir() and not path.is_symlink():
+                    path.chmod(0o755)
+            for entry in list(directory.iterdir()) if kept else [directory]:
+                if entry.is_dir() and not entry.is_symlink():
+                    shutil.rmtree(entry)
+                else:
+                    entry.unlink()
+        raise
 
 
 def _sha256(path: Path) -> str:
@@ -1716,166 +1745,167 @@ def stage_validation(
     if (root / "manifest.json").exists():
         raise ValidationError(f"validation root is already staged: {root}")
 
-    for relative in (
-        "archive",
-        "bin",
-        "cache/periodic2",
-        "cache/oracles",
-        "input/source",
-        "input/cache_prime",
-        "input/smoke",
-        "input/full/segments",
-        "run/cache_prime",
-        "run/smoke",
-        "run/full/finite_configured",
-        "run/full/infinite_physical",
-        "submit/logs",
-        "provenance/time",
-        "provenance/oracles",
-        "analysis",
-    ):
-        (root / relative).mkdir(parents=True, exist_ok=True)
+    with _discard_attempt_on_failure(root):
+        for relative in (
+            "archive",
+            "bin",
+            "cache/periodic2",
+            "cache/oracles",
+            "input/source",
+            "input/cache_prime",
+            "input/smoke",
+            "input/full/segments",
+            "run/cache_prime",
+            "run/smoke",
+            "run/full/finite_configured",
+            "run/full/infinite_physical",
+            "submit/logs",
+            "provenance/time",
+            "provenance/oracles",
+            "analysis",
+        ):
+            (root / relative).mkdir(parents=True, exist_ok=True)
 
-    source_copy = root / "input/source/archive_beach.toml"
-    shutil.copy2(archive_input, source_copy)
-    staged_binary = root / "bin" / commit / "beach"
-    staged_binary.parent.mkdir(parents=True, exist_ok=True)
-    if binary_path != staged_binary:
-        shutil.copy2(binary_path, staged_binary)
-    staged_binary.chmod(0o555)
-    analysis_library: dict[str, Any] | None = None
-    if library_path is not None:
-        staged_library = root / "lib" / commit / library_path.name
-        staged_library.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(library_path, staged_library)
-        staged_library.chmod(0o555)
-        analysis_library = {
-            "provided_path": str(library_path),
-            "staged_path": str(staged_library),
-            "sha256": _sha256(staged_library),
-        }
+        source_copy = root / "input/source/archive_beach.toml"
+        shutil.copy2(archive_input, source_copy)
+        staged_binary = root / "bin" / commit / "beach"
+        staged_binary.parent.mkdir(parents=True, exist_ok=True)
+        if binary_path != staged_binary:
+            shutil.copy2(binary_path, staged_binary)
+        staged_binary.chmod(0o555)
+        analysis_library: dict[str, Any] | None = None
+        if library_path is not None:
+            staged_library = root / "lib" / commit / library_path.name
+            staged_library.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(library_path, staged_library)
+            staged_library.chmod(0o555)
+            analysis_library = {
+                "provided_path": str(library_path),
+                "staged_path": str(staged_library),
+                "sha256": _sha256(staged_library),
+            }
 
-    cache_dir = root / "cache/periodic2"
-    cases: dict[str, dict[str, Any]] = {}
-    # EXPECTED_CASE_GRAPH is the one declaration of the case DAG: staging writes
-    # it here and verify_inputs checks the manifest against it.
-    for name, expected in EXPECTED_CASE_GRAPH.items():
-        config_path = root / str(expected["config_relative"])
-        output_dir = root / str(expected["output_relative"])
-        periodic_model = str(expected["periodic_model"])
-        batch_count = int(expected["batch_count"])
-        history_stride = int(expected["history_stride"])
-        resume = bool(expected["resume"])
-        restart_case = expected["restart_case"]
-        restart_from = (
-            None
-            if restart_case is None
-            else root / str(EXPECTED_CASE_GRAPH[str(restart_case)]["output_relative"])
-        )
-        cache_expectation = str(expected["cache_expectation"])
-        role = str(expected["role"])
-        config = _case_config(
-            archive_config,
-            periodic_model=periodic_model,
-            batch_count=batch_count,
-            history_stride=history_stride,
-            output_dir=output_dir,
-            cache_dir=cache_dir,
-            resume=resume,
-            restart_from=restart_from,
-        )
-        from beach.config import to_grouped_layout
-        _write_toml(config_path, to_grouped_layout(config))
-        spec = _case_spec(
+        cache_dir = root / "cache/periodic2"
+        cases: dict[str, dict[str, Any]] = {}
+        # EXPECTED_CASE_GRAPH is the one declaration of the case DAG: staging writes
+        # it here and verify_inputs checks the manifest against it.
+        for name, expected in EXPECTED_CASE_GRAPH.items():
+            config_path = root / str(expected["config_relative"])
+            output_dir = root / str(expected["output_relative"])
+            periodic_model = str(expected["periodic_model"])
+            batch_count = int(expected["batch_count"])
+            history_stride = int(expected["history_stride"])
+            resume = bool(expected["resume"])
+            restart_case = expected["restart_case"]
+            restart_from = (
+                None
+                if restart_case is None
+                else root / str(EXPECTED_CASE_GRAPH[str(restart_case)]["output_relative"])
+            )
+            cache_expectation = str(expected["cache_expectation"])
+            role = str(expected["role"])
+            config = _case_config(
+                archive_config,
+                periodic_model=periodic_model,
+                batch_count=batch_count,
+                history_stride=history_stride,
+                output_dir=output_dir,
+                cache_dir=cache_dir,
+                resume=resume,
+                restart_from=restart_from,
+            )
+            from beach.config import to_grouped_layout
+            _write_toml(config_path, to_grouped_layout(config))
+            spec = _case_spec(
+                root,
+                name=name,
+                config_path=config_path,
+                output_dir=output_dir,
+                periodic_model=periodic_model,
+                batch_count=batch_count,
+                history_stride=history_stride,
+                resume=resume,
+                restart_from=restart_from,
+                cache_expectation=cache_expectation,
+                role=role,
+            )
+            spec["config_sha256"] = _sha256(config_path)
+            cases[name] = spec
+
+        source_snapshot = _snapshot_python_source(root, commit)
+        jobs = _write_jobs(
             root,
-            name=name,
-            config_path=config_path,
-            output_dir=output_dir,
-            periodic_model=periodic_model,
-            batch_count=batch_count,
-            history_stride=history_stride,
-            resume=resume,
-            restart_from=restart_from,
-            cache_expectation=cache_expectation,
-            role=role,
+            archive_path,
+            staged_binary,
+            cases,
+            source_commit=commit,
+            source_snapshot=source_snapshot,
+            analysis_library=analysis_library,
         )
-        spec["config_sha256"] = _sha256(config_path)
-        cases[name] = spec
-
-    source_snapshot = _snapshot_python_source(root, commit)
-    jobs = _write_jobs(
-        root,
-        archive_path,
-        staged_binary,
-        cases,
-        source_commit=commit,
-        source_snapshot=source_snapshot,
-        analysis_library=analysis_library,
-    )
-    executable_state = _archive_executable_state(archive_path)
-    manifest: dict[str, Any] = {
-        "schema_version": 1,
-        "created_at": _utc_now(),
-        "validation_root": str(root),
-        "archive": {
-            "run": str(archive_path),
-            "input": str(archive_input),
-            "input_sha256": _sha256(archive_input),
-            "source_copy": str(source_copy),
-            "version": _archive_version(archive_path),
-            "manifest_sha256": _sha256(archive_path / "manifest.toml"),
-            "job_resources": archive_resources,
-            "expected_output": archive_output,
-            "analysis_inputs": archive_analysis_inputs,
-            "analysis_outputs": archive_analysis_outputs,
-            "mesh_source_contract": archive_mesh_source_contract,
-            **executable_state,
-            "provenance_limitation": (
-                "archived output spans parent/child executables; exact archived "
-                "binary is not assumed available"
-            ),
-        },
-        "source": git,
-        "build_origin": build_origin,
-        "source_snapshot": source_snapshot,
-        "binary": {
-            "provided_path": str(binary_path),
-            "staged_path": str(staged_binary),
-            "sha256": _sha256(staged_binary),
-        },
-        "analysis_library": analysis_library,
-        "resources": dict(EXPECTED_RESOURCES),
-        "modules": [
-            part for part in os.environ.get("LOADEDMODULES", "").split(":") if part
-        ],
-        "allowed_differences": list(ALLOWED_DIFFERENCES),
-        "execution": {
-            "require_clean_source": require_clean_source,
-            "fresh_resume": False,
-            "segment_batches": [140000, 280000],
-            "immutable_segment_outputs": True,
-            "canonical_finite_representation": (
-                "archived physics unchanged; output path and strict fresh-start "
-                "resume=false are operational differences"
-            ),
-            "restart_policy": (
-                "280000 segments read verified 140000 checkpoints through "
-                "output.restart_from and write separate output directories"
-            ),
-        },
-        "receipt_policy": dict(RECEIPT_POLICY),
-        "cases": cases,
-        "scripts": {
-            path.name: {"path": str(path), "sha256": _sha256(path)} for path in jobs
-        },
-    }
-    _write_json(root / "manifest.json", manifest)
-    _write_json(root / "provenance/source.json", git)
-    _write_json(
-        root / "archive/source.json",
-        {"archive": manifest["archive"], "interpretation": manifest["execution"]},
-    )
-    return manifest
+        executable_state = _archive_executable_state(archive_path)
+        manifest: dict[str, Any] = {
+            "schema_version": 1,
+            "created_at": _utc_now(),
+            "validation_root": str(root),
+            "archive": {
+                "run": str(archive_path),
+                "input": str(archive_input),
+                "input_sha256": _sha256(archive_input),
+                "source_copy": str(source_copy),
+                "version": _archive_version(archive_path),
+                "manifest_sha256": _sha256(archive_path / "manifest.toml"),
+                "job_resources": archive_resources,
+                "expected_output": archive_output,
+                "analysis_inputs": archive_analysis_inputs,
+                "analysis_outputs": archive_analysis_outputs,
+                "mesh_source_contract": archive_mesh_source_contract,
+                **executable_state,
+                "provenance_limitation": (
+                    "archived output spans parent/child executables; exact archived "
+                    "binary is not assumed available"
+                ),
+            },
+            "source": git,
+            "build_origin": build_origin,
+            "source_snapshot": source_snapshot,
+            "binary": {
+                "provided_path": str(binary_path),
+                "staged_path": str(staged_binary),
+                "sha256": _sha256(staged_binary),
+            },
+            "analysis_library": analysis_library,
+            "resources": dict(EXPECTED_RESOURCES),
+            "modules": [
+                part for part in os.environ.get("LOADEDMODULES", "").split(":") if part
+            ],
+            "allowed_differences": list(ALLOWED_DIFFERENCES),
+            "execution": {
+                "require_clean_source": require_clean_source,
+                "fresh_resume": False,
+                "segment_batches": [140000, 280000],
+                "immutable_segment_outputs": True,
+                "canonical_finite_representation": (
+                    "archived physics unchanged; output path and strict fresh-start "
+                    "resume=false are operational differences"
+                ),
+                "restart_policy": (
+                    "280000 segments read verified 140000 checkpoints through "
+                    "output.restart_from and write separate output directories"
+                ),
+            },
+            "receipt_policy": dict(RECEIPT_POLICY),
+            "cases": cases,
+            "scripts": {
+                path.name: {"path": str(path), "sha256": _sha256(path)} for path in jobs
+            },
+        }
+        _write_json(root / "manifest.json", manifest)
+        _write_json(root / "provenance/source.json", git)
+        _write_json(
+            root / "archive/source.json",
+            {"archive": manifest["archive"], "interpretation": manifest["execution"]},
+        )
+        return manifest
 
 
 def _normalize_config(config: Mapping[str, Any]) -> dict[str, Any]:
@@ -9031,44 +9061,45 @@ def probe_periodic_oracles(
         raise ValidationError(
             "periodic oracle provenance directory must be empty without a receipt"
         )
-    _oracle_panel_config(config_path)
-    kernel_oracles = {
-        "triangle_p0": _run_periodic_plane_kernel_oracle(
-            root=root,
-            config_path=config_path,
-            cache_dir=cache_dir,
-            library_path=library_path,
-        ),
-    }
-    report = {
-        "receipt_schema_version": 1,
-        "oracle_schema_version": 3,
-        "status": "qualified",
-        "manifest_sha256": _sha256(root / "manifest.json"),
-        "library": str(library_path),
-        "library_sha256": _sha256(library_path),
-        "config": str(config_path),
-        "config_sha256": _sha256(config_path),
-        "kernel_configs": {
-            "triangle_p0": {
-                "path": str(config_path),
-                "sha256": _sha256(config_path),
+    with _discard_attempt_on_failure(cache_dir, config_path.parent):
+        _oracle_panel_config(config_path)
+        kernel_oracles = {
+            "triangle_p0": _run_periodic_plane_kernel_oracle(
+                root=root,
+                config_path=config_path,
+                cache_dir=cache_dir,
+                library_path=library_path,
+            ),
+        }
+        report = {
+            "receipt_schema_version": 1,
+            "oracle_schema_version": 3,
+            "status": "qualified",
+            "manifest_sha256": _sha256(root / "manifest.json"),
+            "library": str(library_path),
+            "library_sha256": _sha256(library_path),
+            "config": str(config_path),
+            "config_sha256": _sha256(config_path),
+            "kernel_configs": {
+                "triangle_p0": {
+                    "path": str(config_path),
+                    "sha256": _sha256(config_path),
+                },
             },
-        },
-        "cache_dir": str(cache_dir),
-        "cache_files": _output_inventory(cache_dir),
-        "execution_job_id": os.environ.get("SLURM_JOB_ID", "manual"),
-        "kernel_oracles": kernel_oracles,
-        "verified_at": _utc_now(),
-    }
-    if manifest.get("build_origin") is not None:
-        report["library_build_origin"] = manifest["build_origin"]
-    _verify_periodic_oracle_receipt(
-        root,
-        library_path,
-        _candidate_receipt=report,
-    )
-    return _publish_execution_receipt(receipt_path, report)
+            "cache_dir": str(cache_dir),
+            "cache_files": _output_inventory(cache_dir),
+            "execution_job_id": os.environ.get("SLURM_JOB_ID", "manual"),
+            "kernel_oracles": kernel_oracles,
+            "verified_at": _utc_now(),
+        }
+        if manifest.get("build_origin") is not None:
+            report["library_build_origin"] = manifest["build_origin"]
+        _verify_periodic_oracle_receipt(
+            root,
+            library_path,
+            _candidate_receipt=report,
+        )
+        return _publish_execution_receipt(receipt_path, report)
 
 
 def _parser() -> argparse.ArgumentParser:
