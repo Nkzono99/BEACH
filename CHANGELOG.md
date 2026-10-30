@@ -17,6 +17,80 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   浮遊電位（流入面に対して −3.76 V）まで帯電する 10000 batch（5 s）を追う。`examples/tutorial_floating_analysis.py` は
   電位差、板の電荷、粒子種ごとの吸収数を電流の釣り合いの式と比べる。電子ビームのケース
   （`examples/tutorial_electron_beam.toml`、`examples/tutorial_beam_analysis.py`）は削除した。
+- 初期 Zhao 根と mesh 識別子（`mesh_fingerprint`）を run 開始時に一度だけ求め、定期 checkpoint と最終出力の
+  `summary.txt` で再利用するようにした（#60）。
+  同梱の zero_current 例では checkpoint 1 回あたり約 0.4 s の Zhao 求解が、
+  20 万要素の mesh では約 4.6 s の識別子計算が不要になる。`summary.txt` の内容は変わらない。
+- `test_mpi_hybrid` の rank 数変更 restart 試験に、1 rank で書いた checkpoint を全 rank で継続する方向と、
+  非整数の reservoir 残差と batch 1 の電荷が batch 2 の軌道を曲げる fixture を追加した（#75）。
+- 周期物体検証ツールの電荷履歴の batch 合計を、他の集計と同じ `math.fsum` にした（#59）。
+- `run.batch.particle_distribution = "shared"`
+  で各 rank が global slot 数分の粒子配列・フラグ・slot 表を持たなくなり、
+  claim した分だけを保持するようにした（不足時は claim の合間に 1.5 倍以上へ拡張）（#60）。
+  4M 粒子/batch・2 rank で rank あたりのピークメモリが約 620 MB から約 350 MB に減る。
+  slot 順・乱数・結果は変わらない。
+- static 分配の batch 生成で一時配列を経由せず粒子を直接書き込み、
+  二次電子の世代追加で全粒子を毎回写し直さないようにした（4M 粒子/batch・1 rank でピークメモリ約 950 MB → 約 600 MB）（#58, #60）。
+- counter-based 乱数で同じ鍵の連続 draw を 1 つの PCG64 生成器から引くようにした（値は従来と同一）（#60）。
+- 固定電流 closure を使わない実行で raw 電荷の集計と MPI 合計を省き、
+  吸収 channel の補正を種ごとの全粒子走査なしで行うようにした。
+  reservoir 面の電位格子を layout ごとに面あたり 1 回だけ評価するようにした（#60）。
+- 実行終了時の標準出力で全要素の電荷（`mesh charges=`）を出さず、
+  `mesh_charge_sum_C`・`mesh_charge_min_C`・`mesh_charge_max_C` を表示するようにした（#60）。
+  要素ごとの電荷は従来どおり `charges.csv` にある。
+- periodic2 の upper Fourier 切替高さの自動選択で、
+  proxy 電荷 pattern ごとの source 和を 1 回だけ作るようにした（従来は候補 16 高さごと）。
+  mesh ごとの中央値 pattern は要素を mesh id 順に 1 回並べて求め、mesh 数に比例した全要素走査をなくした。
+  選択される高さと mismatch は変わらない（#60）。
+- periodic zero-mode の state 更新は確保済み配列を再利用し、
+  gauge 高さの電荷原始関数を更新時に 1 回だけ計算するようにした（評価点ごとの区間探索をなくした）（#60）。
+- FMM plan 構築で、読まれていなかった遠方 node 一覧を作らず、周期 wrap で動かない panel の幾何を作り直さず、
+  octree 分割の作業配列を固定長にした。finite_images の seam 探索のソートを O(N log N) にした。
+  結果は変わらない（#60）。
+- cached_kneq0 operator の checksum を target block ごとに計算し、
+  operator 全体の byte 複製をなくした（checksum 値と cache 形式は同じ）。
+  MPI を使わない run では operator の flatten/reshape 複製をしない（#60）。
+- periodic2 の run 開始時、
+  canonical cell への平行移動が要らない mesh では幾何と collision grid を作り直さないようにした（公開の
+  `prepare_periodic2_collision_mesh` は従来どおり常に再構築する）（#60）。
+- 再直交化 QR の実装を `bem_regularized_qr` の 1 つに統一し、
+  FMM plan と Ewald 補助データの reset を型の既定値で行うようにした（#58）。
+- `ObjectProbe.vertical_path` の適応細分化で、評価済みの高さ（格子点と分割しなかった区間の中点）
+  を再評価しないようにした。1 高さで評価点上限を超える target は評価点方向にも分割する。
+  高さごとの位置エネルギーは評価のまとめ方に依存しない行ごとの和で求め、従来値との差は最大 2 ULP（#60）。
+- `Beach` の転送メソッドを別の `step` で呼んでも、
+  同じ周期条件・FMM 設定の kernel が開いていれば電荷を一時的に入れ替えて使い、
+  step ごとに kernel を増やさないようにした（#60）。
+- `animate_history_mesh` は選んだフレームだけを読み、履歴全体を展開しない。`compute_potential_slices`
+  は 3 面の全点配列を作らず chunk ごとに評価する（#60）。
+- 設定 1 回の読込で schema validator を 1 回だけ構築するようにした。release 判定の仕事積分表、
+  boxplot の重み付き四分位数、runops の stderr 末尾の読み込みもそれぞれ 1 回にした（#60）。
+- `FieldKernel.source_count` を追加した。`Beach.get_mesh_charge` は `mesh_triangles.csv` がなくても電荷を返す（#60）。
+- `Beach` のメソッドが ParamSpec により元の関数の引数と戻り値の型を型チェッカーと補完に示すようにした（#58）。
+- Python の formatter（`ruff format`）と import 整列を path 単位で段階導入し、第 1 段階として
+  `beach/native`・`beach/plot`・`beach/tooling`・`beach/facade.py` を整形した（#58）。`make python-lint`（L0）
+  がこれらの format を検査し、`make python-format` で整形できる。dev 依存の Ruff は minor の範囲（0.17 系）
+  に固定した。
+- 周期 object 検証ツールの job 構成（script、job 名、walltime、担当 case）
+  と object 評価 plan（charge-history batch と target mesh）を 1 か所の定義から導出するようにした（#58）。
+  生成される job script と検証内容は変わらない。
+
+### Fixed
+
+- `beach --check-config`（Fortran preflight）が、JSON schema だけが拒否していた
+  `particles.tracking.max_steps_per_particle = 0`、`output.enabled = false` での `[run.restart]`、`inflow` を持たない
+  `volume_seed` 種の `sampling.target_macro_particles_per_batch` を受理していた。
+  preflight でも公開キー名を示して停止する。
+- periodic2 FMM の点評価で、周期下端の半 ulp 未満だけ下の点が `modulo` の丸めで上端 `lo+L` に写り、
+  leaf 探索で再度折り返されて反対端の leaf が選ばれていた。この点の電場・電位は 1 周期離れた位置の展開で評価され、
+  桁違いに誤っていた。評価点と source を `[lo, lo+L)` へ一度だけ折り返す（#60）。
+- OBJ メッシュの読込で 1024 文字を超える行を切り詰めず、行末まで読むようにした。
+  長い面行が短い別の面として取り込まれることがなくなった（#59）。
+- Zhao 外部シースの outflow refresh で、解けた根の closure が棄却されたとき、
+  外部根を前回の受理状態のまま残すようにした（#59）。これまでは外部根だけが進み、
+  次回の refresh と restart の再構成がずれていた。
+- 周期物体検証ツールの stage / probe-periodic-oracles が途中で失敗したとき、その試行の生成物を消すようにした（#59）。
+  receipt のない作業域が次の試行を止めることがなくなった。
 
 ## [4.1.0] - 2026-10-30
 
@@ -75,6 +149,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   4681 node だけを確保する。MPI の配列集約は `MPI_IN_PLACE` で作業配列を使わない。
 - `ObjectForcePath.evaluate_release` は全区間の評価点をまとめて積分し、鉛直経路の box 検査は変位の最小・最大だけを
   使う。結果は変わらない。
+- Python の解析・描画 test を、形状ではなく値で検査するようにした（#76）。対象は電位 slice の全格子と座標対応、
+  Coulomb force matrix の各成分、boxplot の加重四分位と描画量、GIF の frame 内容、`far_correction`
+  正規化後の kernel option、history 全体での kernel 1 個の再利用である。
+- `beachx lint` の設定契約 test を整理した（#77）。schema が拒否する入力は native checker なしで schema 診断を照合し、
+  preflight が拒否する入力は Fortran 診断を照合する。
+  batch duration の overflow/underflow ケースは schema で先に拒否されていたため、native 検査に届く入力に直した。
+  `probe_library` の返却値と charge-ledger 自己 probe の期待診断も検査する。
+- `surface_side = "outward_closed"` の辺の照合を全辺対全辺の探索から許容差格子の hash に置き換え、
+  part ごとに自身の要素だけを処理するようにした（#62）。8192 三角形の閉曲面で 11.8 s → 0.009 s。判定結果、エラー、
+  vacuum normal は変わらない。
+- native field kernel（`FieldKernel`）は、
+  非周期 plan の FMM 木・演算子・展開を最初の FMM 評価まで作らないようにした（#63）。
+  exact-direct だけを使う評価（`resolved_field_solver = "direct"`、ObjectProbe の primary kernel）
+  では構築と電荷更新が大幅に軽くなり、32768 panel ではピークメモリが 4.1 GB から 17 MB に減る。結果は bit 単位で同じ。
+  同じ handle の評価を複数の host thread から同時に呼ぶ場合は、呼出し側で直列化する必要がある。
+- 数値テストの検出力を強化した（#74）。NaN/Inf を相対誤差比較より前に拒否し、
+  panel kernel テストの標本を overflow しない乱数へ置き換え、
+  非零原点 FMM box で box 内 target の E と phi を直接総和と比較し、
+  Python 側の許容差を物理スケールに合わせて明示する。
+- runtime テストで粒子状態・空間分配・出力値を検査するようにした（#75）。legacy sampler の分布モーメント、
+  Whipple 収率曲線、append の全フィールド、fixed-current 補正の要素分配、テンプレートの寸法と cap、
+  履歴 CSV の値と列順、reservoir の絶対粒子数が対象。
+- 並列条件と再開を検証するようにした（#75）。OpenMP replay が 4 スレッドで走ったことを確認し、`make test-mpi`
+  は要求した rank 数（`BEACH_TEST_MPI_RANKS`）と一致しなければ失敗する。
+  多 rank の checkpoint を 1 rank で継続した結果を中断なしの実行と比較し、
+  adaptive sub-step の着地点を細かい固定 step の参照と比較する。
 
 ### Removed
 
@@ -149,6 +249,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `ObjectProbe.vertical_path` の適応細分化が、区間ごとの判定を通ると返す grid の経路全体の work/potential 一致を
   確かめずに終了し、細分化の余力を残したまま `work_potential_mismatch` で未収束を返していた問題を直した。
   経路全体の一致を loop 内の受理条件に含め、不一致なら区間幅に比例して許容を配分し、超えた区間を細分化する（#81）。
+- physics release gate が、列の欠けた行・非有限の metric・空の acceptance を含む `convergence.csv`
+  でも成功 manifest を作る問題を直した（#77）。各行に 6 列を要求し、`metric_1`・`metric_2` は有限値、`metric_3`
+  は空欄か有限値、`acceptance` は空でない値とする。満たさない行があれば `convergence.status=failed_malformed_row`
+  で失敗する。
 
 ## [4.0.0] - 2026-10-23
 
