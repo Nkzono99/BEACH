@@ -125,17 +125,17 @@ def animate_history_mesh(
         context=context,
     )
     history = context.require_history()
-    charge_history = history.as_array()
     batch_indices = history.batch_indices
     processed_by_batch = history.processed_particles_by_batch
     rel_change_by_batch = history.rel_change_by_batch
     quantity_key = quantity.lower()
     frame_cols = _select_frame_columns(
-        charge_history.shape[1],
+        batch_indices.size,
         frame_stride=frame_stride,
         total_frames=total_frames,
     )
-    charges_sampled = charge_history[:, frame_cols]
+    # Read only the selected snapshots instead of the whole (nelem, nsnapshot) history.
+    charges_sampled = history._select_columns(frame_cols)
 
     if quantity_key == "charge":
         values_history = _surface_charge_density_history(charges_sampled, triangles)

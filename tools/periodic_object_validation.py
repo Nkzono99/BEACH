@@ -19,7 +19,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 try:
     import tomllib
@@ -773,19 +773,6 @@ def _write_json(path: Path, value: Any) -> None:
         json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
-
-
-def _write_json_atomic(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(
-            json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _sha256(path: Path) -> str:
@@ -1763,130 +1750,24 @@ def stage_validation(
         }
 
     cache_dir = root / "cache/periodic2"
-    case_definitions = [
-        (
-            "cache_prime",
-            root / "input/cache_prime/infinite_physical.toml",
-            root / "run/cache_prime/infinite_physical",
-            "infinite_physical",
-            1,
-            1,
-            False,
-            None,
-            "miss",
-            "cache_prime",
-        ),
-        (
-            "smoke_finite_configured",
-            root / "input/smoke/finite_configured.toml",
-            root / "run/smoke/finite_configured",
-            "finite_configured",
-            100,
-            10,
-            False,
-            None,
-            "none",
-            "smoke",
-        ),
-        (
-            "smoke_infinite_physical",
-            root / "input/smoke/infinite_physical.toml",
-            root / "run/smoke/infinite_physical",
-            "infinite_physical",
-            100,
-            10,
-            False,
-            None,
-            "hit",
-            "smoke",
-        ),
-        (
-            "full_finite_configured",
-            root / "input/full/finite_configured.toml",
-            root / "run/full/finite_configured/canonical",
-            "finite_configured",
-            280000,
-            1000,
-            False,
-            None,
-            "none",
-            "canonical",
-        ),
-        (
-            "full_infinite_physical",
-            root / "input/full/infinite_physical.toml",
-            root / "run/full/infinite_physical/canonical",
-            "infinite_physical",
-            280000,
-            1000,
-            False,
-            None,
-            "hit",
-            "canonical",
-        ),
-        (
-            "full_finite_configured_140000",
-            root / "input/full/segments/finite_configured_140000.toml",
-            root / "run/full/finite_configured/140000",
-            "finite_configured",
-            140000,
-            1000,
-            False,
-            None,
-            "none",
-            "segment",
-        ),
-        (
-            "full_finite_configured_280000",
-            root / "input/full/segments/finite_configured_280000.toml",
-            root / "run/full/finite_configured/280000",
-            "finite_configured",
-            280000,
-            1000,
-            True,
-            root / "run/full/finite_configured/140000",
-            "none",
-            "segment",
-        ),
-        (
-            "full_infinite_physical_140000",
-            root / "input/full/segments/infinite_physical_140000.toml",
-            root / "run/full/infinite_physical/140000",
-            "infinite_physical",
-            140000,
-            1000,
-            False,
-            None,
-            "hit",
-            "segment",
-        ),
-        (
-            "full_infinite_physical_280000",
-            root / "input/full/segments/infinite_physical_280000.toml",
-            root / "run/full/infinite_physical/280000",
-            "infinite_physical",
-            280000,
-            1000,
-            True,
-            root / "run/full/infinite_physical/140000",
-            "hit",
-            "segment",
-        ),
-    ]
     cases: dict[str, dict[str, Any]] = {}
-    for definition in case_definitions:
-        (
-            name,
-            config_path,
-            output_dir,
-            periodic_model,
-            batch_count,
-            history_stride,
-            resume,
-            restart_from,
-            cache_expectation,
-            role,
-        ) = definition
+    # EXPECTED_CASE_GRAPH is the one declaration of the case DAG: staging writes
+    # it here and verify_inputs checks the manifest against it.
+    for name, expected in EXPECTED_CASE_GRAPH.items():
+        config_path = root / str(expected["config_relative"])
+        output_dir = root / str(expected["output_relative"])
+        periodic_model = str(expected["periodic_model"])
+        batch_count = int(expected["batch_count"])
+        history_stride = int(expected["history_stride"])
+        resume = bool(expected["resume"])
+        restart_case = expected["restart_case"]
+        restart_from = (
+            None
+            if restart_case is None
+            else root / str(EXPECTED_CASE_GRAPH[str(restart_case)]["output_relative"])
+        )
+        cache_expectation = str(expected["cache_expectation"])
+        role = str(expected["role"])
         config = _case_config(
             archive_config,
             periodic_model=periodic_model,
@@ -3601,7 +3482,6 @@ def _case_result(
     try:
         run = Beach(output, config_path=config_path)
         result = run.result
-        charges = [float(value) for value in result.charges]
         row = {
             "case": case,
             "status": "available",
@@ -3617,7 +3497,7 @@ def _case_result(
             "escaped_boundary": result.summary.escaped_boundary,
             "survived_max_step": result.summary.survived_max_step,
             "last_rel_change": result.summary.last_rel_change,
-            "total_charge_C": math.fsum(charges),
+            "total_charge_C": math.fsum(result.charges),
             "mesh_fingerprint": result.receipts.mesh_fingerprint or "",
             "message": "",
         }
@@ -3629,6 +3509,30 @@ def _case_result(
             "source_version": source_version,
             "message": str(exc),
         }, None
+
+
+def _mesh_potential_rows(
+    run_rows: Sequence[Mapping[str, Any]],
+    runs: Mapping[str, Beach | None],
+) -> Iterator[dict[str, Any]]:
+    """Yield per-element saved potential rows; the writer streams them to disk."""
+
+    for row in run_rows:
+        run = runs[str(row["case"])]
+        if run is None:
+            yield {"case": row["case"], "status": row["status"]}
+            continue
+        potential = run.result.mesh.mesh_potential_v
+        if potential is None:
+            yield {"case": row["case"], "status": "not_recorded"}
+            continue
+        for index, value in enumerate(potential, start=1):
+            yield {
+                "case": row["case"],
+                "elem_idx": index,
+                "potential_V": float(value),
+                "status": "available",
+            }
 
 
 def _history_rows(case: str, paths: Sequence[Path]) -> list[dict[str, Any]]:
@@ -3911,6 +3815,11 @@ def _collect_charge_snapshots(
 
     rows: list[dict[str, Any]] = []
     unique_meshes = sorted(set(int(value) for value in mesh_ids_array))
+    # The geometry is fixed across snapshots, so each scope mask is built once.
+    scopes = (
+        ("run", "", np.ones(mesh_ids_array.size, dtype=bool)),
+        *(("object", mesh_id, mesh_ids_array == mesh_id) for mesh_id in unique_meshes),
+    )
     for (_kind, _batch), snapshot in snapshots.items():
         charges = np.asarray(snapshot["charges"], dtype=np.float64)
         if charges.shape != mesh_ids_array.shape or not np.all(np.isfinite(charges)):
@@ -3918,17 +3827,7 @@ def _collect_charge_snapshots(
         snapshot_id = f"{case}:{snapshot['sample_kind']}:{snapshot['resolved_batch']}"
         snapshot["snapshot_id"] = snapshot_id
         source_file = Path(snapshot["source_file"])
-        for scope, mesh_id, mask in (
-            ("run", "", np.ones(charges.size, dtype=bool)),
-            *(
-                (
-                    "object",
-                    mesh_id,
-                    mesh_ids_array == mesh_id,
-                )
-                for mesh_id in unique_meshes
-            ),
-        ):
+        for scope, mesh_id, mask in scopes:
             selected = charges[mask]
             rows.append(
                 {
@@ -4560,52 +4459,6 @@ def _comparison_artifact_contract(
         "bad_status_rows": bad_status_rows,
         "numerically_unqualified_rows": numerical_status_rows,
     }
-
-
-def _placeholder_object_rows(
-    case_rows: Sequence[Mapping[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    wrenches: list[dict[str, Any]] = []
-    paths: list[dict[str, Any]] = []
-    for row in case_rows:
-        if row.get("status") == "available":
-            status = "not_evaluated"
-            message = "physics evaluation is deferred when target mesh/native kernel is unavailable"
-        else:
-            status = str(row.get("status"))
-            message = str(row.get("message", ""))
-        wrenches.append(
-            {
-                "case": row["case"],
-                "periodic_model": "configured",
-                "mesh_id": "",
-                "component": "",
-                "status": status,
-                "message": message,
-            }
-        )
-        paths.append(
-            {
-                "case": row["case"],
-                "periodic_model": "configured",
-                "mesh_id": "",
-                "path_status": "not_evaluated",
-                "speed_status": "contact_model_required",
-                "status": status,
-                "message": message,
-            }
-        )
-    return wrenches, paths
-
-
-def _load_json_if_exists(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return value if isinstance(value, dict) else {}
 
 
 def _load_json_object_if_exists(path: Path, *, label: str) -> dict[str, Any]:
@@ -7753,12 +7606,10 @@ def _analyze_validation_impl(
     )
 
     ledger_rows: list[dict[str, Any]] = []
-    potential_rows: list[dict[str, Any]] = []
     for row in run_rows:
         run = runs[str(row["case"])]
         if run is None:
             ledger_rows.append({"case": row["case"], "status": row["status"]})
-            potential_rows.append({"case": row["case"], "status": row["status"]})
             continue
         result = run.result
         ledger = result.ledger
@@ -7784,18 +7635,6 @@ def _analyze_validation_impl(
                     "residual_C": result.diagnostics.charge_ledger_residual_c or "",
                 }
             )
-        if result.mesh.mesh_potential_v is None:
-            potential_rows.append({"case": row["case"], "status": "not_recorded"})
-        else:
-            for index, value in enumerate(result.mesh.mesh_potential_v, start=1):
-                potential_rows.append(
-                    {
-                        "case": row["case"],
-                        "elem_idx": index,
-                        "potential_V": float(value),
-                        "status": "available",
-                    }
-                )
     _write_csv(
         analysis / "particle_ledger_pair.csv",
         CSV_SCHEMAS["particle_ledger_pair.csv"],
@@ -7804,7 +7643,7 @@ def _analyze_validation_impl(
     _write_csv(
         analysis / "mesh_potential_pair.csv",
         CSV_SCHEMAS["mesh_potential_pair.csv"],
-        potential_rows,
+        _mesh_potential_rows(run_rows, runs),
     )
 
     (

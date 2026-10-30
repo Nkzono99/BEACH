@@ -36,6 +36,7 @@ class BatchHistory:
         self._processed_particles_by_batch: np.ndarray | None = None
         self._rel_change_by_batch: np.ndarray | None = None
         self._step_offsets: dict[int, tuple[int, int]] = {}
+        self._step_columns: dict[int, int] | None = None
         self._step_cache: dict[int, np.ndarray] = {}
 
     @classmethod
@@ -222,13 +223,39 @@ class BatchHistory:
         )
 
     def _column_for_step(self, step: int) -> int:
-        cols = np.flatnonzero(self._batch_indices == step)
-        if cols.size == 0:
+        if self._step_columns is None:
+            columns: dict[int, int] = {}
+            for column, batch in enumerate(self._batch_indices):
+                columns.setdefault(int(batch), column)
+            self._step_columns = columns
+        column = self._step_columns.get(step)
+        if column is None:
             available = [int(v) for v in self._batch_indices]
             raise ValueError(
                 f"step={step} is not found in history. available={available}"
             )
-        return int(cols[0])
+        return column
+
+    def _select_columns(self, columns: np.ndarray) -> np.ndarray:
+        """Return the ``(mesh_nelem, len(columns))`` values of selected snapshots.
+
+        Unlike :meth:`get_step`, snapshots read here from the CSV are not kept in
+        the step cache, so selecting a few frames of a long history holds only
+        those frames. Cached or materialized snapshots, including edits made to
+        arrays returned by :meth:`get_step`, are used as they are.
+        """
+
+        self._ensure_index()
+        if self._history_matrix is not None:
+            return self._history_matrix[:, columns]
+        selected = np.empty((self.mesh_nelem, len(columns)), dtype=float)
+        for position, column in enumerate(columns):
+            step = int(self._batch_indices[int(column)])
+            cached = self._step_cache.get(step)
+            selected[:, position] = (
+                self._read_step(step) if cached is None else cached
+            )
+        return selected
 
     def _ensure_index(self) -> None:
         if self._indexed:
@@ -322,6 +349,7 @@ class BatchHistory:
                 step_offsets[current_batch] = (current_start, end_pos)
 
         self._step_offsets = step_offsets
+        self._step_columns = None
         self._step_cache = {}
         self._batch_indices = np.asarray(batches, dtype=np.int64)
         self._processed_particles_by_batch = (
@@ -350,7 +378,11 @@ class BatchHistory:
     def _load_step_from_file(self, step: int) -> np.ndarray:
         if step in self._step_cache:
             return self._step_cache[step]
+        charges = self._read_step(step)
+        self._step_cache[step] = charges
+        return charges
 
+    def _read_step(self, step: int) -> np.ndarray:
         start, end = self._step_offsets[step]
         charges = np.empty(self.mesh_nelem, dtype=float)
         with self.path.open("r", encoding="utf-8") as stream:
@@ -370,6 +402,4 @@ class BatchHistory:
                         f"elem_idx out of range in {self.path.name}: {elem_idx + 1}"
                     )
                 charges[elem_idx] = charge
-
-        self._step_cache[step] = charges
         return charges

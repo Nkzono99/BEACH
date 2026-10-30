@@ -58,6 +58,7 @@ class Entity:
     raw_parent: str | None
     use_dependencies: tuple[str, ...]
     parent_dependencies: tuple[str, ...]
+    external_dependencies: tuple[str, ...]
 
     @property
     def internal_dependencies(self) -> tuple[str, ...]:
@@ -242,10 +243,14 @@ def build_entities() -> list[Entity]:
             continue
 
         internal_use_names = []
+        external_use_names = []
         for name in use_names:
             internal = internal_names.get(name.lower())
             if internal is not None:
                 internal_use_names.append(internal)
+            else:
+                external_use_names.append(name)
+        external = tuple(deduplicate(external_use_names))
 
         for raw in raw_entities:
             parent_dependencies: list[str] = []
@@ -278,6 +283,7 @@ def build_entities() -> list[Entity]:
                     raw_parent=str(raw_parent) if raw_parent else None,
                     use_dependencies=normalized_uses,
                     parent_dependencies=normalized_parents,
+                    external_dependencies=external,
                 )
             )
 
@@ -296,17 +302,6 @@ def deduplicate(names: Iterable[str]) -> list[str]:
         seen.add(key)
         ordered.append(name)
     return ordered
-
-
-def external_dependencies(entities: list[Entity], path: Path) -> list[str]:
-    """Return file-local dependencies that are not defined in this project."""
-
-    internal_names = {entity.name.lower() for entity in entities}
-    names = []
-    for name in parse_use_statements(REPO_ROOT / path):
-        if name.lower() not in internal_names:
-            names.append(name)
-    return deduplicate(names)
 
 
 def graph_dot(entities: list[Entity]) -> str:
@@ -519,7 +514,7 @@ def markdown_report(entities: list[Entity], lang: str) -> str:
         )
         lines.append(f"- {labels['internal_deps']}: {internal}")
         external = ", ".join(
-            f"`{name}`" for name in external_dependencies(entities, entity.path)
+            f"`{name}`" for name in entity.external_dependencies
         ) or labels["none"]
         lines.append(f"- {labels['external_deps']}: {external}")
         if entity.summary:

@@ -202,6 +202,12 @@ class FieldKernel:
         return self._charges_keepalive.copy()
 
     @property
+    def source_count(self) -> int:
+        """Number of source triangles in the built plan."""
+
+        return self._source_count
+
+    @property
     def closed(self) -> bool:
         """Whether :meth:`close` has released the native handle."""
 

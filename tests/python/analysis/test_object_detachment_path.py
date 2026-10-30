@@ -460,3 +460,92 @@ def test_vertical_path_geometry_at_box_limit(tmp_path: Path, analytic_kernel, up
             with pytest.raises(ValueError, match="box"):
                 probe.vertical_path(displacement, adaptive=False)
             assert analytic_kernel.eval_calls == before
+
+
+def test_vertical_path_splits_large_targets_below_the_batch_limit(
+    tmp_path: Path,
+    analytic_kernel,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_config(config)
+    displacement = np.array([0.0, 0.25, 0.5])
+    with ObjectInteractionSnapshot.from_result(
+        _result(tmp_path), step=None, config_path=config
+    ) as snapshot:
+        probe = snapshot.object_probe(1)
+        whole = probe.vertical_path(displacement, adaptive=False, torque_origin="origin")
+        # One height of the order-7 target has 49 points; a limit of 5 splits it.
+        monkeypatch.setattr(interaction_module, "_PATH_TARGET_BATCH_LIMIT", 5)
+        split = probe.vertical_path(displacement, adaptive=False, torque_origin="origin")
+
+    assert whole.numerical_metadata["peak_target_batch_size"] == 3 * 49
+    assert split.numerical_metadata["peak_target_batch_size"] == 5
+    np.testing.assert_allclose(split.force_N, whole.force_N, rtol=1.0e-13)
+    # The torque about the origin cancels to rounding noise for this centred panel.
+    np.testing.assert_allclose(split.torque_Nm, whole.torque_Nm, rtol=0.0, atol=1.0e-15)
+    assert split.potential_energy_J is not None and whole.potential_energy_J is not None
+    np.testing.assert_allclose(split.potential_energy_J, whole.potential_energy_J, rtol=1.0e-13)
+    for name, values in whole.component_force_N.items():
+        np.testing.assert_allclose(split.component_force_N[name], values, rtol=1.0e-13)
+
+
+def test_adaptive_path_evaluates_each_displacement_once(
+    tmp_path: Path,
+    analytic_kernel,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_config(config)
+    analytic_kernel.mode = "sharp"
+    calls: list[np.ndarray] = []
+    eval_e = analytic_kernel.eval_e
+
+    def recording_eval_e(self, points: np.ndarray) -> np.ndarray:
+        # The flat target sits at z = 0, so every point's z is its displacement.
+        calls.append(np.unique(np.asarray(points)[:, 2]))
+        return eval_e(self, points)
+
+    monkeypatch.setattr(analytic_kernel, "eval_e", recording_eval_e)
+    with ObjectInteractionSnapshot.from_result(
+        _result(tmp_path), step=None, config_path=config
+    ) as snapshot:
+        probe = snapshot.object_probe(1)
+        probe.vertical_path(np.array([0.0, 1.0]), adaptive=False)
+        heights, counts = np.unique(np.concatenate(calls), return_counts=True)
+        calls_per_evaluation = int(counts[0])
+        calls.clear()
+        refined = probe.vertical_path(
+            np.array([0.0, 1.0]), relative_tolerance=1.0e-3, max_refinement=6
+        )
+
+    assert refined.numerical_metadata["refinement_rounds"] > 1
+    heights, counts = np.unique(np.concatenate(calls), return_counts=True)
+    assert set(refined.displacement_m) <= set(heights)
+    assert np.all(counts == calls_per_evaluation)
+
+
+def test_closed_probe_is_released_by_its_open_snapshot(
+    tmp_path: Path,
+    analytic_kernel,
+) -> None:
+    import gc
+    import weakref
+
+    config = tmp_path / "beach.toml"
+    _write_config(config)
+    with ObjectInteractionSnapshot.from_result(
+        _result(tmp_path), step=None, config_path=config
+    ) as snapshot:
+        probe = snapshot.object_probe(1)
+        kept = snapshot.object_probe(1)
+        probe.close()
+        # A closed probe keeps its metadata for the caller that holds it.
+        assert probe.target_triangles_m.shape == (1, 3, 3)
+        released = weakref.ref(probe)
+        del probe
+        gc.collect()
+        assert released() is None
+        assert kept.wrench().force_N.shape == (3,)
+    with pytest.raises(FieldKernelError, match="closed"):
+        kept.wrench()

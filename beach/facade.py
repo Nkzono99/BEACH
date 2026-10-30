@@ -5,12 +5,13 @@ from __future__ import annotations
 import functools
 import inspect
 import textwrap
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Concatenate, Iterator, Mapping, ParamSpec, TypeVar
 
 import numpy as np
 
-from .analysis._selection import _build_mesh_selection
+from .analysis._selection import _build_mesh_selection, _mesh_element_indices
 from .analysis.context import RunContext
 from .analysis.coulomb import calc_coulomb
 from .analysis.field_kernel import (
@@ -40,20 +41,27 @@ from .plot.mesh import plot_charge_mesh, plot_charges, plot_potential_mesh
 from .plot.slices import plot_potential_slices
 
 _NO_KERNEL = object()
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
 _PLAN_ARGUMENTS = ("periodic2", "theta", "leaf_max", "order")
 
 
 def _forward(
-    func: Callable[..., Any],
+    func: Callable[Concatenate[Any, _P], _R],
     *,
     kernel_step: object = _NO_KERNEL,
     needs_kernel: Callable[["Beach", Mapping[str, Any]], bool] | None = None,
-) -> Callable[..., Any]:
+) -> Callable[Concatenate["Beach", _P], _R]:
     """Expose ``func`` as a ``Beach`` method that keeps its signature and defaults.
 
+    The ``ParamSpec`` annotation carries ``func``'s parameters after ``result``
+    and its return type to type checkers and editors, so the methods complete
+    and check like the functions without a second, hand-written signature.
+
     The method passes the session as ``result`` and the session's
-    ``library_path`` when none is given. With ``kernel_step`` it also passes the
-    cached :meth:`Beach.kernel` for the call's plan arguments, unless the caller
+    ``library_path`` when none is given. With ``kernel_step`` it also passes a
+    session kernel for the call's plan arguments (see :meth:`Beach._lend_kernel`),
+    unless the caller
     gives ``kernel``, ``config_path``, or another ``library_path`` (those calls
     build their own kernel), or ``needs_kernel`` says this call evaluates none.
     """
@@ -88,10 +96,12 @@ def _forward(
             and (needs_kernel is None or needs_kernel(self, arguments))
         ):
             _require_total_field_config(self.context, operation=func.__name__)
-            arguments["kernel"] = self.kernel(
+            with self._lend_kernel(
                 step=arguments.get("step", kernel_step),
                 **{name: arguments[name] for name in _PLAN_ARGUMENTS if name in accepted},
-            )
+            ) as kernel:
+                arguments["kernel"] = kernel
+                return func(self, **arguments)
         return func(self, **arguments)
 
     method.__signature__ = method_signature  # type: ignore[attr-defined]
@@ -101,12 +111,13 @@ def _forward(
         note += " ``library_path`` defaults to the session's."
     if kernel_step is not _NO_KERNEL:
         note += (
-            " A kernel-evaluating call receives the cached :meth:`Beach.kernel` for "
-            "its plan arguments as ``kernel``; passing ``kernel``, ``config_path``, "
-            "or another ``library_path`` builds a kernel for the call instead."
+            " A kernel-evaluating call receives the session's cached kernel for its "
+            "plan arguments as ``kernel``, holding the call's step charges; passing "
+            "``kernel``, ``config_path``, or another ``library_path`` builds a kernel "
+            "for the call instead."
         )
     method.__doc__ = f"{inspect.cleandoc(func.__doc__ or '')}\n\nNotes\n-----\n{textwrap.fill(note, 88)}"
-    return method
+    return method  # type: ignore[return-value]
 
 
 def _potential_needs_kernel(run: "Beach", arguments: Mapping[str, Any]) -> bool:
@@ -229,11 +240,9 @@ class Beach:
             Open kernel owned by this session.
         """
 
-        charges = self.context.charges_at(step)
-        options = field_kernel_options_from_result(
-            self, periodic2=periodic2, theta=theta, leaf_max=leaf_max, order=order
+        key = self._kernel_key(
+            step, periodic2=periodic2, theta=theta, leaf_max=leaf_max, order=order
         )
-        key = (np.asarray(charges, dtype=np.float64).tobytes(), options, self.library_path)
         kernel = self._kernels.get(key)
         if kernel is None or kernel.closed:
             kernel = field_kernel_from_result(
@@ -247,6 +256,44 @@ class Beach:
             )
             self._kernels[key] = kernel
         return kernel
+
+    def _kernel_key(self, step: int | None, **plan: Any) -> tuple[object, ...]:
+        charges = np.asarray(self.context.charges_at(step), dtype=np.float64)
+        options = field_kernel_options_from_result(self, **plan)
+        return (charges.tobytes(), options, self.library_path)
+
+    @contextmanager
+    def _lend_kernel(self, *, step: int | None, **plan: Any) -> Iterator[FieldKernel]:
+        """Lend a session kernel holding the ``step`` charges for one method call.
+
+        A session method needs the plan, not a handle of its own: when no kernel
+        holds these charges but one with the same plan is open, the call borrows
+        it with the ``step`` charges and gets its own charges back afterwards. So
+        methods called for many steps share one plan instead of caching one per
+        step. :meth:`kernel` handles keep their charges outside the call.
+        """
+
+        key = self._kernel_key(step, **plan)
+        kernel = self._kernels.get(key)
+        if kernel is None or kernel.closed:
+            kernel = next(
+                (
+                    candidate
+                    for candidate_key, candidate in self._kernels.items()
+                    if candidate_key[1:] == key[1:] and not candidate.closed
+                ),
+                None,
+            )
+            if kernel is not None:
+                charges = kernel.source_charges
+                kernel.update_charges(self.context.charges_at(step))
+                try:
+                    yield kernel
+                finally:
+                    kernel.update_charges(charges)
+                return
+            kernel = self.kernel(step=step, **plan)
+        yield kernel
 
     def close(self) -> None:
         """Close every cached native kernel. The loaded result stays available."""
@@ -323,10 +370,18 @@ class Beach:
             Charge array for each requested mesh.
         """
 
-        selection = self.get_mesh(*mesh_ids, step=step)
-        if isinstance(selection, tuple):
-            return tuple(mesh.charges.copy() for mesh in selection)
-        return selection.charges.copy()
+        if len(mesh_ids) == 0:
+            raise ValueError("at least one mesh id must be provided.")
+        indices = [
+            _mesh_element_indices(self.context, (int(mesh_id),))[1]
+            for mesh_id in mesh_ids
+        ]
+        charges = np.asarray(self.context.charges_at(step))
+        # Integer indexing copies, so each returned array is independent.
+        selected = tuple(charges[index] for index in indices)
+        if len(selected) == 1:
+            return selected[0]
+        return selected
 
     calc_coulomb = _forward(calc_coulomb, kernel_step=-1)
     analyze_coulomb_mobility = _forward(analyze_coulomb_mobility)

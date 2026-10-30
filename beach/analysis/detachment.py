@@ -307,9 +307,13 @@ class ObjectForcePath:
         gravity_corrected = electric - gravity_work
         available = gravity_corrected - adhesion_work - dissipation
 
+        # Prepared once: the barrier search below queries it per interval and
+        # per bisection step.
+        electric_integral = _piecewise_linear_integrator(h, self.force_N[:, 2])
+
         def available_at(query: np.ndarray | float) -> np.ndarray:
             x = np.asarray(query, dtype=np.float64)
-            electric_x = _piecewise_linear_integral(h, self.force_N[:, 2], x)
+            electric_x = electric_integral(x)
             dissipation_x = np.interp(x, h, dissipation)
             adhesion_x = np.asarray(adhesion.work_J(x), dtype=np.float64)
             return electric_x - mass * gravity * x - adhesion_x - dissipation_x
@@ -319,8 +323,8 @@ class ObjectForcePath:
         mechanics_grid = np.unique(np.concatenate((h, extra)))
         critical = list(mechanics_grid)
         lefts, rights = mechanics_grid[:-1], mechanics_grid[1:]
-        # Evaluate all intervals together so the cumulative integrals are built
-        # once, rather than once per interval.
+        # One call for all intervals: a tabulated adhesion integrates its table
+        # per call.
         energies = available_at(np.stack((lefts, 0.5 * (lefts + rights), rights)))
         for left, right, e0, em, e1 in zip(lefts, rights, *energies):
             a = 2.0 * (e1 + e0 - 2.0 * em)
@@ -476,16 +480,26 @@ def _piecewise_linear_integral(
     y: np.ndarray,
     query: np.ndarray,
 ) -> np.ndarray:
+    return _piecewise_linear_integrator(x, y)(query)
+
+
+def _piecewise_linear_integrator(x: np.ndarray, y: np.ndarray):  # type: ignore[no-untyped-def]
+    """Return ``query -> integral of y from x[0]``, preparing the table once."""
+
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
-    query = np.asarray(query, dtype=np.float64)
     widths = np.diff(x)
     cumulative = np.concatenate(([0.0], np.cumsum(0.5 * (y[:-1] + y[1:]) * widths)))
-    index = np.searchsorted(x, query, side="right") - 1
-    index = np.clip(index, 0, x.size - 2)
-    dx = query - x[index]
-    slope = (y[index + 1] - y[index]) / widths[index]
-    return cumulative[index] + y[index] * dx + 0.5 * slope * dx * dx
+    slopes = (y[1:] - y[:-1]) / widths
+
+    def integral(query: np.ndarray | float) -> np.ndarray:
+        query = np.asarray(query, dtype=np.float64)
+        index = np.searchsorted(x, query, side="right") - 1
+        index = np.clip(index, 0, x.size - 2)
+        dx = query - x[index]
+        return cumulative[index] + y[index] * dx + 0.5 * slopes[index] * dx * dx
+
+    return integral
 
 
 def _first_inaccessible(

@@ -12,28 +12,14 @@ from ._shared import (
 )
 
 
-def _resolve_sim_high_level(sim: dict[str, Any]) -> dict[str, Any]:
-    box_origin = sim.pop("box_origin", None)
-    box_size = sim.pop("box_size", None)
-    if (box_origin is None) != (box_size is None):
-        raise ConfigError(
-            "high-level config error: domain.box_origin and domain.box_size must be specified together."
-        )
-    if box_origin is not None and box_size is not None:
-        origin = _coerce_numeric_sequence(box_origin, length=3, name="domain.box_origin")
-        size = _coerce_numeric_sequence(box_size, length=3, name="domain.box_size")
-        if any(component <= 0.0 for component in size):
-            raise ConfigError(
-                "high-level config error: domain.box_size components must be > 0."
-            )
-        sim["box_min"] = origin
-        sim["box_max"] = [origin[i] + size[i] for i in range(3)]
-    return sim
+def _resolve_box_shorthand(table: dict[str, Any]) -> dict[str, Any]:
+    """Replace ``box_origin``/``box_size`` in ``table`` with ``box_min``/``box_max``.
 
+    The table is edited in place; diagnostics name the public ``domain`` keys.
+    """
 
-def _resolve_domain_high_level(domain: dict[str, Any]) -> dict[str, Any]:
-    box_origin = domain.pop("box_origin", None)
-    box_size = domain.pop("box_size", None)
+    box_origin = table.pop("box_origin", None)
+    box_size = table.pop("box_size", None)
     if (box_origin is None) != (box_size is None):
         raise ConfigError(
             "high-level config error: domain.box_origin and domain.box_size "
@@ -48,9 +34,9 @@ def _resolve_domain_high_level(domain: dict[str, Any]) -> dict[str, Any]:
             raise ConfigError(
                 "high-level config error: domain.box_size components must be > 0."
             )
-        domain["box_min"] = origin
-        domain["box_max"] = [origin[i] + size[i] for i in range(3)]
-    return domain
+        table["box_min"] = origin
+        table["box_max"] = [origin[i] + size[i] for i in range(3)]
+    return table
 
 
 def _resolve_species_high_level(

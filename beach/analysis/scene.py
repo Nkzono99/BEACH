@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Iterable, Literal, Mapping
 
@@ -15,13 +15,13 @@ from beach.native.kernel import FieldKernel
 from .context import RunContext
 from .field_kernel import (
     KernelObjectForceRecord,
+    _object_force_records,
     _options_from_result,
     _require_total_field_config,
     _require_total_field_reconstruction,
     field_kernel_options_from_result,
 )
 from .mesh import _triangle_centers
-from .panel_quadrature import panel_target_quadrature
 
 
 TransformBackend = Literal["numpy", "numba", "auto"]
@@ -277,8 +277,8 @@ class BeachScene:
         ids = _mesh_id_tuple(mesh_ids)
         mask = self._mask_for_mesh_ids(ids)
         origin_arr = self._resolve_origin(ids, origin)
-        centers = np.asarray(self.centers_m).copy()
-        triangles = np.asarray(self.triangles_m).copy()
+        centers = np.array(self.centers_m, dtype=np.float64, order="C")
+        triangles = np.array(self.triangles_m, dtype=np.float64, order="C")
         centers[mask] = transform.apply(
             centers[mask],
             origin=origin_arr,
@@ -289,7 +289,34 @@ class BeachScene:
             origin=origin_arr,
             backend=self.transform_backend,
         )
-        return replace(self, centers_m=centers, triangles_m=triangles)
+        return self._with_new_geometry(centers, triangles)
+
+    def _with_new_geometry(
+        self, centers: np.ndarray, triangles: np.ndarray
+    ) -> "BeachScene":
+        """Derive a scene that owns freshly built geometry arrays without a copy.
+
+        ``centers`` and ``triangles`` must be new arrays nobody else references;
+        they become read-only. The other arrays are copied as the constructor
+        would, so scenes never share an array whose write flag can be restored.
+        """
+
+        if not np.all(np.isfinite(centers)):
+            raise ValueError("centers_m must contain finite values.")
+        if not np.all(np.isfinite(triangles)):
+            raise ValueError("triangles_m must contain finite values.")
+        centers.setflags(write=False)
+        triangles.setflags(write=False)
+        scene = object.__new__(type(self))
+        for item in fields(self):
+            object.__setattr__(scene, item.name, getattr(self, item.name))
+        object.__setattr__(scene, "centers_m", centers)
+        object.__setattr__(scene, "triangles_m", triangles)
+        object.__setattr__(
+            scene, "charges_C", _readonly_array(self.charges_C, np.float64)
+        )
+        object.__setattr__(scene, "mesh_ids", _readonly_array(self.mesh_ids, np.int64))
+        return scene
 
     def field_kernel(
         self,
@@ -356,43 +383,21 @@ class BeachScene:
             options,
             operation="BeachScene.calc_object_forces_kernel",
         )
-        records: list[KernelObjectForceRecord] = []
         with FieldKernel(
             self.triangles_m,
             self.charges_C,
             options=options,
             library_path=self._resolve_library_path(library_path),
         ) as kernel:
-            for mesh_id in target_ids:
-                mask = self.mesh_ids == mesh_id
-                source_q = np.asarray(self.charges_C, dtype=np.float64).copy()
-                source_q[mask] = 0.0
-                kernel.update_charges(source_q)
-                target_triangles = self.triangles_m[mask]
-                target_centers = self.centers_m[mask]
-                target_q = self.charges_C[mask]
-                target_points, target_weights, _ = panel_target_quadrature(
-                    target_triangles,
-                    target_q,
-                    7,
-                )
-                center = np.asarray(target_centers.mean(axis=0), dtype=np.float64)
-                force, torque = kernel.force_on_charges(
-                    target_points,
-                    target_weights,
-                    origin=center,
-                )
-                records.append(
-                    KernelObjectForceRecord(
-                        mesh_id=mesh_id,
-                        step=self.step,
-                        total_charge_C=float(np.sum(target_q)),
-                        center_m=center,
-                        force_N=force,
-                        torque_Nm=torque,
-                    )
-                )
-        return tuple(records)
+            return _object_force_records(
+                kernel,
+                triangles=self.triangles_m,
+                centers=self.centers_m,
+                charges=self.charges_C,
+                mesh_ids=self.mesh_ids,
+                target_ids=target_ids,
+                step=self.step,
+            )
 
     def _mask_for_mesh_ids(self, mesh_ids: tuple[int, ...]) -> np.ndarray:
         available = set(self.object_ids)

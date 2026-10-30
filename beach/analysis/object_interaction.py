@@ -67,6 +67,34 @@ class _VerticalSamples:
         )
 
 
+def _concat_samples(
+    first: _VerticalSamples | None,
+    second: _VerticalSamples,
+) -> _VerticalSamples:
+    if first is None:
+        return second
+    return _VerticalSamples(
+        displacement_m=np.concatenate((first.displacement_m, second.displacement_m)),
+        force_N=np.concatenate((first.force_N, second.force_N)),
+        torque_Nm=np.concatenate((first.torque_Nm, second.torque_Nm)),
+        torque_origin_m=np.concatenate((first.torque_origin_m, second.torque_origin_m)),
+        potential_energy_J=np.concatenate(
+            (first.potential_energy_J, second.potential_energy_J)
+        ),
+        component_force_N={
+            name: np.concatenate((values, second.component_force_N[name]))
+            for name, values in first.component_force_N.items()
+        },
+        component_torque_Nm={
+            name: np.concatenate((values, second.component_torque_Nm[name]))
+            for name, values in first.component_torque_Nm.items()
+        },
+        peak_target_batch_size=max(
+            first.peak_target_batch_size, second.peak_target_batch_size
+        ),
+    )
+
+
 class ObjectInteractionSnapshot:
     """Immutable source geometry and charge state for object-level probes."""
 
@@ -649,6 +677,16 @@ class ObjectProbe:
             target_points_m=target_points,
             primary=self._primary,
         )
+        physical_fields = _physical_field_components(fields)
+        physical = {
+            name: _aggregate_wrench(
+                target_points,
+                self._target_charge_weights_C,
+                *physical_fields[name],
+                torque_origin_m,
+            )
+            for name in (_PHYSICAL_COMPONENTS if components else ("total_external",))
+        }
         p_other = fields["p_other"]
         z_other = fields["z_other"]
         p_target = fields["p_target"]
@@ -656,44 +694,6 @@ class ObjectProbe:
         trace_other = fields["trace_other"]
         trace_target = fields["trace_target"]
         direct = fields["direct"]
-        uniform = fields["uniform"]
-
-        other_field = p_other[0] + z_other[0]
-        other_phi = p_other[1] + z_other[1]
-        images_field = p_target[0] + z_target[0] - direct[0]
-        images_phi = p_target[1] + z_target[1] - direct[1]
-        total_field = other_field + images_field + uniform[0]
-        total_phi = other_phi + images_phi + uniform[1]
-        physical = {
-            "other_objects_all_images": _aggregate_wrench(
-                target_points,
-                self._target_charge_weights_C,
-                other_field,
-                other_phi,
-                torque_origin_m,
-            ),
-            "target_periodic_images": _aggregate_wrench(
-                target_points,
-                self._target_charge_weights_C,
-                images_field,
-                images_phi,
-                torque_origin_m,
-            ),
-            "external_uniform": _aggregate_wrench(
-                target_points,
-                self._target_charge_weights_C,
-                uniform[0],
-                uniform[1],
-                torque_origin_m,
-            ),
-            "total_external": _aggregate_wrench(
-                target_points,
-                self._target_charge_weights_C,
-                total_field,
-                total_phi,
-                torque_origin_m,
-            ),
-        }
         total = physical["total_external"]
         cached = (
             self._snapshot._options.periodic2 is not None
@@ -787,8 +787,9 @@ class ObjectProbe:
     ) -> ObjectForcePath:
         """Evaluate a frozen-source vertical translation path.
 
-        With ``adaptive`` the midpoint of every interval is evaluated each round
-        and kept where the force, work, or work/potential test fails. The path is
+        With ``adaptive`` the midpoint of every interval is tested each round
+        and kept where the force, work, or work/potential test fails; each
+        displacement is evaluated once and reused by later rounds. The path is
         accepted only when, in addition, the trapezoid work on the grid that is
         returned matches the potential difference within the tolerances; until
         ``max_refinement`` rounds are spent a path mismatch refines further.
@@ -825,21 +826,36 @@ class ObjectProbe:
         if adaptive:
             status = "not_converged"
             status_reason = "max_refinement_reached"
+            # Samples are frozen-source evaluations, so a point is evaluated once:
+            # grid points carry over, and the midpoint of an interval that was not
+            # split is reused by the next round. mid_source[i] indexes the stored
+            # midpoint of interval i in mid_samples, or is -1 when it is new.
+            mid_samples: _VerticalSamples | None = None
+            mid_source = np.full(grid.size - 1, -1, dtype=np.int64)
             for refinement_round in range(refinement_limit + 1):
                 middle = 0.5 * (grid[:-1] + grid[1:])
                 candidate_grid = np.empty(2 * grid.size - 1, dtype=np.float64)
                 candidate_grid[0::2] = grid
                 candidate_grid[1::2] = middle
                 self._validate_vertical_geometry(candidate_grid)
-                candidate = self._evaluate_vertical_samples(
-                    candidate_grid,
+                missing = mid_source < 0
+                new_mid = self._evaluate_vertical_samples(
+                    middle[missing],
                     torque_origin=torque_origin,
                     components=components,
                 )
                 peak_target_batch_size = max(
                     peak_target_batch_size,
-                    candidate.peak_target_batch_size,
+                    new_mid.peak_target_batch_size,
                 )
+                mid_index = mid_source.copy()
+                stored = 0 if mid_samples is None else mid_samples.displacement_m.size
+                mid_index[missing] = stored + np.arange(np.count_nonzero(missing))
+                mid_samples = _concat_samples(mid_samples, new_mid).take(mid_index)
+                order = np.empty(candidate_grid.size, dtype=np.int64)
+                order[0::2] = np.arange(grid.size)
+                order[1::2] = grid.size + np.arange(middle.size)
+                candidate = _concat_samples(samples, mid_samples).take(order)
                 force_left = candidate.force_N[0:-2:2]
                 force_middle = candidate.force_N[1::2]
                 force_right = candidate.force_N[2::2]
@@ -911,6 +927,12 @@ class ObjectProbe:
                 refinement_rounds += 1
                 grid = candidate_grid[keep]
                 samples = candidate.take(keep)
+                # A split interval becomes two new intervals without midpoints; an
+                # unsplit one keeps its evaluated midpoint for the next round.
+                mid_source = np.repeat(
+                    np.where(failing, -1, np.arange(failing.size)),
+                    np.where(failing, 2, 1),
+                )
 
         path_check = _path_work_check(grid, samples, work_absolute, relative)
         if not adaptive and path_check.failing:
@@ -984,18 +1006,19 @@ class ObjectProbe:
     ) -> _VerticalSamples:
         nheight = displacement_m.size
         npoint = self._target_points_m.shape[0]
+        # Each native call sees at most _PATH_TARGET_BATCH_LIMIT points: several
+        # heights per call for a small target, and slices of one height's points
+        # for a target whose quadrature alone exceeds the limit.
         height_batch = max(1, _PATH_TARGET_BATCH_LIMIT // max(1, npoint))
-        force = np.empty((nheight, 3), dtype=np.float64)
-        torque = np.empty((nheight, 3), dtype=np.float64)
-        potential = np.empty(nheight, dtype=np.float64)
+        point_batch = min(npoint, _PATH_TARGET_BATCH_LIMIT)
+        names = _PHYSICAL_COMPONENTS if components else ("total_external",)
         component_force = {
-            name: np.empty((nheight, 3), dtype=np.float64)
-            for name in _PHYSICAL_COMPONENTS
+            name: np.empty((nheight, 3), dtype=np.float64) for name in names
         }
         component_torque = {
-            name: np.empty((nheight, 3), dtype=np.float64)
-            for name in _PHYSICAL_COMPONENTS
+            name: np.empty((nheight, 3), dtype=np.float64) for name in names
         }
+        potential = np.empty(nheight, dtype=np.float64)
         if (
             isinstance(torque_origin, str)
             and torque_origin == "geometric_area_centroid"
@@ -1017,38 +1040,49 @@ class ObjectProbe:
         for start in range(0, nheight, height_batch):
             stop = min(start + height_batch, nheight)
             batch_h = displacement_m[start:stop]
-            points = np.broadcast_to(
-                self._target_points_m,
-                (batch_h.size, npoint, 3),
-            ).copy()
-            points[:, :, 2] += batch_h[:, None]
-            flat_points = points.reshape(-1, 3)
-            peak_target_batch_size = max(peak_target_batch_size, flat_points.shape[0])
-            fields = self._snapshot._evaluate_fields(
-                target_mask=self._target_mask,
-                target_points_m=flat_points,
-                primary=self._primary,
-            )
-            physical_fields = _physical_field_components(fields)
-            for name, (field_values, potential_values) in physical_fields.items():
-                aggregate = _aggregate_wrench_samples(
-                    points,
-                    self._target_charge_weights_C,
-                    field_values.reshape(batch_h.size, npoint, 3),
-                    potential_values.reshape(batch_h.size, npoint),
-                    origins[start:stop],
+            for point_start in range(0, npoint, point_batch):
+                point_stop = min(point_start + point_batch, npoint)
+                count = point_stop - point_start
+                points = np.broadcast_to(
+                    self._target_points_m[point_start:point_stop],
+                    (batch_h.size, count, 3),
+                ).copy()
+                points[:, :, 2] += batch_h[:, None]
+                flat_points = points.reshape(-1, 3)
+                peak_target_batch_size = max(
+                    peak_target_batch_size, flat_points.shape[0]
                 )
-                component_force[name][start:stop] = aggregate[0]
-                component_torque[name][start:stop] = aggregate[1]
-                if name == "total_external":
-                    force[start:stop] = aggregate[0]
-                    torque[start:stop] = aggregate[1]
-                    potential[start:stop] = aggregate[2]
+                fields = self._snapshot._evaluate_fields(
+                    target_mask=self._target_mask,
+                    target_points_m=flat_points,
+                    primary=self._primary,
+                )
+                physical_fields = _physical_field_components(fields)
+                for name in names:
+                    field_values, potential_values = physical_fields[name]
+                    force_part, torque_part, energy_part = _aggregate_wrench_samples(
+                        points,
+                        self._target_charge_weights_C[point_start:point_stop],
+                        field_values.reshape(batch_h.size, count, 3),
+                        potential_values.reshape(batch_h.size, count),
+                        origins[start:stop],
+                    )
+                    if point_start == 0:
+                        component_force[name][start:stop] = force_part
+                        component_torque[name][start:stop] = torque_part
+                    else:
+                        component_force[name][start:stop] += force_part
+                        component_torque[name][start:stop] += torque_part
+                    if name == "total_external":
+                        if point_start == 0:
+                            potential[start:stop] = energy_part
+                        else:
+                            potential[start:stop] += energy_part
 
         return _VerticalSamples(
             displacement_m=np.array(displacement_m, copy=True),
-            force_N=force,
-            torque_Nm=torque,
+            force_N=component_force["total_external"],
+            torque_Nm=component_torque["total_external"],
             torque_origin_m=origins,
             potential_energy_J=potential,
             component_force_N=component_force if components else {},
@@ -1057,11 +1091,16 @@ class ObjectProbe:
         )
 
     def close(self) -> None:
-        with self._snapshot._lock:
+        snapshot = self._snapshot
+        with snapshot._lock:
             if self._closed:
                 return
             self._primary.close()
             self._closed = True
+            # The snapshot tracks only open probes so it can close them; a closed
+            # probe stays usable for its metadata through the caller's reference.
+            if self in snapshot._probes:
+                snapshot._probes.remove(self)
 
     def __enter__(self) -> "ObjectProbe":
         self._require_usable()
@@ -1109,7 +1148,10 @@ def _aggregate_wrench_samples(
         np.cross(points_m - origin_m[:, None, :], force_samples),
         axis=1,
     )
-    energy = potential_V @ charges_C
+    # Reduce each height on its own (a BLAS matrix-vector product rounds a row
+    # differently depending on how many rows share the call), so a height gives
+    # the same value whichever batch evaluates it and adaptive paths can reuse it.
+    energy = np.sum(potential_V * charges_C[None, :], axis=1)
     return force, torque, energy
 
 

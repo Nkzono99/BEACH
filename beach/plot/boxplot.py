@@ -152,9 +152,7 @@ def _weighted_box_stats(values: np.ndarray, weights: np.ndarray) -> dict[str, ob
     scalar_values = scalar_values[positive_mask]
     scalar_weights = scalar_weights[positive_mask]
 
-    q1 = _weighted_quantile(scalar_values, scalar_weights, 0.25)
-    med = _weighted_quantile(scalar_values, scalar_weights, 0.50)
-    q3 = _weighted_quantile(scalar_values, scalar_weights, 0.75)
+    q1, med, q3 = _weighted_quantiles(scalar_values, scalar_weights, (0.25, 0.50, 0.75))
     iqr = q3 - q1
     lower_fence = q1 - 1.5 * iqr
     upper_fence = q3 + 1.5 * iqr
@@ -177,25 +175,35 @@ def _weighted_box_stats(values: np.ndarray, weights: np.ndarray) -> dict[str, ob
     }
 
 
-def _weighted_quantile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
-    quantile = float(q)
-    if quantile <= 0.0:
-        return float(np.min(values))
-    if quantile >= 1.0:
-        return float(np.max(values))
+def _weighted_quantiles(
+    values: np.ndarray, weights: np.ndarray, quantiles: tuple[float, ...]
+) -> tuple[float, ...]:
+    """Lower weighted quantiles from one sort and one cumulative distribution."""
 
-    order = np.argsort(values)
-    sorted_values = values[order]
-    sorted_weights = weights[order]
-    total_weight = float(np.sum(sorted_weights))
-    if total_weight <= 0.0:
-        raise ValueError("weights must include at least one positive value.")
-
-    cdf = np.cumsum(sorted_weights) / total_weight
-    idx = int(np.searchsorted(cdf, quantile, side="left"))
-    if idx >= sorted_values.size:
-        idx = sorted_values.size - 1
-    return float(sorted_values[idx])
+    cdf: np.ndarray | None = None
+    sorted_values = values
+    results: list[float] = []
+    for q in quantiles:
+        quantile = float(q)
+        if quantile <= 0.0:
+            results.append(float(np.min(values)))
+            continue
+        if quantile >= 1.0:
+            results.append(float(np.max(values)))
+            continue
+        if cdf is None:
+            order = np.argsort(values)
+            sorted_values = values[order]
+            sorted_weights = weights[order]
+            total_weight = float(np.sum(sorted_weights))
+            if total_weight <= 0.0:
+                raise ValueError("weights must include at least one positive value.")
+            cdf = np.cumsum(sorted_weights) / total_weight
+        idx = int(np.searchsorted(cdf, quantile, side="left"))
+        if idx >= sorted_values.size:
+            idx = sorted_values.size - 1
+        results.append(float(sorted_values[idx]))
+    return tuple(results)
 
 
 def _mesh_source_label(
