@@ -123,7 +123,7 @@ make test-full
 release profile の `make test-fortran-benchmark` を使います。物理 release の判定と収束 fixture は
 [物理リリースの検証](PhysicsReleaseVerification.html)に従います。
 
-handoff 前に、Fortran を変更した場合は `make fmt-check-fortran`、Python を変更した場合は `ruff check .` を実行し、
+handoff 前に、Fortran を変更した場合は `make fmt-check-fortran`、Python を変更した場合は `make python-lint` を実行し、
 最後に `git diff --check` で whitespace error を確認します。これらの format / lint check が必要な変更では、
 test tier の通過だけで代用しません。
 

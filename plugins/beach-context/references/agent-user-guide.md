@@ -93,7 +93,7 @@ make check       # Fortran build check
 make test-l0     # static/schema/build
 make test        # L1: Python + quick Fortran
 pytest -q        # Python only
-ruff check .     # Python lint
+make python-lint # Python lint + staged format check
 ```
 
 長時間の FMM、MPI、release 検証は通常ループから分離されています。

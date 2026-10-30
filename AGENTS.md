@@ -50,11 +50,11 @@ Python CLI examples:
 
 ## Tests / quality
 - Python tests: `pytest -q`
-- Python lint: `ruff check .`
+- Python lint: `make python-lint` (`ruff check .` plus `make python-format-check`; formatter and import sorting are rolled out per path, see `docs/developer/Workflow.md`, so use `make python-format` instead of `ruff format .`)
 - Python type check: `make python-type-check` (strict summary and shared configuration modules)
 - Fortran build check: `make check` (uses stable dev version metadata for incremental fpm builds)
 - Tiered tests:
-  - L0 static/build: `make test-l0` (`git diff --check`, `ruff check .`, `mypy`, JSON schema parse checks, `make check`)
+  - L0 static/build: `make test-l0` (`git diff --check`, `make python-lint`, `mypy`, JSON schema parse checks, `make check`)
   - L1 development loop: `make test` or `make test-l1` (ordinary Python tests + workflow smoke + quick Fortran targets)
   - L2 contract/integration: `make test-l2` (L1 + C ABI + free-space FMM accuracy targets + freshly built Python/native kernel + config/CLI contracts)
   - Full fpm suite: `make test-full` (every `fpm.toml` test target, including the opt-in far-correction ones)
