@@ -146,12 +146,15 @@ contains
         call publish_cell_cache_and_unlock(plan, target_count, cached_cells, cached_blocks, miss_cells, new_blocks, &
                                            cache_lock)
       end if
-      ! Cached cells live only on the root; share the assembled compact operator.
-      allocate (flat_operator(size(plan%periodic_root_operator)))
-      if (mpi_is_root(mpi)) flat_operator = reshape(plan%periodic_root_operator, [size(flat_operator)])
-      call mpi_bcast_real_dp_array(mpi, flat_operator, 0_i32)
-      plan%periodic_root_operator = reshape(flat_operator, shape(plan%periodic_root_operator))
-      deallocate (flat_operator)
+      ! Cached cells live only on the root; share the assembled compact operator. The collective
+      ! is a no-op on one rank, so skip the flattened copy there.
+      if (mpi%enabled) then
+        allocate (flat_operator(size(plan%periodic_root_operator)))
+        if (mpi_is_root(mpi)) flat_operator = reshape(plan%periodic_root_operator, [size(flat_operator)])
+        call mpi_bcast_real_dp_array(mpi, flat_operator, 0_i32)
+        plan%periodic_root_operator = reshape(flat_operator, shape(plan%periodic_root_operator))
+        deallocate (flat_operator)
+      end if
     end if
     plan%periodic_cache_hit = reuse_translations .and. nmiss == 0_i32
     plan%periodic_root_operator_ready = .true.
@@ -385,11 +388,13 @@ contains
         new_blocks(:, :, pair) = matmul(proxy_to_local, proxy_pinv)
       end do
     end do
-    allocate (flat_operator(size(new_blocks)))
-    flat_operator = reshape(new_blocks, [size(flat_operator)])
-    call mpi_allreduce_sum_real_dp_array(mpi, flat_operator)
-    new_blocks = reshape(flat_operator, shape(new_blocks))
-    deallocate (flat_operator)
+    if (mpi%enabled) then
+      allocate (flat_operator(size(new_blocks)))
+      flat_operator = reshape(new_blocks, [size(flat_operator)])
+      call mpi_allreduce_sum_real_dp_array(mpi, flat_operator)
+      new_blocks = reshape(flat_operator, shape(new_blocks))
+      deallocate (flat_operator)
+    end if
     if (mpi_is_root(mpi)) plan%periodic_operator_build_count = plan%periodic_operator_build_count + 1_i32
   end subroutine build_missing_cell_operators
 

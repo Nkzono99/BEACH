@@ -143,18 +143,16 @@ contains
     integer(i32), intent(in) :: target_nodes(:)
     real(dp), intent(in) :: operator(:, :, :)
     integer(int8), allocatable :: bytes(:)
-    integer :: idx
+    integer :: target_idx
 
     checksum = -3750763034362895579_int64
     bytes = transfer(target_nodes, bytes, size(target_nodes)*storage_size(0_i32)/8)
-    do idx = 1, size(bytes)
-      checksum = ieor(checksum, int(bytes(idx), int64))
-      checksum = checksum*int(z'00000100000001B3', int64)
-    end do
-    bytes = transfer(operator, bytes, size(operator)*storage_size(0.0_dp)/8)
-    do idx = 1, size(bytes)
-      checksum = ieor(checksum, int(bytes(idx), int64))
-      checksum = checksum*int(z'00000100000001B3', int64)
+    call hash_bytes(bytes, checksum)
+    ! Hash one target block at a time in array element order: the same byte stream as the whole
+    ! operator, without a byte copy of it.
+    do target_idx = 1, size(operator, 3)
+      bytes = transfer(operator(:, :, target_idx), bytes, size(operator, 1)*size(operator, 2)*storage_size(0.0_dp)/8)
+      call hash_bytes(bytes, checksum)
     end do
   end function periodic_operator_checksum
 
