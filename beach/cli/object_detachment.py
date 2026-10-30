@@ -10,7 +10,7 @@ import math
 import os
 import shutil
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -338,9 +338,12 @@ def _metadata_component_row(
 
 
 def _path_csv_text(path: Any, release: Any) -> str:
+    return _csv_text(_PATH_FIELDS, _path_rows(path, release))
+
+
+def _path_rows(path: Any, release: Any) -> Iterator[dict[str, object]]:
     potential = path.potential_energy_J
     potential_work = path.potential_difference_work_J
-    rows = []
     for index, displacement in enumerate(path.displacement_m):
         row = {
             "displacement_m": displacement,
@@ -376,8 +379,7 @@ def _path_csv_text(path: Any, release: Any) -> str:
                 row[f"{component}_torque_{axis}_Nm"] = (
                     None if torque_values is None else torque_values[index, axis_index]
                 )
-        rows.append(row)
-    return _csv_text(_PATH_FIELDS, rows)
+        yield row
 
 
 def _build_summary(
@@ -541,16 +543,15 @@ def _render_report(summary: Mapping[str, object]) -> str:
 
 def _csv_text(
     fieldnames: Sequence[str],
-    rows: Sequence[Mapping[str, object]],
+    rows: Iterable[Mapping[str, object]],
 ) -> str:
-    validated = [
-        {name: _strict_csv_value(row.get(name)) for name in fieldnames}
-        for row in rows
-    ]
+    # Rows are validated and written one at a time; a rejected value raises
+    # before any text is returned.
     stream = io.StringIO(newline="")
     writer = csv.DictWriter(stream, fieldnames=fieldnames, lineterminator="\n")
     writer.writeheader()
-    writer.writerows(validated)
+    for row in rows:
+        writer.writerow({name: _strict_csv_value(row.get(name)) for name in fieldnames})
     return stream.getvalue()
 
 
