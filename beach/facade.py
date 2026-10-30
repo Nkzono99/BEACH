@@ -98,7 +98,11 @@ def _forward(
             _require_total_field_config(self.context, operation=func.__name__)
             with self._lend_kernel(
                 step=arguments.get("step", kernel_step),
-                **{name: arguments[name] for name in _PLAN_ARGUMENTS if name in accepted},
+                **{
+                    name: arguments[name]
+                    for name in _PLAN_ARGUMENTS
+                    if name in accepted
+                },
             ) as kernel:
                 arguments["kernel"] = kernel
                 return func(self, **arguments)
@@ -412,8 +416,9 @@ class Beach:
     animate_mesh = _forward(
         animate_history_mesh,
         kernel_step=-1,
-        needs_kernel=lambda _run, arguments: str(arguments["quantity"]).lower()
-        == "potential",
+        needs_kernel=lambda _run, arguments: (
+            str(arguments["quantity"]).lower() == "potential"
+        ),
     )
     compute_electric_field = _forward(compute_electric_field_points, kernel_step=-1)
     trace_field_lines = _forward(trace_field_lines, kernel_step=-1)

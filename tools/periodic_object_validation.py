@@ -19,7 +19,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Iterable, Iterator, Mapping, Sequence
+from typing import Any, Iterable, Iterator, Mapping, NamedTuple, Sequence
 
 try:
     import tomllib
@@ -127,41 +127,67 @@ RECEIPT_POLICY = {
     "output_inventory": "all_regular_files",
     "strict_requires_existing": True,
 }
-STRICT_CASES = (
-    "cache_prime",
-    "smoke_finite_configured",
-    "smoke_infinite_physical",
-    "full_finite_configured_140000",
-    "full_finite_configured_280000",
-    "full_infinite_physical_140000",
-    "full_infinite_physical_280000",
-)
+
+
+class ProducerJob(NamedTuple):
+    script: str
+    job_name: str
+    walltime: str
+    cases: tuple[str, ...]
+
+
+# The fixed SysA job graph. Each producer job runs its EXPECTED_CASE_GRAPH cases in
+# order; staging writes the scripts from this table, and verify-inputs, verify-run
+# and the strict analysis check the staged scripts and receipts against it.
+PRODUCER_JOBS: dict[str, ProducerJob] = {
+    "smoke": ProducerJob(
+        "smoke_sysa.sh",
+        "beach-periodic-smoke",
+        "1:00:00",
+        ("cache_prime", "smoke_finite_configured", "smoke_infinite_physical"),
+    ),
+    "finite_140000": ProducerJob(
+        "full_finite_140000_sysa.sh",
+        "beach-finite-140k",
+        "12:00:00",
+        ("full_finite_configured_140000",),
+    ),
+    "finite_280000": ProducerJob(
+        "full_finite_280000_sysa.sh",
+        "beach-finite-280k",
+        "12:00:00",
+        ("full_finite_configured_280000",),
+    ),
+    "infinite_140000": ProducerJob(
+        "full_infinite_140000_sysa.sh",
+        "beach-infinite-140k",
+        "14:00:00",
+        ("full_infinite_physical_140000",),
+    ),
+    "infinite_280000": ProducerJob(
+        "full_infinite_280000_sysa.sh",
+        "beach-infinite-280k",
+        "14:00:00",
+        ("full_infinite_physical_280000",),
+    ),
+}
+PRODUCER_JOB_RESOURCES = "p=6:t=112:c=112"
+ANALYSIS_JOB_SCRIPT = "analysis_sysa.sh"
 EXPECTED_SUBMITTED_JOBS = {
-    "smoke": ("beach-periodic-smoke", "p=6:t=112:c=112"),
-    "finite_140000": ("beach-finite-140k", "p=6:t=112:c=112"),
-    "finite_280000": ("beach-finite-280k", "p=6:t=112:c=112"),
-    "infinite_140000": ("beach-infinite-140k", "p=6:t=112:c=112"),
-    "infinite_280000": ("beach-infinite-280k", "p=6:t=112:c=112"),
+    **{
+        role: (job.job_name, PRODUCER_JOB_RESOURCES)
+        for role, job in PRODUCER_JOBS.items()
+    },
     "analysis": ("beach-periodic-analysis", "p=1:t=28:c=28"),
 }
+PRODUCER_ROLE_CASES = {role: job.cases for role, job in PRODUCER_JOBS.items()}
 CASE_PRODUCER_JOB_ROLES = {
-    "cache_prime": "smoke",
-    "smoke_finite_configured": "smoke",
-    "smoke_infinite_physical": "smoke",
-    "full_finite_configured_140000": "finite_140000",
-    "full_finite_configured_280000": "finite_280000",
-    "full_infinite_physical_140000": "infinite_140000",
-    "full_infinite_physical_280000": "infinite_280000",
+    case_name: role
+    for role, job in PRODUCER_JOBS.items()
+    for case_name in job.cases
 }
-PRODUCER_ROLE_CASES = {
-    role: tuple(
-        case_name
-        for case_name, producer_role in CASE_PRODUCER_JOB_ROLES.items()
-        if producer_role == role
-    )
-    for role in EXPECTED_SUBMITTED_JOBS
-    if role != "analysis"
-}
+# Every case a producer job runs must have a verified receipt before strict analysis.
+STRICT_CASES = tuple(CASE_PRODUCER_JOB_ROLES)
 EXPECTED_CASE_GRAPH: dict[str, dict[str, Any]] = {
     "cache_prime": {
         "role": "cache_prime",
@@ -281,7 +307,28 @@ LEGACY_ESTIMATOR_INPUTS = (
     "analysis/local_release/moving_sphere_release_summary.csv",
     "analysis/local_release/force_timeseries.csv",
 )
-LEGACY_NATIVE_KEYS = ((149001, 7), (180001, 6), (279001, 6), (279001, 7))
+ARCHIVE_BATCH_COUNT = 280000
+# Charge states of the object-physics evaluation: (charge-history batch, target mesh
+# IDs). None selects the final state, which is batch ARCHIVE_BATCH_COUNT.
+OBJECT_EVALUATION_PLAN: tuple[tuple[int | None, tuple[int, ...]], ...] = (
+    (149001, (7,)),
+    (180001, (6,)),
+    (279001, (6, 7)),
+    (None, (6, 7)),
+)
+OBJECT_HISTORY_BATCHES = tuple(
+    step for step, _mesh_ids in OBJECT_EVALUATION_PLAN if step is not None
+)
+FINAL_TARGET_MESH_IDS = next(
+    mesh_ids for step, mesh_ids in OBJECT_EVALUATION_PLAN if step is None
+)
+# The archived legacy estimator reports the history states of the plan.
+LEGACY_NATIVE_KEYS = tuple(
+    (step, mesh_id)
+    for step, mesh_ids in OBJECT_EVALUATION_PLAN
+    if step is not None
+    for mesh_id in mesh_ids
+)
 LEGACY_CURVE_FIELDS = (
     "target_mesh_id",
     "batch",
@@ -1224,7 +1271,7 @@ def _require_archive_contract(config: Mapping[str, Any], archive_run: Path) -> N
             "archive uses removed point-source configuration table: [field]"
         )
     checks = {
-        "sim.batch_count": (sim.get("batch_count"), 280000),
+        "sim.batch_count": (sim.get("batch_count"), ARCHIVE_BATCH_COUNT),
         "sim.rng_seed": (sim.get("rng_seed"), 12345),
         "sim.field_bc_mode": (sim.get("field_bc_mode"), "periodic2"),
         "sim.field_solver": (sim.get("field_solver"), "fmm"),
@@ -1445,68 +1492,27 @@ def _write_jobs(
     analysis_library: Mapping[str, Any] | None,
 ) -> list[Path]:
     submit = root / "submit"
-    jobs: list[tuple[str, str, str, str, Sequence[str]]] = [
-        (
-            "smoke_sysa.sh",
-            "beach-periodic-smoke",
-            "1:00:00",
-            "smoke",
-            (
-                "cache_prime",
-                "smoke_finite_configured",
-                "smoke_infinite_physical",
-            ),
-        ),
-        (
-            "full_finite_140000_sysa.sh",
-            "beach-finite-140k",
-            "12:00:00",
-            "finite_140000",
-            ("full_finite_configured_140000",),
-        ),
-        (
-            "full_finite_280000_sysa.sh",
-            "beach-finite-280k",
-            "12:00:00",
-            "finite_280000",
-            ("full_finite_configured_280000",),
-        ),
-        (
-            "full_infinite_140000_sysa.sh",
-            "beach-infinite-140k",
-            "14:00:00",
-            "infinite_140000",
-            ("full_infinite_physical_140000",),
-        ),
-        (
-            "full_infinite_280000_sysa.sh",
-            "beach-infinite-280k",
-            "14:00:00",
-            "infinite_280000",
-            ("full_infinite_physical_280000",),
-        ),
-    ]
     paths: list[Path] = []
-    for filename, job_name, walltime, producer_job_role, case_names in jobs:
+    for producer_job_role, job in PRODUCER_JOBS.items():
         commands = _run_case_commands(
-            case_names,
+            job.cases,
             cases,
             producer_job_role=producer_job_role,
         )
-        if filename == "smoke_sysa.sh" and analysis_library is not None:
+        if producer_job_role == "smoke" and analysis_library is not None:
             commands = (
                 f'python3.11 "{source_snapshot["tool"]}" probe-library '
                 f'--library "{analysis_library["staged_path"]}"\n' + commands
             )
-        path = submit / filename
+        path = submit / job.script
         path.write_text(
             _render_job(
                 root=root,
                 binary=binary,
-                job_name=job_name,
+                job_name=job.job_name,
                 source_commit=source_commit,
                 source_snapshot=source_snapshot,
-                walltime=walltime,
+                walltime=job.walltime,
                 commands=commands,
             ),
             encoding="utf-8",
@@ -1535,7 +1541,7 @@ def _write_jobs(
             raise ValidationError(
                 f"unresolved analysis job template markers: {unresolved}"
             )
-        analysis_path = submit / "analysis_sysa.sh"
+        analysis_path = submit / ANALYSIS_JOB_SCRIPT
         analysis_path.write_text(analysis_template, encoding="utf-8")
         analysis_path.chmod(0o755)
         paths.append(analysis_path)
@@ -2242,36 +2248,14 @@ def verify_inputs(
     scripts = manifest.get("scripts")
     if not isinstance(scripts, Mapping):
         raise ValidationError("staged script metadata is invalid")
-    expected_scripts = {
-        "smoke_sysa.sh",
-        "full_finite_140000_sysa.sh",
-        "full_finite_280000_sysa.sh",
-        "full_infinite_140000_sysa.sh",
-        "full_infinite_280000_sysa.sh",
-        "submit_chain.sh",
+    script_producer_roles = {
+        job.script: role for role, job in PRODUCER_JOBS.items()
     }
+    expected_scripts = {*script_producer_roles, "submit_chain.sh"}
     if analysis_library is not None:
-        expected_scripts.add("analysis_sysa.sh")
+        expected_scripts.add(ANALYSIS_JOB_SCRIPT)
     if set(scripts) != expected_scripts:
         raise ValidationError("staged script set differs from the fixed job graph")
-    case_coverage = {
-        "smoke_sysa.sh": (
-            "cache_prime",
-            "smoke_finite_configured",
-            "smoke_infinite_physical",
-        ),
-        "full_finite_140000_sysa.sh": ("full_finite_configured_140000",),
-        "full_finite_280000_sysa.sh": ("full_finite_configured_280000",),
-        "full_infinite_140000_sysa.sh": ("full_infinite_physical_140000",),
-        "full_infinite_280000_sysa.sh": ("full_infinite_physical_280000",),
-    }
-    script_producer_roles = {
-        "smoke_sysa.sh": "smoke",
-        "full_finite_140000_sysa.sh": "finite_140000",
-        "full_finite_280000_sysa.sh": "finite_280000",
-        "full_infinite_140000_sysa.sh": "infinite_140000",
-        "full_infinite_280000_sysa.sh": "infinite_280000",
-    }
     for name, script in scripts.items():
         if not isinstance(script, Mapping):
             raise ValidationError(f"job script metadata is invalid: {name}")
@@ -2295,14 +2279,14 @@ def verify_inputs(
             raise ValidationError(
                 f"job script {name} lacks the isolated Python environment contract"
             )
-        if name == "analysis_sysa.sh":
+        if name == ANALYSIS_JOB_SCRIPT:
             bad = [token for token in forbidden if token in text]
             if bad:
                 raise ValidationError(
                     f"job script {name} uses forbidden launch tokens: {bad}"
                 )
             required = (
-                "#SBATCH --rsc p=1:t=28:c=28",
+                f"#SBATCH --rsc {EXPECTED_SUBMITTED_JOBS['analysis'][1]}",
                 "srun python3.11",
                 "probe-periodic-oracles",
                 "--require-complete",
@@ -2315,25 +2299,25 @@ def verify_inputs(
                 raise ValidationError(
                     f"job script {name} runs strict analysis before its plane oracles"
                 )
-        elif name.endswith("_sysa.sh"):
+        elif name in script_producer_roles:
             bad = [token for token in forbidden if token in text]
             if bad:
                 raise ValidationError(
                     f"job script {name} uses forbidden launch tokens: {bad}"
                 )
             if (
-                "#SBATCH --rsc p=6:t=112:c=112" not in text
+                f"#SBATCH --rsc {PRODUCER_JOB_RESOURCES}" not in text
                 or 'srun "${BINARY}"' not in text
             ):
                 raise ValidationError(
                     f"job script {name} lacks the SysA direct-srun contract"
                 )
-            for case_name in case_coverage[name]:
+            producer_role = script_producer_roles[name]
+            for case_name in PRODUCER_ROLE_CASES[producer_role]:
                 if f'run_case "{case_name}"' not in text:
                     raise ValidationError(
                         f"job script {name} omits staged case {case_name}"
                     )
-            producer_role = script_producer_roles[name]
             self_verify = [
                 line
                 for line in text.splitlines()
@@ -6592,7 +6576,7 @@ def _evaluate_new_infinite_shell_reference(
     result = run.result
     if cache_file_hashes is None:
         cache_file_hashes = {}
-    target_ids = (6, 7)
+    target_ids = FINAL_TARGET_MESH_IDS
     available_ids = (
         set(int(value) for value in np.asarray(result.mesh.mesh_ids).tolist())
         if result.mesh.mesh_ids is not None
@@ -6718,12 +6702,6 @@ def _evaluate_object_physics(
     list[dict[str, Any]],
     dict[str, Any],
 ]:
-    plans: tuple[tuple[int | None, tuple[int, ...]], ...] = (
-        (149001, (7,)),
-        (180001, (6,)),
-        (279001, (6, 7)),
-        (None, (6, 7)),
-    )
     wrench_rows: list[dict[str, Any]] = []
     curve_rows: list[dict[str, Any]] = []
     path_rows: list[dict[str, Any]] = []
@@ -6736,7 +6714,7 @@ def _evaluate_object_physics(
     )
     cache_file_hashes: dict[Path, str] = {}
 
-    for step, target_ids in plans:
+    for step, target_ids in OBJECT_EVALUATION_PLAN:
         eligible_rows: list[Mapping[str, Any]] = []
         eligible_runs: dict[str, Beach | None] = {}
         for row in run_rows:
@@ -6824,7 +6802,7 @@ def _evaluate_object_physics(
         evaluated_snapshots.append(
             {
                 "step_selector": "final",
-                "target_mesh_ids": [6, 7],
+                "target_mesh_ids": list(FINAL_TARGET_MESH_IDS),
                 "periodic_model": "infinite_physical",
                 "diagnostic": "finite_shell_reference_for_new_infinite_charge",
                 "successful_target_models": len(
@@ -6845,7 +6823,7 @@ def _evaluate_object_physics(
             "status": status,
             "successful_target_models": successes,
             "failures": failures,
-            "required_history_batches": [149001, 180001, 279001],
+            "required_history_batches": list(OBJECT_HISTORY_BATCHES),
             "evaluated_snapshots": evaluated_snapshots,
         },
     )
@@ -6915,14 +6893,11 @@ def _physics_review_lines(
 
 
 def _expected_object_evaluation_keys() -> set[tuple[str, str, int, int]]:
-    states = (
-        (149001, 7),
-        (180001, 6),
-        (279001, 6),
-        (279001, 7),
-        (280000, 6),
-        (280000, 7),
-    )
+    states = [
+        (ARCHIVE_BATCH_COUNT if step is None else step, mesh_id)
+        for step, mesh_ids in OBJECT_EVALUATION_PLAN
+        for mesh_id in mesh_ids
+    ]
     keys: set[tuple[str, str, int, int]] = set()
     for case in (
         "archived_v1_3",
@@ -7019,9 +6994,9 @@ def _local_model_numerical_qualification(
         if str(row.get("mesh_id", "")).isdigit()
     }
     expected_shell_groups = {
-        (case, "infinite_physical", 280000, mesh_id)
+        (case, "infinite_physical", ARCHIVE_BATCH_COUNT, mesh_id)
         for case in expected_cases
-        for mesh_id in (6, 7)
+        for mesh_id in FINAL_TARGET_MESH_IDS
     }
     missing_shell_groups = sorted(expected_shell_groups - set(shell_groups))
     shell_failures = [

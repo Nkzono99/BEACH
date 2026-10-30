@@ -105,7 +105,7 @@ make test         # L1: Python + 軽量 Fortran（test-l1 の alias）
 make test-l2      # L1 + C ABI / free-space FMM / Python native kernel + Python / Fortran 設定契約
 ```
 
-- L0 は `git diff --check`、source text、`ruff check .`、`mypy`、JSON schema、`make check` を確認します。lint と型検査の設定は `pyproject.toml` にあります。
+- L0 は `git diff --check`、source text、`make python-lint`（`ruff check .` と段階導入中の format check）、`mypy`、JSON schema、`make check` を確認します。lint と型検査の設定は `pyproject.toml` にあります。
 - L1 は L0 に通常の Python test、検証 workflow の代表 3 ケース、軽量 Fortran target を加えます。
 - L2 は C ABI、periodic zero-mode、free-space FMM の精度比較（`test_dynamics_fmm`、`test_dynamics_panel_fmm`、`test_coulomb_fmm_core_basic`、`test_coulomb_fmm_core_panel`）、共有 kernel を build した Python/native 数値比較、Fortran の設定読込と lint CLI を加えます。
 - L1 の Fortran target は 1 本数秒に収めます。数秒を超える test は L2 へ、`cached_kneq0` operator を作る test は `make test-fortran-far-correction` へ置きます。
@@ -145,9 +145,43 @@ mesh 解像度が異なっても同じ box-cell 演算子は再利用できま�
 性能比較は release profile の `make test-fortran-benchmark` で測定し、L1 の数値一致から分けます。物理 release の判定と収束 fixture は
 [物理リリースの検証](PhysicsReleaseVerification.md)に従います。
 
-handoff 前に、Fortran を変更した場合は `make fmt-check-fortran`、Python を変更した場合は `ruff check .` を実行し、
+handoff 前に、Fortran を変更した場合は `make fmt-check-fortran`、Python を変更した場合は `make python-lint` を実行し、
 最後に `git diff --check` で whitespace error を確認します。これらの format / lint check が必要な変更では、
 test tier の通過だけで代用しません。
+
+### Python の format と import 整列
+
+Ruff の formatter と import 整列（rule `I`）は、大きな整形差分が他の変更と混ざらないよう path 単位で段階導入しています。
+対象 path は `Makefile` の `PYTHON_FORMAT_PATHS` と、`pyproject.toml` の `[tool.ruff.lint.per-file-ignores]` にある
+否定パターン（対象外の path で `I` を無視する）の 2 か所に同じ並びで書きます。
+
+```bash
+make python-format        # 対象 path の import を整列し、ruff format を適用する
+make python-format-check  # 対象 path の format を検査する（make python-lint と L0 が実行する）
+```
+
+対象外の path を巻き込まないよう、段階導入が終わるまで `ruff format .` は使いません。
+
+| stage | 対象 | 状態 |
+| --- | --- | --- |
+| 1 | `beach/native`、`beach/plot`、`beach/tooling`、`beach/facade.py` | 適用済み |
+| 2 | `beach/io`、`beach/config`、`beach/cli`、`beach/analysis`、`beach/__init__.py`（package 全体） | 未適用 |
+| 3 | `tests`、`tools`、`examples`、`docs` の Python | 未適用 |
+
+次の stage は、対象 path を触る作業 branch が少ない時期に、次の順で進めます。
+
+1. 上の 2 か所に path を追加し、`make python-format` を実行する。
+2. 整形だけの commit を作り、コード変更とは別にする。
+3. stage 3 を終えたら path の列挙をやめ、`select` の `I` を全体に効かせて per-file-ignores を削除し、
+   `python-format-check` を `ruff format --check .` にする。
+
+format の結果は Ruff の minor version ごとの style に依存するため、`pyproject.toml` の dev 依存で Ruff を minor の範囲に固定しています。
+範囲を上げる場合は、同じ変更で対象 path を整形し直します。
+
+formatter の導入後に追加する lint rule の候補は次のとおりです。rule ごとに修正と設定を 1 つの変更にまとめます。
+
+- `UP035`（`typing` からの deprecated import）と `UP037`（不要な引用符付き annotation）。自動修正で直せます。
+- `B905`（`strict=` のない `zip`）。`strict=True` は長さの不一致で例外を出すので、呼び出しごとに長さが揃う前提を確認して指定します。
 
 `make python-type-check` は、`beach.io.summary` と設定の共有エラー・schema 読み込みを `mypy --strict` 相当で検査します。
 解析・描画などの未移行部分は検査対象に含めず、型注釈を整えた module から `tool.mypy.files` に追加します。

@@ -3,7 +3,8 @@
 	install-camphor-fast install-camphor-fast-local \
 	install-intel install-intel-local \
 	build check run \
-	static-check source-text-check python-lint python-type-check schema-check schema-sync \
+	static-check source-text-check python-lint python-format python-format-check python-type-check \
+	schema-check schema-sync \
 	test-config-contract \
 	test test-l0 test-l1 test-l2 test-full test-physics-release \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-release-correctness \
@@ -38,6 +39,10 @@ CONFIG ?= beach.toml
 OPENMP_FLAG ?= -fopenmp
 INTEL_TEST_QUIET_FLAG = $(if $(filter ifort ifx mpiifort mpiifx,$(notdir $(FPM_FC))),-check noarg_temp_created)
 FORTRAN_TEST_FLAGS ?= $(strip $(OPENMP_FLAG) $(INTEL_TEST_QUIET_FLAG))
+# Paths under `ruff format` and import sorting. The rollout is staged (see
+# docs/developer/Workflow.md); keep the list equal to the per-file-ignores
+# negation in pyproject.toml.
+PYTHON_FORMAT_PATHS = beach/native beach/plot beach/tooling beach/facade.py
 VERSION_MODE ?=
 BUILD_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),git)
 CHECK_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),dev)
@@ -209,8 +214,15 @@ static-check: source-text-check
 source-text-check:
 	$(PYTHON) tools/check_source_text.py
 
-python-lint:
+python-lint: python-format-check
 	$(PYTHON) -m ruff check .
+
+python-format:
+	$(PYTHON) -m ruff check --select I --fix $(PYTHON_FORMAT_PATHS)
+	$(PYTHON) -m ruff format $(PYTHON_FORMAT_PATHS)
+
+python-format-check:
+	$(PYTHON) -m ruff format --check $(PYTHON_FORMAT_PATHS)
 
 python-type-check:
 	$(PYTHON) -m mypy

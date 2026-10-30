@@ -11,7 +11,7 @@ import numpy as np
 from beach.analysis.context import RunContext
 from beach.analysis.mesh import _triangle_areas
 from beach.analysis.potential import compute_potential_mesh
-from beach.io.types import RunResult, MeshSource
+from beach.io.types import MeshSource, RunResult
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
