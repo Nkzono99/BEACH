@@ -47,7 +47,7 @@ from .schema import (
     load_schema,
     prepare_schema_document,
     reject_basic_schema_errors,
-    validation_errors,
+    schema_validator,
 )
 
 
@@ -144,7 +144,8 @@ def _validate_config_document(
         to_runtime_layout(config)
     document = prepare_schema_document(config, schema)
     phase = "authoring" if normalize else "normalized"
-    input_errors = validation_errors(document, schema)
+    schema_errors_of = schema_validator(schema)
+    input_errors = schema_errors_of(document)
     reject_basic_schema_errors(input_errors, phase=phase)
     runtime_document = to_runtime_layout(document)
     if normalize:
@@ -154,15 +155,16 @@ def _validate_config_document(
         resolved = runtime_document
     # Authoring arithmetic can create new invalid values.
     resolved_grouped = prepare_schema_document(to_grouped_layout(resolved), schema)
-    resolved_errors = validation_errors(resolved_grouped, schema)
+    resolved_errors = schema_errors_of(resolved_grouped)
     reject_basic_schema_errors(resolved_errors, phase="normalized")
     if input_errors:
         raise ConfigSchemaError(input_errors, phase=phase)
     if resolved_errors:
         raise ConfigSchemaError(resolved_errors, phase="normalized")
     if additional_schema is not None:
+        additional_errors_of = schema_validator(additional_schema)
         for candidate, candidate_phase in ((document, phase), (resolved_grouped, "normalized")):
-            errors = validation_errors(candidate, additional_schema)
+            errors = additional_errors_of(candidate)
             if errors:
                 raise ConfigSchemaError(errors, phase=candidate_phase)
     return resolved

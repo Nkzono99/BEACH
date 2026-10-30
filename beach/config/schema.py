@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from importlib import resources
 from pathlib import Path
 from typing import Any, cast
@@ -146,6 +146,17 @@ def schema_errors(config: Mapping[str, Any], schema: Mapping[str, Any]) -> list[
 def validation_errors(config: Mapping[str, Any], schema: Mapping[str, Any]) -> list[Any]:
     """Return schema errors for the shared authoring/runtime validation pipeline."""
 
+    return schema_validator(schema)(config)
+
+
+def schema_validator(schema: Mapping[str, Any]) -> Callable[[Mapping[str, Any]], list[Any]]:
+    """Check ``schema`` once and return a function giving sorted errors for a config.
+
+    One configuration load validates the input and the normalized document
+    against the same schema; reusing the returned function avoids repeating the
+    meta-schema check and the validator construction.
+    """
+
     try:
         from jsonschema import Draft7Validator, validators
         from jsonschema.exceptions import SchemaError
@@ -168,13 +179,16 @@ def validation_errors(config: Mapping[str, Any], schema: Mapping[str, Any]) -> l
     validator = validators.extend(Draft7Validator, type_checker=integer_types)(  # type: ignore[no-untyped-call]
         schema
     )
-    errors = sorted(
-        validator.iter_errors(config),
-        key=lambda error: (
-            tuple(str(part) for part in error.absolute_path),
-            tuple(str(part) for part in error.absolute_schema_path),
-        ),
-    )
+
+    def errors(config: Mapping[str, Any]) -> list[Any]:
+        return sorted(
+            validator.iter_errors(config),
+            key=lambda error: (
+                tuple(str(part) for part in error.absolute_path),
+                tuple(str(part) for part in error.absolute_schema_path),
+            ),
+        )
+
     return errors
 
 
