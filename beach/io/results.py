@@ -345,26 +345,35 @@ def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] |
 
 
 def _load_charges(path: Path, *, mesh_nelem: int) -> np.ndarray:
+    return _load_indexed_scalar_csv(path, mesh_nelem=mesh_nelem, value_name="charge_C")
+
+
+def _load_indexed_scalar_csv(
+    path: Path, *, mesh_nelem: int, value_name: str
+) -> np.ndarray:
+    """Read ``elem_idx,<value_name>`` rows that must list elements 1..mesh_nelem in order."""
+
+    name = path.name
     data = np.loadtxt(path, delimiter=",", skiprows=1)
     if data.size == 0:
         if mesh_nelem != 0:
-            raise ValueError("charges.csv is empty but mesh_nelem > 0.")
+            raise ValueError(f"{name} is empty but mesh_nelem > 0.")
         return np.empty(0, dtype=float)
     if data.ndim == 1:
         data = data[None, :]
     if data.shape[1] < 2:
-        raise ValueError("charges.csv must contain elem_idx and charge_C columns.")
+        raise ValueError(f"{name} must contain elem_idx and {value_name} columns.")
     if data.shape[0] != mesh_nelem:
         raise ValueError(
-            f"charges.csv row count ({data.shape[0]}) does not match mesh_nelem ({mesh_nelem})."
+            f"{name} row count ({data.shape[0]}) does not match mesh_nelem ({mesh_nelem})."
         )
     expected = np.arange(1, mesh_nelem + 1, dtype=np.int64)
     if not np.all(np.isfinite(data[:, 0])) or not np.array_equal(data[:, 0], expected):
-        raise ValueError("charges.csv elem_idx column must be 1..mesh_nelem in order.")
-    q_values = np.asarray(data[:, 1], dtype=float)
-    if not np.all(np.isfinite(q_values)):
-        raise ValueError("charges.csv charge_C values must be finite.")
-    return q_values
+        raise ValueError(f"{name} elem_idx column must be 1..mesh_nelem in order.")
+    values = np.asarray(data[:, 1], dtype=float)
+    if not np.all(np.isfinite(values)):
+        raise ValueError(f"{name} {value_name} values must be finite.")
+    return values
 
 
 def _load_triangles_if_exists(
@@ -457,28 +466,4 @@ def _load_mesh_sources_if_exists(path: Path) -> dict[int, MeshSource] | None:
 def _load_mesh_potential_if_exists(path: Path, *, mesh_nelem: int) -> np.ndarray | None:
     if not path.exists():
         return None
-
-    data = np.loadtxt(path, delimiter=",", skiprows=1)
-    if data.size == 0:
-        if mesh_nelem != 0:
-            raise ValueError("mesh_potential.csv is empty but mesh_nelem > 0.")
-        return np.empty(0, dtype=float)
-    if data.ndim == 1:
-        data = data[None, :]
-    if data.shape[1] < 2:
-        raise ValueError(
-            "mesh_potential.csv must contain elem_idx and potential_V columns."
-        )
-    if data.shape[0] != mesh_nelem:
-        raise ValueError(
-            f"mesh_potential.csv row count ({data.shape[0]}) does not match mesh_nelem ({mesh_nelem})."
-        )
-    expected = np.arange(1, mesh_nelem + 1, dtype=np.int64)
-    if not np.all(np.isfinite(data[:, 0])) or not np.array_equal(data[:, 0], expected):
-        raise ValueError(
-            "mesh_potential.csv elem_idx column must be 1..mesh_nelem in order."
-        )
-    potential = np.asarray(data[:, 1], dtype=float)
-    if not np.all(np.isfinite(potential)):
-        raise ValueError("mesh_potential.csv potential_V values must be finite.")
-    return potential
+    return _load_indexed_scalar_csv(path, mesh_nelem=mesh_nelem, value_name="potential_V")
