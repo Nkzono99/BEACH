@@ -36,6 +36,10 @@ class _RecordingKernel:
     def source_charges(self) -> np.ndarray:
         return self.charges.copy()
 
+    @property
+    def source_count(self) -> int:
+        return self.charges.size
+
     def update_charges(self, charges: np.ndarray) -> None:
         self.charges = np.asarray(charges, dtype=float).copy()
 
@@ -183,6 +187,23 @@ def test_forwarded_analysis_uses_the_requested_history_step(tmp_path: Path) -> N
         history_kernel = run.kernel(step=1)
         assert _RecordingKernel.built == [history_kernel]
         np.testing.assert_array_equal(history_kernel.source_charges, [1.0e-9])
+
+
+def test_methods_for_other_steps_borrow_the_open_plan(tmp_path: Path) -> None:
+    out = _write_run(tmp_path / "run")
+    with Beach(out) as run:
+        latest = run.kernel()
+        totals = [
+            run.calc_object_forces_kernel(step=step)[0].total_charge_C
+            for step in (1, 2, 1)
+        ]
+        # One plan serves every step; the handle keeps its own charges.
+        assert _RecordingKernel.built == [latest]
+        np.testing.assert_array_equal(latest.source_charges, [2.0e-9])
+        assert totals == [1.0e-9, 2.0e-9, 1.0e-9]
+        # A different plan still gets a kernel of its own.
+        run.calc_object_forces_kernel(step=1, theta=0.7)
+        assert len(_RecordingKernel.built) == 2
 
 
 def test_session_reference_iterator_is_consumed_once(tmp_path: Path) -> None:

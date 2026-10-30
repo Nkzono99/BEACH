@@ -89,7 +89,9 @@ with Beach("outputs/latest", config_path="beach.toml") as run:
 ```
 
 `result` は最初の参照時に読み込みます。`context` が設定の解決を保持し、`kernel()` は同じ電荷・周期条件・
-FMM 設定の native kernel を再利用します。`close()` と `with` の終了で kernel を閉じ、
+FMM 設定の native kernel を再利用します。転送メソッドを別の `step` で呼ぶときは、同じ周期条件・FMM 設定の
+kernel が開いていればその step の電荷を一時的に読み込んで使い、呼び出し後に元の電荷へ戻します。
+多数の step を解析しても kernel は設定ごとに 1 つです。`close()` と `with` の終了で kernel を閉じ、
 `reload()` は kernel を閉じて出力を読み直します。セッションから借りた kernel を自分で閉じないでください。
 
 関数を直接呼ぶ場合も同じ結果と引数を使います。例えば `compute_potential_mesh(run)` と

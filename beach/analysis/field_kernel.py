@@ -306,7 +306,7 @@ def _require_run_kernel(
 ) -> None:
     """Check that a caller's kernel holds this run's panels and the total field."""
 
-    nsource = kernel.source_charges.shape[0]
+    nsource = kernel.source_count
     if nsource != context.result.summary.mesh_nelem:
         raise ValueError(
             f"{operation}: the kernel holds {nsource} source panels but the run has "

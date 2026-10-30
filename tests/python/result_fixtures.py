@@ -60,6 +60,10 @@ class _UnitPanelKernel:
     def source_charges(self) -> np.ndarray:
         return self.charges.copy()
 
+    @property
+    def source_count(self) -> int:
+        return self.charges.size
+
     def update_charges(self, charges: np.ndarray) -> None:
         self.charges = np.asarray(charges, dtype=float).copy()
 
