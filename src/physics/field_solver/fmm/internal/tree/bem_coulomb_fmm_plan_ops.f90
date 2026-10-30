@@ -1,5 +1,6 @@
 !> Coulomb FMM plan 構築と tree トポロジ前計算。
 module bem_coulomb_fmm_plan_ops
+  use, intrinsic :: ieee_arithmetic, only: ieee_class, ieee_negative_zero, operator(==)
   use bem_filesystem, only: default_periodic_cache_directory
   use bem_kinds, only: dp, sp, i32
   use bem_sorting, only: sort_real_ascending
@@ -145,6 +146,9 @@ contains
     if (plan%panel_source) then
       do idx = 1_i32, nsrc
         shift = plan%src_pos(:, idx) - original_centroid(:, idx)
+        ! A panel that the periodic wrap did not move keeps the geometry built above. Adding the zero
+        ! shift would only turn a -0.0 vertex coordinate into +0.0, so such panels are rebuilt as before.
+        if (all(shift == 0.0_dp) .and. .not. has_negative_zero(plan%panel_geometry(idx)%vertex)) cycle
         shifted_vertex = plan%panel_geometry(idx)%vertex + spread(shift, 2, 3)
         call init_panel_geometry( &
           shifted_vertex(:, 1), shifted_vertex(:, 2), shifted_vertex(:, 3), plan%panel_geometry(idx), panel_status &
@@ -155,6 +159,12 @@ contains
     end if
     plan%sources_ready = .true.
   end subroutine prepare_plan_sources
+
+  pure logical function has_negative_zero(values)
+    real(dp), intent(in) :: values(:, :)
+
+    has_negative_zero = any(ieee_class(values) == ieee_negative_zero)
+  end function has_negative_zero
 
   !> Build the tree, interaction lists and operators of a plan whose sources are prepared.
   subroutine core_complete_plan_impl(plan)
@@ -256,7 +266,8 @@ contains
     integer(i32), intent(in) :: node_idx, start_idx, end_idx, depth
     integer(i32) :: count, p, idx, oct
     integer(i32) :: child_k, child_node, child_start, child_end
-    integer(i32), allocatable :: counts(:), offsets(:), cursor(:), work(:)
+    integer(i32) :: counts(8), offsets(8), cursor(8)
+    integer(i32), allocatable :: work(:)
     real(dp) :: bb_min(3), bb_max(3), span(3), center(3), split_eps
 
     count = end_idx - start_idx + 1_i32
@@ -297,17 +308,14 @@ contains
     split_eps = 1.0d-12*max(1.0d0, maxval(abs(center)))
     if (maxval(span) <= split_eps) return
 
-    allocate (counts(8), offsets(8), cursor(8), work(count))
     counts = 0_i32
     do p = start_idx, end_idx
       idx = plan%elem_order(p)
       oct = octant_index(plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), center)
       counts(oct) = counts(oct) + 1_i32
     end do
-    if (maxval(counts) == count) then
-      deallocate (counts, offsets, cursor, work)
-      return
-    end if
+    if (maxval(counts) == count) return
+    allocate (work(count))
 
     offsets(1) = 1_i32
     do oct = 2, 8
@@ -321,6 +329,7 @@ contains
       cursor(oct) = cursor(oct) + 1_i32
     end do
     plan%elem_order(start_idx:end_idx) = work
+    deallocate (work)
 
     child_k = 0_i32
     child_start = start_idx
@@ -337,7 +346,6 @@ contains
       child_start = child_end + 1_i32
     end do
     plan%child_count(node_idx) = child_k
-    deallocate (counts, offsets, cursor, work)
   end subroutine build_source_node
 
   subroutine ensure_source_tree_capacity(plan, max_node_needed)
@@ -837,10 +845,10 @@ contains
 
   subroutine build_interactions(plan)
     type(fmm_plan_type), intent(inout) :: plan
-    integer(i32) :: leaf_idx, i, near_n, far_n, near_used, far_used, near_cap, far_cap
+    integer(i32) :: leaf_idx, i, near_n, near_used, near_cap
     integer(i32) :: n_target_nodes, child_k, parent_node, node_idx
     integer(i32) :: pair_cap, pair_used, nshift
-    integer(i32), allocatable :: near_work(:), far_work(:), near_buf(:), far_buf(:)
+    integer(i32), allocatable :: near_work(:), near_buf(:)
     integer(i32), allocatable :: m2l_target_buf(:), m2l_source_buf(:), m2l_shift_idx1_buf(:), m2l_shift_idx2_buf(:)
     logical :: use_target_tree
 
@@ -853,33 +861,23 @@ contains
 
     use_target_tree = plan%target_tree_ready
     n_target_nodes = active_tree_nnode(plan, use_target_tree)
-    allocate (plan%near_start(plan%nleaf + 1_i32), plan%far_start(plan%nleaf + 1_i32))
-    allocate (near_work(plan%nnode), far_work(plan%nnode))
+    allocate (plan%near_start(plan%nleaf + 1_i32))
+    allocate (near_work(plan%nnode))
     near_cap = max(64_i32, plan%nleaf*16_i32)
-    far_cap = max(64_i32, plan%nleaf*16_i32)
-    allocate (near_buf(near_cap), far_buf(far_cap))
+    allocate (near_buf(near_cap))
     near_used = 0_i32
-    far_used = 0_i32
     do leaf_idx = 1_i32, plan%nleaf
       near_n = 0_i32
-      far_n = 0_i32
-      call gather_leaf_interactions(plan, plan%leaf_nodes(leaf_idx), 1_i32, near_work, near_n, far_work, far_n)
+      call gather_leaf_near_sources(plan, plan%leaf_nodes(leaf_idx), 1_i32, near_work, near_n)
       plan%near_start(leaf_idx) = near_used + 1_i32
-      plan%far_start(leaf_idx) = far_used + 1_i32
       do i = 1_i32, near_n
         call append_i32_buffer(near_buf, near_used, near_cap, near_work(i))
       end do
-      do i = 1_i32, far_n
-        call append_i32_buffer(far_buf, far_used, far_cap, far_work(i))
-      end do
     end do
     plan%near_start(plan%nleaf + 1_i32) = near_used + 1_i32
-    plan%far_start(plan%nleaf + 1_i32) = far_used + 1_i32
-    allocate (plan%near_nodes(max(1_i32, near_used)), plan%far_nodes(max(1_i32, far_used)))
+    allocate (plan%near_nodes(max(1_i32, near_used)))
     plan%near_nodes = 0_i32
-    plan%far_nodes = 0_i32
     if (near_used > 0_i32) plan%near_nodes(1:near_used) = near_buf(1:near_used)
-    if (far_used > 0_i32) plan%far_nodes(1:far_used) = far_buf(1:far_used)
 
     allocate (plan%parent_of(n_target_nodes))
     plan%parent_of = 0_i32
@@ -924,7 +922,7 @@ contains
     plan%m2l_build_count = plan%m2l_build_count + 1_i32
     call build_target_pair_index(plan, n_target_nodes)
 
-    deallocate (near_work, far_work, near_buf, far_buf, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf)
+    deallocate (near_work, near_buf, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf)
   end subroutine build_interactions
 
   subroutine build_near_source_index( &
@@ -1115,17 +1113,15 @@ contains
     end subroutine build_near_panel_tables_single
   end subroutine build_near_panel_tables
 
-  recursive subroutine gather_leaf_interactions(plan, target_leaf, source_node, near_buf, near_n, far_buf, far_n)
+  !> Source leaves that are not well separated from target_leaf. Well-separated subtrees reach the
+  !! leaf through the M2L pairs, so the traversal only stops there.
+  recursive subroutine gather_leaf_near_sources(plan, target_leaf, source_node, near_buf, near_n)
     type(fmm_plan_type), intent(in) :: plan
     integer(i32), intent(in) :: target_leaf, source_node
-    integer(i32), intent(inout) :: near_buf(:), near_n, far_buf(:), far_n
+    integer(i32), intent(inout) :: near_buf(:), near_n
     integer(i32) :: child_k, child_node
 
-    if (nodes_well_separated(plan, target_leaf, source_node)) then
-      far_n = far_n + 1_i32
-      far_buf(far_n) = source_node
-      return
-    end if
+    if (nodes_well_separated(plan, target_leaf, source_node)) return
     if (plan%child_count(source_node) <= 0_i32) then
       near_n = near_n + 1_i32
       near_buf(near_n) = source_node
@@ -1133,9 +1129,9 @@ contains
     end if
     do child_k = 1_i32, plan%child_count(source_node)
       child_node = plan%child_idx(child_k, source_node)
-      call gather_leaf_interactions(plan, target_leaf, child_node, near_buf, near_n, far_buf, far_n)
+      call gather_leaf_near_sources(plan, target_leaf, child_node, near_buf, near_n)
     end do
-  end subroutine gather_leaf_interactions
+  end subroutine gather_leaf_near_sources
 
   recursive subroutine accumulate_cached_pairs( &
     plan, t_node, s_node, use_target_tree, target_buf, source_buf, shift_idx1_buf, shift_idx2_buf, pair_used, pair_cap &

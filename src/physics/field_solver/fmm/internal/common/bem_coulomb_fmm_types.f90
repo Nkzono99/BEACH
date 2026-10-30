@@ -145,7 +145,6 @@ module bem_coulomb_fmm_types
     real(sp), allocatable :: near_sp_edge(:, :), near_sp_ox(:, :), near_sp_oy(:, :), near_sp_oz(:, :)
     real(sp), allocatable :: near_sp_area(:)
     real(dp), allocatable :: near_leaf_center(:, :)
-    integer(i32), allocatable :: far_start(:), far_nodes(:)
     integer(i32) :: m2l_pair_count = 0_i32
     integer(i32) :: m2l_build_count = 0_i32
     integer(i32) :: m2l_visit_count = 0_i32
