@@ -11,10 +11,14 @@ program test_coulomb_fmm_core_periodic
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true
   implicit none
 
-  call test_init(2)
+  call test_init(3)
 
   call test_begin('periodic2_finite_shell_seam_contract')
   call test_periodic2_finite_shell_seam_contract()
+  call test_end()
+
+  call test_begin('periodic2_point_below_the_seam_uses_one_canonical_position')
+  call test_periodic2_point_below_the_seam()
   call test_end()
 
   call test_begin('periodic2_ewald_teacher_far_free_axis_is_finite')
@@ -214,6 +218,63 @@ contains
     call destroy_plan(unwrapped_plan)
     call destroy_plan(split_plan)
   end subroutine test_periodic2_finite_shell_seam_contract
+
+  !> 周期下端の 1 ulp 未満だけ下の点は、modulo が周期長へ丸めて上端 lo+L に写る。leaf 探索と展開が同じ
+  !! 正準位置 `[lo, lo+L)` を使えば、評価は下端のすぐ内側の点から連続でなければならない。
+  subroutine test_periodic2_point_below_the_seam()
+    integer(i32), parameter :: nsrc = 40_i32
+    real(dp), parameter :: inside = 1.0e-9_dp
+    type(fmm_plan_type), allocatable :: plan
+    type(fmm_state_type), allocatable :: state
+    type(fmm_options_type) :: options
+    real(dp) :: src_pos(3, nsrc), q(nsrc), queries(3, 3), neighbours(3, 3)
+    real(dp) :: field(3), neighbour_field(3), phi, neighbour_phi, field_delta, potential_delta
+    integer(i32) :: i
+
+    allocate (plan, state)
+    do i = 1_i32, nsrc
+      src_pos(1, i) = modulo(0.13_dp + 0.6180339887498949_dp*real(i, dp), 1.0_dp)
+      src_pos(2, i) = modulo(0.71_dp + 0.7548776662466927_dp*real(i, dp), 1.0_dp)
+      src_pos(3, i) = -0.9_dp + 1.8_dp*modulo(0.29_dp + 0.5698402909980532_dp*real(i, dp), 1.0_dp)
+      q(i) = merge(1.0e-12_dp, -0.8e-12_dp, mod(i, 3_i32) /= 0_i32)*(1.0_dp + 0.01_dp*real(i, dp))
+    end do
+
+    options%theta = 0.55_dp
+    options%leaf_max = 2_i32
+    options%order = 4_i32
+    options%use_periodic2 = .true.
+    options%periodic_axes = [1_i32, 2_i32]
+    options%periodic_len = [1.0_dp, 1.0_dp]
+    options%periodic_image_layers = 1_i32
+    options%periodic_far_correction = 'none'
+    options%target_box_min = [0.0_dp, 0.0_dp, -1.0_dp]
+    options%target_box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    call build_plan(plan, src_pos, options)
+    call update_state(plan, state, q)
+
+    ! -1e-17 + 1 は 1 へ丸まるので、最初の剰余だけで上端に乗る。
+    queries(:, 1) = [-1.0e-17_dp, 0.37_dp, 0.05_dp]
+    queries(:, 2) = [0.62_dp, -1.0e-17_dp, -0.20_dp]
+    queries(:, 3) = [-1.0e-17_dp, -1.0e-17_dp, 0.40_dp]
+    neighbours = queries
+    where (neighbours(1:2, :) < 0.0_dp) neighbours(1:2, :) = inside
+
+    do i = 1_i32, int(size(queries, 2), i32)
+      call eval_point(plan, state, queries(:, i), field)
+      call eval_potential_point(plan, state, queries(:, i), phi)
+      call eval_point(plan, state, neighbours(:, i), neighbour_field)
+      call eval_potential_point(plan, state, neighbours(:, i), neighbour_phi)
+      field_delta = sqrt(sum((field - neighbour_field)**2))/sqrt(sum(neighbour_field**2))
+      potential_delta = abs(phi - neighbour_phi)/abs(neighbour_phi)
+      write (*, '(A,I0,A,2(ES12.5,1X))') 'seam query ', i, ' delta(field,potential)=', field_delta, potential_delta
+      call assert_true(field_delta <= 1.0e-6_dp, 'field just below the seam must continue the field just inside the cell')
+      call assert_true(potential_delta <= 1.0e-6_dp, &
+                       'potential just below the seam must continue the potential just inside the cell')
+    end do
+
+    call destroy_state(state)
+    call destroy_plan(plan)
+  end subroutine test_periodic2_point_below_the_seam
 
   subroutine direct_periodic2(src_pos, q, r, periodic_axes, periodic_len, nimg, e, potential)
     real(dp), intent(in) :: src_pos(:, :), q(:), r(3), periodic_len(2)
