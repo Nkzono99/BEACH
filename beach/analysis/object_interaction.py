@@ -1091,11 +1091,16 @@ class ObjectProbe:
         )
 
     def close(self) -> None:
-        with self._snapshot._lock:
+        snapshot = self._snapshot
+        with snapshot._lock:
             if self._closed:
                 return
             self._primary.close()
             self._closed = True
+            # The snapshot tracks only open probes so it can close them; a closed
+            # probe stays usable for its metadata through the caller's reference.
+            if self in snapshot._probes:
+                snapshot._probes.remove(self)
 
     def __enter__(self) -> "ObjectProbe":
         self._require_usable()

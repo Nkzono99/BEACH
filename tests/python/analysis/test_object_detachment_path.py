@@ -523,3 +523,29 @@ def test_adaptive_path_evaluates_each_displacement_once(
     heights, counts = np.unique(np.concatenate(calls), return_counts=True)
     assert set(refined.displacement_m) <= set(heights)
     assert np.all(counts == calls_per_evaluation)
+
+
+def test_closed_probe_is_released_by_its_open_snapshot(
+    tmp_path: Path,
+    analytic_kernel,
+) -> None:
+    import gc
+    import weakref
+
+    config = tmp_path / "beach.toml"
+    _write_config(config)
+    with ObjectInteractionSnapshot.from_result(
+        _result(tmp_path), step=None, config_path=config
+    ) as snapshot:
+        probe = snapshot.object_probe(1)
+        kept = snapshot.object_probe(1)
+        probe.close()
+        # A closed probe keeps its metadata for the caller that holds it.
+        assert probe.target_triangles_m.shape == (1, 3, 3)
+        released = weakref.ref(probe)
+        del probe
+        gc.collect()
+        assert released() is None
+        assert kept.wrench().force_N.shape == (3,)
+    with pytest.raises(FieldKernelError, match="closed"):
+        kept.wrench()
