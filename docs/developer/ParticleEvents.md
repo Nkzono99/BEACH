@@ -7,6 +7,10 @@ BEACH は、現在の軌道線分で最初に起きる mesh 衝突または box 
 
 ## 最初に起きるものだけを確定する
 
+![候補軌道線分が三角形へ先に当たれば吸収し、box 反射面が先なら交差で折り返して残り時間の候補を作り直す図。](../media/concepts/first-collision.svg)
+
+候補終点をそのまま採用せず、三角形と box 面の交差順に応じて追跡を分割します。
+
 現在状態$(\mathbf{x}_0,\mathbf{v}_0)$と[Boris粒子更新](../models/BorisPusher.md)で得た候補
 $(\mathbf{x}_1,\mathbf{v}_1)$に対し、次の順で処理します。
 
