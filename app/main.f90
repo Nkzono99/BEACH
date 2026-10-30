@@ -17,7 +17,7 @@ program main
   use bem_run_outputs, only: run_outputs_type, open_run_outputs, close_run_outputs
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
                             seed_particles_from_config
-  use bem_mesh, only: prepare_periodic2_collision_mesh
+  use bem_mesh, only: prepare_built_periodic2_collision_mesh
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_snapshot_type
   use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
@@ -169,7 +169,7 @@ contains
     ! The cache-only mode never reads checkpoints; it only needs the mesh and field settings.
     if (prepare_cache_only) app%resume_output = .false.
     call build_mesh_from_config(app, mesh)
-    call prepare_periodic2_collision_mesh(mesh, app%sim)
+    call prepare_built_periodic2_collision_mesh(mesh, app%sim)
     call initialize_injection_state(inject_state, app%n_particle_species)
     initial_stats = sim_stats()
     resumed = .false.
