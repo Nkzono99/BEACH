@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-10-30
+
 ### Added
 
 - `kind = "sphere"` に `tessellation = "icosphere"` と `subdivisions` を追加した。正二十面体を再帰分割した
@@ -15,30 +17,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   既定の `"polar"` は従来の極座標格子（要素面積が半径に比例）のまま。
 - `fixed_current_history.csv` に、全 species の表面正味電荷を closure 前後で記録する `surface_net` 行（`species_idx = 0`）を
   追加した。`zero_current` の run で closure 後の正味が 0 にならない batch があると警告する。
-
-### Fixed
-
-- 反射電子を外部源に含めた `zero_current` の固定電流 closure で、追跡した反射電子の脱出が根の脱出束を超えた
-  batch に、超過分の正の正味電荷が残っていた（#93）。PE の脱出目標は根の脱出束で 0 に止まるのに、電子の吸収目標へは
-  追跡した脱出の全量を足し戻していた。電子へは放出電子側が実際に差し引いた量だけを足し戻す。
-- 正方形の `plate_hole` で `n_theta` が 4 の倍数のとき（既定の 1×1、`n_theta = 48` を含む）、角に当たる放射線の
-  交点が丸め誤差で角とずれ、面積が丸め誤差程度の三角形が角に生成されていた。角に当たる交点を角に一致させ、
-  その要素を生成しないようにした。該当する設定では要素数が減る（1×1、`n_theta = 48`、`n_r = 4` では 386 から 384）。
-- `cylinder` の側面最上段の頂点の z 座標を上面キャップと同じ式で計算し、側面と上面キャップが外周の頂点を
-  ビット一致で共有するようにした（従来は丸め誤差で 1 ulp ずれる場合があった）。
-- 再開時の `charges.csv`、`macro_residuals.csv`、`charge_ledger.csv` を Fortran の自由形式入力で読んでいたため、
-  空欄、`/`、繰り返し指定（`3*0.0` など）や次行の値を受理し、前行の値を再利用する場合があった。各行が所定数の
-  数値だけからなることを確認してから変換する。空白、`D` 指数、旧 2 列の残差ファイルは従来どおり読める。
-- Python の `charge_ledger.csv` reader が、旧版で存在しない列と、存在する列の空欄・欠けた行を区別せず既定値で
-  補っていた。既定値は列がない場合だけに使い、空欄や列数の合わない行はエラーにする。
-- `FieldKernelOptions` の `box_min` / `box_max` に 3 成分でない配列を渡すと、そのまま共有ライブラリへ渡っていた。
-  有限な 3 成分であることと、両方が指定されていることを確認する。
-- 粒子種ごとの `sampling.volume_macro_particles_per_batch` が範囲内でも、合計が 32 bit 整数を超えると誤った
-  粒子数になっていた。合計が上限を超える設定は停止する。
-- `beachx coulomb --json` の `force_matrix` が source 行 × target 列の行列を target 名と行で対応させていたため、
-  source と target の数が異なると値が誤対応・欠落していた。target ごとに全 source の力を報告する。
-- `beachx lint --beach ./checker` の相対パスが `PATH` 上で探されていた。起動ディレクトリから解決する。
-- `tools/golden_regression.py --rtol nan` が数値差を常に合格させていた。NaN・Inf・負の `--rtol` は終了コード 2 で拒否する。
 
 ### Changed
 
@@ -105,6 +83,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- 反射電子を外部源に含めた `zero_current` の固定電流 closure で、追跡した反射電子の脱出が根の脱出束を超えた
+  batch に、超過分の正の正味電荷が残っていた（#93）。PE の脱出目標は根の脱出束で 0 に止まるのに、電子の吸収目標へは
+  追跡した脱出の全量を足し戻していた。電子へは放出電子側が実際に差し引いた量だけを足し戻す。
+- 正方形の `plate_hole` で `n_theta` が 4 の倍数のとき（既定の 1×1、`n_theta = 48` を含む）、角に当たる放射線の
+  交点が丸め誤差で角とずれ、面積が丸め誤差程度の三角形が角に生成されていた。角に当たる交点を角に一致させ、
+  その要素を生成しないようにした。該当する設定では要素数が減る（1×1、`n_theta = 48`、`n_r = 4` では 386 から 384）。
+- `cylinder` の側面最上段の頂点の z 座標を上面キャップと同じ式で計算し、側面と上面キャップが外周の頂点を
+  ビット一致で共有するようにした（従来は丸め誤差で 1 ulp ずれる場合があった）。
+- 再開時の `charges.csv`、`macro_residuals.csv`、`charge_ledger.csv` を Fortran の自由形式入力で読んでいたため、
+  空欄、`/`、繰り返し指定（`3*0.0` など）や次行の値を受理し、前行の値を再利用する場合があった。各行が所定数の
+  数値だけからなることを確認してから変換する。空白、`D` 指数、旧 2 列の残差ファイルは従来どおり読める。
+- Python の `charge_ledger.csv` reader が、旧版で存在しない列と、存在する列の空欄・欠けた行を区別せず既定値で
+  補っていた。既定値は列がない場合だけに使い、空欄や列数の合わない行はエラーにする。
+- `FieldKernelOptions` の `box_min` / `box_max` に 3 成分でない配列を渡すと、そのまま共有ライブラリへ渡っていた。
+  有限な 3 成分であることと、両方が指定されていることを確認する。
+- 粒子種ごとの `sampling.volume_macro_particles_per_batch` が範囲内でも、合計が 32 bit 整数を超えると誤った
+  粒子数になっていた。合計が上限を超える設定は停止する。
+- `beachx coulomb --json` の `force_matrix` が source 行 × target 列の行列を target 名と行で対応させていたため、
+  source と target の数が異なると値が誤対応・欠落していた。target ごとに全 source の力を報告する。
+- `beachx lint --beach ./checker` の相対パスが `PATH` 上で探されていた。起動ディレクトリから解決する。
+- `tools/golden_regression.py --rtol nan` が数値差を常に合格させていた。NaN・Inf・負の `--rtol` は終了コード 2 で拒否する。
 - native preflight（`beach --check-config` と通常実行）が `volume_seed` 粒子種の `mass_kg > 0`、`sampling.weight > 0`、
   有限で非負の温度、各成分 `source.pos_low <= source.pos_high` を生成前に診断するようにした（#68）。
   これまで reservoir 流入のない `volume_seed` は検査を通らず、質量は最初の batch で停止し、負の温度は 0 に丸められていた。
