@@ -6,7 +6,7 @@ module bem_app_config_particle_runtime
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_status_codes, only: collision_query_ok, particle_status_name, photo_ray_failure_type
-  use bem_injection, only: seed_rng, compute_macro_particles_for_batch, compute_macro_particles_from_flux
+  use bem_injection, only: seed_rng, compute_macro_particles_for_batch
   use bem_external_boundary_contract, only: &
     external_inflow_none, external_inflow_scalar_barrier
   use bem_app_config_types, only: &
@@ -30,8 +30,6 @@ module bem_app_config_particle_runtime
     integer(i32) :: mpi_size = 1_i32
     integer(i32), allocatable :: source_kind(:)
     real(dp), allocatable :: effective_density_m3(:)
-    real(dp), allocatable :: effective_particle_flux_m2_s(:)
-    logical, allocatable :: number_flux_override_active(:)
     real(dp), allocatable :: effective_temperature_k(:)
     real(dp), allocatable :: effective_drift_velocity(:, :)
     real(dp), allocatable :: effective_weight(:)
@@ -57,7 +55,6 @@ module bem_app_config_particle_runtime
   type, public :: batch_injection_layout_type
     logical :: ready = .false.
     integer(i32) :: batch_idx = 0_i32
-    integer(i32) :: nspecies = 0_i32
     integer(i32), allocatable :: source_kind(:)
     integer(i32), allocatable :: source_global_count(:)
     integer(i32), allocatable :: boundary_global_count(:, :)
@@ -222,8 +219,7 @@ contains
   !! 乱数、残差、mesh/snapshot依存の障壁は扱わず、run中に不変な値だけを保持する。
   subroutine build_particle_source_plan( &
     cfg, plan, mpi_rank, mpi_size, mpi, kinetic_inflow_active, kinetic_reservoir_potential_v, &
-    kinetic_access_potential_v, kinetic_inflow_face, number_flux_override_active, number_flux_override_m2_s, &
-    kinetic_reservoir_density_m3 &
+    kinetic_access_potential_v, kinetic_inflow_face, kinetic_reservoir_density_m3 &
     )
     type(app_config), intent(in) :: cfg
     type(particle_source_plan_type), intent(out) :: plan
@@ -232,8 +228,6 @@ contains
     logical, intent(in), optional :: kinetic_inflow_active(:)
     real(dp), intent(in), optional :: kinetic_reservoir_potential_v(:), kinetic_access_potential_v(:)
     integer(i32), intent(in), optional :: kinetic_inflow_face(:)
-    logical, intent(in), optional :: number_flux_override_active(:)
-    real(dp), intent(in), optional :: number_flux_override_m2_s(:)
     !> 流入写像の面だけで使う貯留部密度。0以下の要素は species 設定の密度を使う。
     real(dp), intent(in), optional :: kinetic_reservoir_density_m3(:)
 
@@ -256,8 +250,6 @@ contains
     allocate (plan%source_kind(cfg%n_particle_species))
     plan%source_kind = slot_kind_none
     allocate (plan%effective_density_m3(cfg%n_particle_species))
-    allocate (plan%effective_particle_flux_m2_s(cfg%n_particle_species))
-    allocate (plan%number_flux_override_active(cfg%n_particle_species))
     allocate (plan%effective_temperature_k(cfg%n_particle_species))
     allocate (plan%effective_drift_velocity(3, cfg%n_particle_species))
     allocate (plan%effective_weight(cfg%n_particle_species))
@@ -269,8 +261,6 @@ contains
     allocate (plan%kinetic_reservoir_density_m3(cfg%n_particle_species))
     allocate (plan%kinetic_inflow_face(cfg%n_particle_species))
     plan%effective_density_m3 = 0.0_dp
-    plan%effective_particle_flux_m2_s = 0.0_dp
-    plan%number_flux_override_active = .false.
     plan%effective_temperature_k = 0.0_dp
     plan%effective_drift_velocity = 0.0_dp
     plan%effective_weight = 0.0_dp
@@ -287,9 +277,6 @@ contains
     call apply_kinetic_map_arguments( &
       plan, cfg%n_particle_species, kinetic_inflow_active, kinetic_reservoir_potential_v, kinetic_access_potential_v, &
       kinetic_inflow_face, kinetic_reservoir_density_m3 &
-      )
-    call apply_number_flux_override_arguments( &
-      plan, cfg%n_particle_species, number_flux_override_active, number_flux_override_m2_s &
       )
 
     do s = 1, cfg%n_particle_species
@@ -312,9 +299,6 @@ contains
       case default
         error stop 'Unknown '//species_config_path(int(s))//'.source.mode.'
       end select
-      if (plan%number_flux_override_active(s)) then
-        plan%effective_particle_flux_m2_s(s) = number_flux_override_m2_s(s)
-      end if
     end do
 
     plan%ready = .true.
@@ -368,29 +352,6 @@ contains
       plan%kinetic_reservoir_density_m3 = max(0.0_dp, kinetic_reservoir_density_m3)
     end if
   end subroutine apply_kinetic_map_arguments
-
-  !> 外部 closure の number-flux override の有効フラグを検査して plan へ写す（flux 値は種の解決時に使う）。
-  subroutine apply_number_flux_override_arguments(plan, nspecies, number_flux_override_active, number_flux_override_m2_s)
-    type(particle_source_plan_type), intent(inout) :: plan
-    integer(i32), intent(in) :: nspecies
-    logical, intent(in), optional :: number_flux_override_active(:)
-    real(dp), intent(in), optional :: number_flux_override_m2_s(:)
-
-    if (present(number_flux_override_active) .or. present(number_flux_override_m2_s)) then
-      if (.not. present(number_flux_override_active) .or. .not. present(number_flux_override_m2_s)) then
-        error stop 'particle source number-flux override requires active and flux arrays together.'
-      end if
-      if (size(number_flux_override_active) /= nspecies .or. &
-          size(number_flux_override_m2_s) /= nspecies) then
-        error stop 'particle source number-flux override species count mismatch.'
-      end if
-      if (any(number_flux_override_active .and. &
-              (.not. ieee_is_finite(number_flux_override_m2_s) .or. number_flux_override_m2_s < 0.0_dp))) then
-        error stop 'active particle source number-flux overrides must be finite and nonnegative.'
-      end if
-      plan%number_flux_override_active = number_flux_override_active
-    end if
-  end subroutine apply_number_flux_override_arguments
 
   !> source plan がこの rank/size と mpi 引数の有無で構築されたかを返す。
   !! rank、size、mpi 引数の有無はそれぞれ独立に一致する必要がある。
@@ -451,13 +412,12 @@ contains
   !! @param[out] count 今バッチで生成するマクロ粒子数。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
   !! @param[in] number_density_override 数密度の上書き値 [1/m^3]。
-  !! @param[in] particle_flux_override 粒子数 flux の上書き値 [1/m^2/s]。
   !! @param[in] w_particle_override マクロ粒子重みの上書き値。
   !! @param[in] temperature_k_override 温度の上書き値 [K]。
   !! @param[in] drift_velocity_override ドリフト速度の上書き値 [m/s]。
   subroutine compute_macro_particles_for_species( &
     sim, spec, residual, count, vmin_normal, number_density_override, w_particle_override, &
-    temperature_k_override, drift_velocity_override, particle_flux_override, use_particle_flux_override &
+    temperature_k_override, drift_velocity_override &
     )
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
@@ -468,12 +428,9 @@ contains
     real(dp), intent(in), optional :: w_particle_override
     real(dp), intent(in), optional :: temperature_k_override
     real(dp), intent(in), optional :: drift_velocity_override(3)
-    real(dp), intent(in), optional :: particle_flux_override
-    logical, intent(in), optional :: use_particle_flux_override
 
     real(dp) :: number_density_m3, effective_batch_duration, w_particle, temperature_k_local
     real(dp) :: drift_velocity_local(3)
-    logical :: direct_flux
 
     number_density_m3 = species_number_density_m3(spec)
     if (present(number_density_override)) number_density_m3 = number_density_override
@@ -484,17 +441,6 @@ contains
     drift_velocity_local = spec%drift_velocity
     if (present(drift_velocity_override)) drift_velocity_local = drift_velocity_override
     effective_batch_duration = sim%batch_duration
-    direct_flux = .false.
-    if (present(use_particle_flux_override) .and. present(particle_flux_override)) then
-      direct_flux = use_particle_flux_override
-    end if
-    if (direct_flux) then
-      call compute_macro_particles_from_flux( &
-        particle_flux_override, spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, w_particle, residual, &
-        count &
-        )
-      return
-    end if
     if (present(vmin_normal)) then
       call compute_macro_particles_for_batch( &
         number_density_m3, temperature_k_local, spec%m_particle, drift_velocity_local, sim%box_min, sim%box_max, &

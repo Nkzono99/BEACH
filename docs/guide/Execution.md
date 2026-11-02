@@ -220,9 +220,9 @@ restart 前後で同じ team size を使う必要はなく、再開後の実 tea
 ## 実行後に確認すること
 
 - processの終了codeが0である
-- `summary.txt`の`batches`が`run.batch_count`と一致する
+- `summary.txt`の`batches`が`run.batch_count`と一致する。`output.diagnostics.charge_rel_change_threshold`を設定したrunでは、
+  少ない`batches`と`charge_rel_change_threshold_reached=T`でも完了
 - `absorbed`、`escaped_boundary`、`survived_max_step`の内訳を確認する
-- `output.diagnostics.charge_rel_change_threshold`を自動停止条件として扱わない
 
 ファイルの意味は[出力ファイルを調べる](OutputGuide.md)、図の作成は
 [後処理チュートリアル](PostprocessTutorial.md)、結果の判定は

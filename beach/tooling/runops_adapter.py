@@ -14,7 +14,9 @@ Run directory conventions (the job's working directory is the run directory):
   relative path to a file shipped with the case becomes ``input/<path>``, and
   an absolute path is copied into ``input/``
 * ``work/latest/``: BEACH output directory. A run is complete when its
-  ``summary.txt`` reports ``batches`` equal to ``run.batch_count``
+  ``summary.txt`` reports ``batches`` equal to ``run.batch_count``, or
+  ``charge_rel_change_threshold_reached=T`` when
+  ``output.diagnostics.charge_rel_change_threshold`` ended it earlier
 * ``runo new --from RUN --continue``: ``work/restart`` links to the source run's
   output directory and ``[run.restart].from`` points at it; ``input/restart_source.txt``
   records where the checkpoint came from
@@ -117,7 +119,8 @@ class Adapter:
 
     def detect_status(self, run_dir: Path) -> str:
         """``failed`` on error words in the job's stderr, or when ``summary.txt`` is
-        missing or reports fewer ``batches`` than ``run.batch_count``."""
+        missing or reports fewer ``batches`` than ``run.batch_count`` without having
+        reached ``output.diagnostics.charge_rel_change_threshold``."""
         work = run_dir / "work"
         if not work.is_dir():
             return "unknown"
@@ -135,7 +138,15 @@ class Adapter:
         if path is not None:
             batches = _summary_batches(path)
             target = _batch_count(run_dir)
-            if batches is not None and target is not None and batches < target:
+            converged = (
+                _summary_value(path, "charge_rel_change_threshold_reached") == "T"
+            )
+            if (
+                batches is not None
+                and target is not None
+                and batches < target
+                and not converged
+            ):
                 return "failed"
             return "completed"
         return "failed" if any(work.iterdir()) else "unknown"
@@ -302,15 +313,20 @@ def _checkpoint_dir(run_dir: Path) -> Path | None:
     return None
 
 
-def _summary_batches(path: Path) -> int | None:
+def _summary_value(path: Path, name: str) -> str | None:
     for line in _tail(path).splitlines():
         key, sep, value = line.partition("=")
-        if sep and key.strip() == "batches":
-            try:
-                return int(value.strip())
-            except ValueError:
-                return None
+        if sep and key.strip() == name:
+            return value.strip()
     return None
+
+
+def _summary_batches(path: Path) -> int | None:
+    value = _summary_value(path, "batches")
+    try:
+        return None if value is None else int(value)
+    except ValueError:
+        return None
 
 
 def _batch_count(run_dir: Path) -> int | None:

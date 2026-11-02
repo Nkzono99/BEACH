@@ -92,7 +92,6 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: alpha_map(:, :, :)
     integer(i32), allocatable :: alpha_plus_axis(:, :)
     integer(i32), allocatable :: deriv_alpha(:, :)
-    integer(i32), allocatable :: deriv_degree(:)
     real(dp), allocatable :: deriv_factorial(:)
     integer(i32), allocatable :: deriv_map(:, :, :)
     integer(i32), allocatable :: alpha_beta_deriv_idx(:, :)
@@ -146,8 +145,6 @@ module bem_coulomb_fmm_types
     real(sp), allocatable :: near_sp_area(:)
     real(dp), allocatable :: near_leaf_center(:, :)
     integer(i32) :: m2l_pair_count = 0_i32
-    integer(i32) :: m2l_build_count = 0_i32
-    integer(i32) :: m2l_visit_count = 0_i32
     integer(i32), allocatable :: m2l_target_nodes(:), m2l_source_nodes(:)
     integer(i32), allocatable :: m2l_shift_idx1(:), m2l_shift_idx2(:)
     integer(i32), allocatable :: m2l_target_start(:), m2l_pair_order(:)
@@ -184,9 +181,7 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: periodic_root_operator(:, :, :)
     logical :: periodic_cache_hit = .false.
     integer(i32) :: periodic_operator_build_count = 0_i32
-    integer(i32) :: periodic_qr_preparation_count = 0_i32
     integer(i32) :: periodic_operator_local_target_count = 0_i32
-    integer(i32) :: periodic_operator_thread_count = 0_i32
     integer(i32) :: periodic_operator_class_count = 0_i32
     integer(i64) :: periodic_operator_ewald_evaluation_count = 0_i64
     character(len=16) :: periodic_cache_fingerprint = ''

@@ -38,13 +38,13 @@ contains
     end if
     mesh%nelem = n
     allocate (mesh%v0(3, n), mesh%v1(3, n), mesh%v2(3, n))
-    allocate (mesh%centers(3, n), mesh%center_x(n), mesh%center_y(n), mesh%center_z(n), mesh%normals(3, n))
+    allocate (mesh%centers(3, n), mesh%normals(3, n))
     allocate (mesh%bb_min(3, n), mesh%bb_max(3, n))
-    allocate (mesh%h_elem(n), mesh%panel_area(n), mesh%panel_moment1(3, n), mesh%panel_moment2(3, 3, n))
+    allocate (mesh%panel_area(n), mesh%panel_moment1(3, n), mesh%panel_moment2(3, 3, n))
     allocate (mesh%panel_edge_length(3, n), mesh%panel_edge_outward(3, 3, n))
     allocate (mesh%panel_quad_position(3, 7, n), mesh%panel_quad_weight(7, n))
     allocate (mesh%q_elem(n), mesh%elem_mesh_id(n), mesh%elem_surface_model(n), mesh%elem_epsilon_r(n))
-    allocate (mesh%elem_vacuum_sign(n), mesh%vacuum_normals(3, n))
+    allocate (mesh%elem_vacuum_sign(n))
 
     mesh%v0 = v0
     mesh%v1 = v1
@@ -79,7 +79,6 @@ contains
       mesh%elem_epsilon_r = 1.0d0
     end if
     mesh%elem_vacuum_sign = 0_i32
-    mesh%vacuum_normals = 0.0_dp
 
     mesh%periodic2_collision_ready = .false.
     call update_mesh_geometry(mesh)
@@ -160,7 +159,6 @@ contains
       if (panel_status == panel_geometry_ok) then
         mesh%centers(:, i) = panel%centroid
         mesh%normals(:, i) = panel%normal
-        mesh%h_elem(i) = sqrt(panel%area)
         mesh%panel_area(i) = panel%area
         mesh%panel_moment1(:, i) = panel%moment1
         mesh%panel_moment2(:, :, i) = panel%moment2
@@ -179,7 +177,6 @@ contains
         else
           mesh%normals(:, i) = 0.0_dp
         end if
-        mesh%h_elem(i) = sqrt(0.5_dp*nn)
         mesh%panel_area(i) = 0.0_dp
         mesh%panel_moment1(:, i) = 0.0_dp
         mesh%panel_moment2(:, :, i) = 0.0_dp
@@ -187,14 +184,6 @@ contains
         mesh%panel_edge_outward(:, :, i) = 0.0_dp
         mesh%panel_quad_position(:, :, i) = 0.0_dp
         mesh%panel_quad_weight(:, i) = 0.0_dp
-      end if
-      mesh%center_x(i) = mesh%centers(1, i)
-      mesh%center_y(i) = mesh%centers(2, i)
-      mesh%center_z(i) = mesh%centers(3, i)
-      if (mesh%elem_vacuum_sign(i) == 1_i32 .or. mesh%elem_vacuum_sign(i) == -1_i32) then
-        mesh%vacuum_normals(:, i) = real(mesh%elem_vacuum_sign(i), dp)*mesh%normals(:, i)
-      else
-        mesh%vacuum_normals(:, i) = 0.0_dp
       end if
     end do
 

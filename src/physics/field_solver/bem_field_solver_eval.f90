@@ -267,7 +267,7 @@ contains
     do i = 1_i32, mesh%nelem
       phi_sum = 0.0_dp
       call traverse_potential_node( &
-        self, mesh, 1_i32, mesh%center_x(i), mesh%center_y(i), mesh%center_z(i), phi_sum &
+        self, mesh, 1_i32, mesh%centers(1, i), mesh%centers(2, i), mesh%centers(3, i), phi_sum &
         )
       potential_v(i) = self%potential_output_scale*phi_sum
     end do

@@ -40,7 +40,6 @@ module bem_electrostatic_snapshot
     real(dp) :: top_reference_potential_std = 0.0_dp
     real(dp) :: top_reference_potential_min = 0.0_dp
     real(dp) :: top_reference_potential_max = 0.0_dp
-    real(dp) :: gauss_residual = 0.0_dp
     character(len=64) :: status = 'not_applicable'
     logical :: periodic_cache_hit = .false.
     integer(i32) :: periodic_operator_build_count = 0_i32
@@ -51,7 +50,6 @@ module bem_electrostatic_snapshot
   type, public :: electrostatic_snapshot_type
     type(field_solver_type) :: nonzero_solver
     real(dp) :: prescribed_e(3) = [0.0_dp, 0.0_dp, 0.0_dp]
-    real(dp) :: prescribed_phi_origin(3) = [0.0_dp, 0.0_dp, 0.0_dp]
     logical :: use_zero_mode = .false.
     logical :: use_panel_spectral_reference = .false.
     logical :: use_cached_kneq0 = .false.
@@ -67,7 +65,6 @@ module bem_electrostatic_snapshot
     !> periodic_options%lower_boundary_model を init で解決した値。zero mode の更新ごとに文字列を比べない。
     integer(i32) :: lower_boundary_id = lower_boundary_unknown
     type(electrostatic_diagnostics_type) :: diagnostics
-    real(dp) :: gauss_residual = 0.0_dp
     logical :: matching_plane_gauge_active = .false.
     real(dp) :: matching_plane_z = 0.0_dp
     real(dp) :: matching_plane_phi = 0.0_dp
@@ -172,12 +169,10 @@ contains
     type(mpi_context), intent(in), optional :: mpi
 
     self%prescribed_e = sim%e0
-    self%prescribed_phi_origin = 0.0_dp
     self%use_zero_mode = .false.
     self%use_panel_spectral_reference = .false.
     self%use_cached_kneq0 = .false.
     self%use_upper_panel_fourier_retry = .false.
-    self%gauss_residual = 0.0_dp
     self%matching_plane_gauge_active = .false.
     self%matching_plane_z = 0.0_dp
     self%matching_plane_phi = 0.0_dp
@@ -277,7 +272,6 @@ contains
     type(electrostatic_diagnostics_type), intent(out) :: diagnostics
 
     diagnostics = self%diagnostics
-    diagnostics%gauss_residual = self%gauss_residual
     if (self%use_zero_mode) diagnostics%lower_boundary_field_v_m = self%zero_state%e_bottom
   end subroutine get_snapshot_diagnostics
 

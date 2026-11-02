@@ -33,6 +33,9 @@ contains
   ! Step growth reuses the sub-step criterion; without an explicit threshold use a conservative default.
   if (cfg%sim%step_growth .and. cfg%sim%substep_field_change_max <= 0.0_dp) cfg%sim%substep_field_change_max = 0.05_dp
   if (cfg%sim%q_floor <= 0.0_dp) error stop 'output.diagnostics.charge_floor_c must be > 0.'
+  if (.not. ieee_is_finite(cfg%sim%tol_rel) .or. cfg%sim%tol_rel < 0.0_dp) then
+    error stop 'output.diagnostics.charge_rel_change_threshold must be finite and >= 0.'
+  end if
   if (cfg%sim%use_box) then
     if (.not. all(ieee_is_finite(cfg%sim%box_min)) .or. .not. all(ieee_is_finite(cfg%sim%box_max)) .or. &
         any(cfg%sim%box_max <= cfg%sim%box_min)) then

@@ -72,8 +72,8 @@ beachx inspect outputs/latest
 - 時間平均に対するばらつきが、先に決めた許容差より小さいか
 - `run.batch_count`を増やしても平均値や結論が変わらないか
 
-`last_rel_change`と`output.diagnostics.charge_rel_change_threshold`は監視用です。現行実装では早期停止条件ではなく、
-`last_rel_change < output.diagnostics.charge_rel_change_threshold`だけで定常状態とは判定しません。
+`output.diagnostics.charge_rel_change_threshold`を正にするとrunは`last_rel_change`が閾値を下回ったbatchで終わりますが、
+1 batchの相対変化が小さいことはMonte Carloノイズに埋もれた定常の証拠にはなりません。閾値で終えたrunも上の基準で判定します。
 
 Monte Carloノイズと時間離散化の影響は分けて確認します。
 

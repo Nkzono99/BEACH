@@ -34,7 +34,6 @@ program test_upper_fourier_switch
   c = a + 0.5_dp*(c - a)
   call init_mesh(mesh, a, b, c, q0=[1.0e-12_dp, -0.3e-12_dp], elem_mesh_id0=[1_i32, 2_i32])
   mesh%elem_vacuum_sign = 1_i32
-  mesh%vacuum_normals = mesh%normals
   sim%field_solver = 'fmm'
   sim%field_bc_mode = 'periodic2'
   sim%field_periodic_far_correction = 'cached_kneq0'

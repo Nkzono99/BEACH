@@ -69,7 +69,8 @@ Python が型付き属性へ変換する scalar key は [`summary.py`](../../bea
 | --- | --- |
 | `mesh_nelem`, `mesh_count`, `mpi_world_size` | mesh と MPI 構成 |
 | `batches`, `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step` | 実行量と主要な粒子 outcome |
-| `simulated_time_s`, `last_rel_change` | 受理済みの模擬時間と最終相対変化。`last_rel_change` は早期停止条件ではない |
+| `simulated_time_s`, `last_rel_change` | 受理済みの模擬時間と最終相対変化 |
+| `charge_rel_change_threshold`, `charge_rel_change_threshold_reached` | 解決済みの相対変化閾値（0 は無効）と、`last_rel_change` がそれを下回って run を終えたか |
 | `checkpoint_schema_version`, `checkpoint_stride` | checkpoint の形式世代と解決済み出力間隔 |
 | `mesh_fingerprint` | 保存電荷を要素へ対応付けるための ordered mesh 識別子 |
 | `reservoir_inflow_map` | 解決済み reservoir 流入モデル |
@@ -205,9 +206,7 @@ periodic field の key は次のとおりです。物理的な意味と solver �
 | `surface_current_model_electron_current_density_A_m2`, `surface_current_model_ion_current_density_A_m2` | signed electron / ion 電流密度 |
 | `surface_current_model_pe_emission_current_density_A_m2`, `surface_current_model_pe_escape_current_density_A_m2`, `surface_current_model_pe_return_current_density_A_m2` | signed PE 電流密度。emission と escape は正、return は負 |
 | `surface_current_model_pe_escape_particle_current_A` | 外向き PE 粒子が運ぶ signed 電流なので負 |
-| `surface_current_model_net_current_density_A_m2` | 全 channel の表面正味電流密度 |
-| `surface_current_model_pe_budget_residual_current_density_A_m2` | PE の emission-return-escape 連続条件の残差 |
-| `surface_current_model_surface_budget_residual_current_density_A_m2` | 表面定常電流の残差 |
+| `surface_current_model_net_current_density_A_m2` | 全 channel の表面正味電流密度。外部根の定常条件の残差で、0 に近い |
 | `surface_current_model_electron_inflow_reservoir_potential_V`, `surface_current_model_electron_inflow_access_potential_V`, `surface_current_model_electron_inflow_face` | electron inflow の reservoir、access potential、face |
 | `surface_current_model_pe_outflow_barrier_potential_V`, `surface_current_model_pe_outflow_barrier_face` | PE outflow barrier の電位と face。PE inactive では 0 |
 
@@ -387,8 +386,6 @@ Python reader は、旧版でヘッダに存在しない補正列には従来の
 | --- | --- |
 | `charge_ledger_nspecies`, `charge_ledger_batch_count` | ledger の species 数と batch |
 | `charge_ledger_surface_charge_before_C`, `charge_ledger_surface_charge_after_C` | 表面電荷 stock の更新前後 |
-| `charge_ledger_local_flight_charge_before_C`, `charge_ledger_local_flight_charge_after_C` | local-flight stock の更新前後 |
-| `charge_ledger_unresolved_stock_before_C`, `charge_ledger_unresolved_stock_after_C` | unresolved stock の更新前後 |
 | `charge_ledger_residual_C`, `charge_ledger_discarded_unresolved_abs_C` | 保存残差と unresolved 絶対電荷 |
 | `charge_ledger_neutral_return_correction_C`, `charge_ledger_fixed_current_correction_C` | closure 補正の合計 |
 | `charge_ledger_fixed_absorbed_applied_charge_C`, `charge_ledger_fixed_emission_applied_charge_C` | 表面 fixed-current target の合計 |

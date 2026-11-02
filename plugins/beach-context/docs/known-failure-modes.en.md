@@ -18,7 +18,7 @@
 
 ## Runtime/Output
 
-- `output.diagnostics.charge_rel_change_threshold` does not cause early stop; it is only reported.
+- A positive `output.diagnostics.charge_rel_change_threshold` stops the run before `run.batch_count`; check `charge_rel_change_threshold_reached` before treating a short run as failed.
 - Frequent history output, `output.history.potential`, large meshes, and many batches can create large CSV outputs.
 - `[run.restart]` needs compatible `summary.txt`, `charges.csv`, and RNG state files in the same output directory.
 - MPI resume requires the same world size as the previous run.

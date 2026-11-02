@@ -68,7 +68,6 @@ contains
 !$  call omp_set_schedule(omp_sched_dynamic, 3)
     call init_mesh(adaptive_mesh, v0, v1, v2)
     adaptive_mesh%elem_vacuum_sign = 1_i32
-    adaptive_mesh%vacuum_normals = adaptive_mesh%normals
 
     call default_app_config(adaptive_cfg)
     adaptive_cfg%sim = sim

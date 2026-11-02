@@ -20,7 +20,6 @@ module bem_field_solver
     character(len=16) :: mode = 'direct'
     !> mode を init で解決した値。評価のたびに文字列を比べない。
     integer(i32) :: mode_id = field_solver_mode_direct
-    character(len=16) :: field_bc_mode = 'free'
     character(len=16) :: field_normalization = 'si'
     real(dp) :: field_length_scale = 1.0d0
     real(dp) :: field_origin(3) = 0.0d0
@@ -29,7 +28,6 @@ module bem_field_solver
     real(dp) :: potential_output_scale = k_coulomb
     real(dp) :: theta = 0.5d0
     integer(i32) :: leaf_max = 16_i32
-    integer(i32) :: min_nelem = 256_i32
     logical :: use_periodic2 = .false.
     integer(i32) :: periodic_axes(2) = 0_i32
     real(dp) :: periodic_len(2) = 0.0d0
@@ -47,7 +45,7 @@ module bem_field_solver
     integer(i32) :: nnode = 0_i32
     integer(i32), allocatable :: elem_order(:)
     integer(i32), allocatable :: node_start(:), node_count(:)
-    integer(i32), allocatable :: child_count(:), child_idx(:, :), child_octant(:, :)
+    integer(i32), allocatable :: child_count(:), child_idx(:, :)
     integer(i32), allocatable :: node_depth(:)
     integer(i32) :: node_max_depth = 0_i32
     integer(i32), allocatable :: node_level_start(:), node_level_nodes(:)

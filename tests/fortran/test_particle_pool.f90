@@ -338,7 +338,6 @@ contains
     photo_v2(:, 1) = [0.0d0, 1.0d0, 0.1d0]
     call init_mesh(mesh, photo_v0, photo_v1, photo_v2)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
 
     call default_app_config(cfg)
     cfg%sim%rng_seed = 999_i32
@@ -482,7 +481,6 @@ contains
     v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
     call init_mesh(mesh, v0, v1, v2)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
 
     call default_app_config(cfg)
     cfg%sim%rng_seed = 2468_i32
@@ -635,7 +633,6 @@ contains
     tri_v2(:, 4) = [0.5_dp, 1.0_dp, 0.2_dp]
     call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
 
     call default_app_config(cfg)
     cfg%sim%rng_seed = 998_i32

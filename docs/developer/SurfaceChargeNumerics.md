@@ -94,7 +94,7 @@ $$
 =\frac{\|\Delta\mathbf q\|_2}{\max(\|\mathbf q^\mathrm{after}\|_2,q_\mathrm{floor})}
 $$
 
-です。`output.diagnostics.charge_rel_change_threshold` は output metric であり、現行実装の early-stop 条件ではありません。
+です。`output.diagnostics.charge_rel_change_threshold` が正なら、この値がそれを下回った accepted batch で run を終えます。既定の 0 は無効です。
 
 ## 実装とテスト
 

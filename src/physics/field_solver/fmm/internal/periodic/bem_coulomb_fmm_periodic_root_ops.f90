@@ -1,6 +1,5 @@
 !> periodic2 root operator の前計算。
 module bem_coulomb_fmm_periodic_root_ops
-!$ use omp_lib, only: omp_get_num_threads
   use bem_kinds, only: dp, i32, i64
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_get_rank_size, &
                      mpi_allreduce_sum_real_dp_array, mpi_bcast_i32_array, mpi_bcast_real_dp_array
@@ -307,13 +306,11 @@ contains
       call apply_field_check_weights(field_matrix(1:3_i32*ncheck, :), fit(kind)%weights)
       call prepare_regularized_qr(fit(kind)%factorization, field_matrix(1:3_i32*ncheck, :), &
                                   periodic_operator_lstsq_ridge, periodic_operator_qr_tol)
-      plan%periodic_qr_preparation_count = plan%periodic_qr_preparation_count + 1_i32
       deallocate (selected_points)
     end do
     allocate (new_blocks(plan%ncoef, plan%ncoef, pair_count))
     allocate (residual_e(3, ncheck_max, nproxy), residual_phi(ncheck_max, nproxy))
     new_blocks = 0.0_dp
-    plan%periodic_operator_thread_count = max(plan%periodic_operator_thread_count, 1_i32)
     do class_idx = rank + 1_i32, class_count, rank_count
       delta = class_delta(:, class_idx)
 !$omp parallel do default(shared) private(j, i, e_res, phi_res) schedule(static)
@@ -350,9 +347,6 @@ contains
 !$omp parallel default(shared) private(j, i, check_idx, proxy_idx, reflected_check, field_rhs) &
 !$omp private(potential_rhs, coeff, e_res, phi_res, shell_excess, shell_excess_slope, point, target_z)
         allocate (field_rhs(3_i32*ncheck), potential_rhs(ncheck), coeff(plan%ncoef - 1_i32))
-!$omp single
-!$      plan%periodic_operator_thread_count = max(plan%periodic_operator_thread_count, int(omp_get_num_threads(), i32))
-!$omp end single
 !$omp do schedule(static)
         do j = 1_i32, nproxy
           proxy_idx = 8_i32*((j - 1_i32)/8_i32) + ieor(mod(j - 1_i32, 8_i32), reflection) + 1_i32

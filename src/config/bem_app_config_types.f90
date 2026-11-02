@@ -104,7 +104,6 @@ module bem_app_config_types
     real(dp) :: offset(3) = 0.0_dp
     character(len=16) :: surface_model = 'insulator'
     character(len=32) :: surface_side_policy = 'not_specified'
-    real(dp) :: epsilon_r = 1.0d0
     real(dp) :: center(3) = 0.0d0
     real(dp) :: size_x = 1.0d0
     real(dp) :: size_y = 1.0d0
@@ -247,41 +246,6 @@ contains
     allocate (cfg%mesh_parts(max_templates))
     allocate (cfg%particle_species(max_particle_species))
     cfg%particle_species = particle_species_spec()
-    cfg%sim%dt = 1.0d-9
-    cfg%sim%rng_seed = 12345_i32
-    cfg%sim%batch_count = 1_i32
-    cfg%sim%max_step = 400
-    cfg%sim%tol_rel = 1.0d-8
-    cfg%sim%field_solver = 'auto'
-    cfg%sim%field_normalization = 'si'
-    cfg%sim%field_length_scale = 1.0d0
-    cfg%sim%field_bc_mode = 'free'
-    cfg%sim%field_periodic_image_layers = 1_i32
-    cfg%sim%field_periodic_far_correction = 'none'
-    cfg%sim%field_periodic_ewald_alpha = 0.0d0
-    cfg%sim%field_periodic_ewald_layers = 4_i32
-    cfg%sim%tree_theta = 0.5d0
-    cfg%sim%tree_leaf_max = 16_i32
-    cfg%sim%near_field_precision = 'double'
-    cfg%sim%tree_min_nelem = 256_i32
-    cfg%sim%particle_distribution = 'static'
-    cfg%sim%step_growth = .false.
-    cfg%sim%step_growth_max = 5_i32
-    cfg%sim%step_growth_energy_fraction = 1.0d-2
-    cfg%sim%particle_pool_chunk = 64_i32
-    cfg%sim%e0 = [0.0d0, 0.0d0, 0.0d0]
-    cfg%sim%has_e0_vector = .false.
-    cfg%sim%e0_abs = 0.0d0
-    cfg%sim%has_e0_abs = .false.
-    cfg%sim%e0_phi_xy_deg = 0.0d0
-    cfg%sim%has_e0_phi_xy_deg = .false.
-    cfg%sim%e0_phi_z_deg = 0.0d0
-    cfg%sim%has_e0_phi_z_deg = .false.
-    cfg%sim%b0 = [0.0d0, 0.0d0, 0.0d0]
-    cfg%sim%reservoir_potential_model = 'none'
-    cfg%sim%phi_infty = 0.0d0
-    cfg%sim%injection_face_phi_grid_n = 3_i32
-    cfg%sim%raycast_max_bounce = 16_i32
     cfg%n_mesh_parts = 1_i32
 
     cfg%mesh_parts(1)%enabled = .true.

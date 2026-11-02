@@ -10,7 +10,6 @@ module bem_regularized_qr
     real(dp), allocatable :: col_scale(:)
     integer(i32) :: mrow = 0_i32
     integer(i32) :: ncol = 0_i32
-    integer(i32) :: preparation_count = 0_i32
   end type regularized_qr_type
 
   public :: prepare_regularized_qr
@@ -49,7 +48,6 @@ contains
     call factor_tall_matrix_qr(augmented, factorization%q, factorization%r, qr_tolerance)
     factorization%mrow = mrow
     factorization%ncol = ncol
-    factorization%preparation_count = factorization%preparation_count + 1_i32
   end subroutine prepare_regularized_qr
 
   subroutine solve_regularized_qr(factorization, rhs, solution)

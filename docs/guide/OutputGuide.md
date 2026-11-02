@@ -44,7 +44,7 @@ charge_sum=-3.339396e-12
 `absorbed=737481`、`escaped=14612573`、`charge_sum=-3.339396e-12` は、現行版、`rng_seed=12345` での参照値です。
 このケースの結果は thread 数によりませんが、乱数実装が変わった版では乱数列に依存する値まで同一であるとは仮定しません。
 
-この判定が示すのは実行完了だけです。`last_rel_change` と `output.diagnostics.charge_rel_change_threshold` は自動停止条件ではなく、
+この判定が示すのは実行完了だけです。`output.diagnostics.charge_rel_change_threshold` で早期に終えた場合も同じで、
 数値収束や物理的妥当性は[計算結果の妥当性確認](ValidationGuide.md)で別に判定します。
 コマンドが失敗する、または最小条件を満たさない場合は
 [トラブルシューティング](Troubleshooting.md)へ進んでください。

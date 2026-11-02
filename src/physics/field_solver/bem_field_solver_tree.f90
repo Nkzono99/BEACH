@@ -48,9 +48,9 @@ contains
           qi = mesh%q_elem(idx)
           q = q + qi
           abs_q = abs_q + abs(qi)
-          qx = qx + qi*mesh%center_x(idx)
-          qy = qy + qi*mesh%center_y(idx)
-          qz = qz + qi*mesh%center_z(idx)
+          qx = qx + qi*mesh%centers(1, idx)
+          qy = qy + qi*mesh%centers(2, idx)
+          qz = qz + qi*mesh%centers(3, idx)
         end do
       else
         q = 0.0d0
@@ -134,21 +134,20 @@ contains
   self%node_count(node_idx) = count
   self%child_count(node_idx) = 0_i32
   self%child_idx(:, node_idx) = 0_i32
-  self%child_octant(:, node_idx) = 0_i32
   self%node_depth(node_idx) = depth
   self%node_max_depth = max(self%node_max_depth, depth)
 
   idx = self%elem_order(start_idx)
-  bb_min = [mesh%center_x(idx), mesh%center_y(idx), mesh%center_z(idx)]
+  bb_min = [mesh%centers(1, idx), mesh%centers(2, idx), mesh%centers(3, idx)]
   bb_max = bb_min
   do p = start_idx + 1_i32, end_idx
     idx = self%elem_order(p)
-    bb_min(1) = min(bb_min(1), mesh%center_x(idx))
-    bb_min(2) = min(bb_min(2), mesh%center_y(idx))
-    bb_min(3) = min(bb_min(3), mesh%center_z(idx))
-    bb_max(1) = max(bb_max(1), mesh%center_x(idx))
-    bb_max(2) = max(bb_max(2), mesh%center_y(idx))
-    bb_max(3) = max(bb_max(3), mesh%center_z(idx))
+    bb_min(1) = min(bb_min(1), mesh%centers(1, idx))
+    bb_min(2) = min(bb_min(2), mesh%centers(2, idx))
+    bb_min(3) = min(bb_min(3), mesh%centers(3, idx))
+    bb_max(1) = max(bb_max(1), mesh%centers(1, idx))
+    bb_max(2) = max(bb_max(2), mesh%centers(2, idx))
+    bb_max(3) = max(bb_max(3), mesh%centers(3, idx))
   end do
 
   span = bb_max - bb_min
@@ -175,7 +174,7 @@ contains
   counts = 0_i32
   do p = start_idx, end_idx
     idx = self%elem_order(p)
-    oct = octant_index(mesh%center_x(idx), mesh%center_y(idx), mesh%center_z(idx), center)
+    oct = octant_index(mesh%centers(1, idx), mesh%centers(2, idx), mesh%centers(3, idx), center)
     counts(oct) = counts(oct) + 1_i32
   end do
 
@@ -192,7 +191,7 @@ contains
 
   do p = start_idx, end_idx
     idx = self%elem_order(p)
-    oct = octant_index(mesh%center_x(idx), mesh%center_y(idx), mesh%center_z(idx), center)
+    oct = octant_index(mesh%centers(1, idx), mesh%centers(2, idx), mesh%centers(3, idx), center)
     work(cursor(oct)) = idx
     cursor(oct) = cursor(oct) + 1_i32
   end do
@@ -208,7 +207,6 @@ contains
     child_node = self%nnode
     child_k = child_k + 1_i32
     self%child_idx(child_k, node_idx) = child_node
-    self%child_octant(child_k, node_idx) = oct
     call build_node(self, mesh, child_node, child_start, child_end, depth + 1_i32)
     child_start = child_end + 1_i32
   end do
@@ -232,7 +230,6 @@ contains
     self%node_count = 0_i32
     self%child_count = 0_i32
     self%child_idx = 0_i32
-    self%child_octant = 0_i32
     self%node_depth = 0_i32
     self%node_max_depth = 0_i32
     self%node_center = 0.0d0
@@ -250,7 +247,7 @@ contains
   call reset_tree_storage(self)
   self%max_node = max_node_needed
   allocate (self%node_start(self%max_node), self%node_count(self%max_node))
-  allocate (self%child_count(self%max_node), self%child_idx(8, self%max_node), self%child_octant(8, self%max_node))
+  allocate (self%child_count(self%max_node), self%child_idx(8, self%max_node))
   allocate (self%node_depth(self%max_node))
   allocate (self%node_center(3, self%max_node), self%node_half_size(3, self%max_node))
   allocate (self%node_radius(self%max_node))
@@ -262,7 +259,6 @@ contains
   self%node_count = 0_i32
   self%child_count = 0_i32
   self%child_idx = 0_i32
-  self%child_octant = 0_i32
   self%node_depth = 0_i32
   self%node_max_depth = 0_i32
   self%node_center = 0.0d0
@@ -313,7 +309,6 @@ contains
   if (allocated(self%node_count)) deallocate (self%node_count)
   if (allocated(self%child_count)) deallocate (self%child_count)
   if (allocated(self%child_idx)) deallocate (self%child_idx)
-  if (allocated(self%child_octant)) deallocate (self%child_octant)
   if (allocated(self%node_depth)) deallocate (self%node_depth)
   if (allocated(self%node_level_start)) deallocate (self%node_level_start)
   if (allocated(self%node_level_nodes)) deallocate (self%node_level_nodes)

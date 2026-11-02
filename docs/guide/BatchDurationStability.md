@@ -8,8 +8,8 @@ title: `run.batch.duration_s` をどう決めるか
 
 読了後は、固定幅の比較を実行し、幅を採用するか、`cached_kneq0` の適応進行を使うかを判断できます。
 
-> `output.diagnostics.charge_rel_change_threshold` は監視・出力値です。現行実装は `output.diagnostics.charge_rel_change_threshold` を早期停止条件に使わず、
-> `run.batch_count` で指定した accepted batch 数まで実行します。
+> 比較する 3 run では `output.diagnostics.charge_rel_change_threshold` を設定しない（既定 0）でください。
+> 設定すると、相対変化が閾値を下回った batch で run が終わり、物理終了時刻が揃いません。
 
 ## まず選ぶ経路
 
@@ -102,7 +102,7 @@ done
 - `simulated_time_s` が 3 run で同じ物理終了時刻になる
 - `charge_history.csv` の `batch` 列を各 run の幅で物理時刻へ換算し、対応する要素電荷を比較できる
 
-正常終了は、数値安定性や定常到達を証明しません。`last_rel_change` も停止判定ではなく、
+正常終了は、数値安定性や定常到達を証明しません。`last_rel_change` も定常判定ではなく、
 履歴と最終状態を比較するための診断値です。
 
 ### 採用する幅を決める

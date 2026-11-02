@@ -63,7 +63,6 @@ contains
     end do
     call init_mesh(mesh, v0, v1, v2, q0=q0, elem_mesh_id0=mesh_ids, elem_surface_model0=surface_models)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
     call init_free_space_snapshot(mesh, [0.0d0, 0.0d0, 0.0d0], sim, snapshot)
 
     call solver%init(mesh, sim, snapshot)
@@ -211,7 +210,6 @@ contains
     end do
     call init_mesh(mesh, v0, v1, v2, q0=q0, elem_mesh_id0=mesh_ids, elem_surface_model0=surface_models)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
   end subroutine init_test_mesh
 
   subroutine init_free_space_snapshot(mesh, external_e, sim, snapshot)

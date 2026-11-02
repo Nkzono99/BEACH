@@ -616,7 +616,6 @@ contains
     type(mesh_type), intent(inout) :: mesh
 
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
   end subroutine mark_normal_plus
 
 end program test_dynamics_field_solver

@@ -95,7 +95,6 @@ program test_mpi_hybrid
   v2(:, 1) = [0.0d0, 1.0d0, 0.0d0]
   call init_mesh(mesh, v0, v1, v2)
   mesh%elem_vacuum_sign = 1_i32
-  mesh%vacuum_normals = mesh%normals
 
   call default_app_config(cfg)
   cfg%sim%rng_seed = 2468_i32
@@ -185,7 +184,6 @@ program test_mpi_hybrid
     )
   call init_mesh(mesh_restart, v0, v1, v2)
   mesh_restart%elem_vacuum_sign = 1_i32
-  mesh_restart%vacuum_normals = mesh_restart%normals
   call load_restart_checkpoint( &
     trim(resolved_checkpoint_dir), mesh_restart, stats_restart, has_restart, mpi=mpi, app=cfg &
     )
@@ -314,7 +312,6 @@ program test_mpi_hybrid
 
   call init_mesh(mesh_restart, v0, v1, v2)
   mesh_restart%elem_vacuum_sign = 1_i32
-  mesh_restart%vacuum_normals = mesh_restart%normals
   allocate (state_restart%macro_residual(1), state_restart%boundary_macro_residual(6, 1))
   state_restart%macro_residual = 0.0d0
   state_restart%boundary_macro_residual = 0.0_dp
@@ -471,7 +468,6 @@ contains
     soft_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(soft_mesh, soft_v0, soft_v1, soft_v2)
     soft_mesh%elem_vacuum_sign = 1_i32
-    soft_mesh%vacuum_normals = soft_mesh%normals
     call default_app_config(soft_cfg)
     soft_cfg%sim%rng_seed = 5119_i32
     soft_cfg%sim%batch_count = 1_i32
@@ -713,7 +709,6 @@ contains
     call resolve_latest_checkpoint_dir(pool_dir, pool_checkpoint_dir)
     call init_mesh(resume_mesh, pool_mesh%v0, pool_mesh%v1, pool_mesh%v2)
     resume_mesh%elem_vacuum_sign = 1_i32
-    resume_mesh%vacuum_normals = resume_mesh%normals
     call load_restart_checkpoint( &
       trim(pool_checkpoint_dir), resume_mesh, resume_stats, pool_has_restart, mpi_rank=0_i32, mpi_size=mpi%size + 1_i32, &
       app=pool_cfg &
@@ -900,7 +895,6 @@ contains
     tri_v2(:, 4) = [0.3_dp, 1.0_dp, 0.25_dp]
     call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
 
     call default_app_config(cfg)
     cfg%sim%rng_seed = 4242_i32
@@ -987,7 +981,6 @@ contains
     tri_v2(:, 4) = [0.98_dp, 1.0_dp, 0.25_dp]
     call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
 
     call default_app_config(cfg)
     cfg%sim%rng_seed = 998_i32

@@ -33,12 +33,12 @@ module bem_types
 
   !> 入力と run 制御の設定。physics へは必要な親 component だけを渡す。
   type, extends(photo_raycast_config) :: sim_config
-    real(dp) :: dt = 1.0d-12
+    real(dp) :: dt = 1.0d-9
     integer(i32) :: batch_count = 1_i32
     logical :: has_batch_duration = .false.
     real(dp) :: batch_duration_step = 0.0d0
     logical :: has_batch_duration_step = .false.
-    integer(i32) :: max_step = 100
+    integer(i32) :: max_step = 400
     !> 粒子ごとの適応サブステップ。step 候補の中点電場が前回受理した中点電場からこの割合より大きく変わり、
     !! その差が step の仕事に換算して 1e-4 eV を超えるときは step を半分にして取り直す。0 で無効。
     real(dp) :: substep_field_change_max = 0.0d0
@@ -49,7 +49,8 @@ module bem_types
     integer(i32) :: step_growth_max = 5_i32
     !> 伸長時の仕事の床値を運動エネルギーのこの割合にする（1e-4 eV との大きい方）。
     real(dp) :: step_growth_energy_fraction = 1.0d-2
-    real(dp) :: tol_rel = 1.0d-4
+    !> accepted batch の表面電荷の相対変化がこの値を下回ったら、`batch_count` 前でも run を終える。0 は無効。
+    real(dp) :: tol_rel = 0.0d0
     real(dp) :: q_floor = 1.0d-30
     character(len=16) :: field_solver = 'auto'
     character(len=16) :: field_normalization = 'si'
@@ -165,13 +166,9 @@ module bem_types
     real(dp), allocatable :: v1(:, :)
     real(dp), allocatable :: v2(:, :)
     real(dp), allocatable :: centers(:, :)
-    real(dp), allocatable :: center_x(:)
-    real(dp), allocatable :: center_y(:)
-    real(dp), allocatable :: center_z(:)
     real(dp), allocatable :: normals(:, :)
     real(dp), allocatable :: bb_min(:, :)
     real(dp), allocatable :: bb_max(:, :)
-    real(dp), allocatable :: h_elem(:)
     real(dp), allocatable :: panel_area(:)
     real(dp), allocatable :: panel_moment1(:, :)
     real(dp), allocatable :: panel_moment2(:, :, :)
@@ -184,7 +181,6 @@ module bem_types
     integer(i32), allocatable :: elem_surface_model(:)
     real(dp), allocatable :: elem_epsilon_r(:)
     integer(i32), allocatable :: elem_vacuum_sign(:)
-    real(dp), allocatable :: vacuum_normals(:, :)
     real(dp) :: grid_bb_min(3) = 0.0d0
     real(dp) :: grid_bb_max(3) = 0.0d0
     integer(i32) :: grid_ncell(3) = 1_i32
@@ -222,5 +218,15 @@ module bem_types
     integer(i32) :: image_shift(2) = 0_i32
     real(dp) :: pos_wrapped(3) = 0.0d0
   end type hit_info
+
+contains
+
+  !> 受理済み batch があり、その相対電荷変化が有効な閾値 `sim%tol_rel` を下回っていれば真。
+  pure logical function charge_rel_change_threshold_reached(sim, stats) result(reached)
+    type(sim_config), intent(in) :: sim
+    type(sim_stats), intent(in) :: stats
+
+    reached = sim%tol_rel > 0.0d0 .and. stats%batches > 0 .and. stats%last_rel_change < sim%tol_rel
+  end function charge_rel_change_threshold_reached
 
 end module bem_types

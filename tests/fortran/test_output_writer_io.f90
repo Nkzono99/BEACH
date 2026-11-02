@@ -234,8 +234,6 @@ program test_output_writer_io
   call ledger%init(2_i32)
   call ledger%reset(1_i32)
   ledger%surface_charge_after = -3.0_dp
-  ledger%local_flight_charge_before = -1.0_dp
-  ledger%local_flight_charge_after = -2.0_dp
   ledger%injected_from_remote(1) = -3.0_dp
   ledger%absorbed_on_surface(1) = -3.0_dp
   ledger%neutral_return_correction(2) = -0.25_dp
@@ -270,12 +268,12 @@ program test_output_writer_io
     if (ios /= 0) exit
     saw_integrator = saw_integrator .or. index(line, 'particle_time_centering=same_time_midpoint_boris') > 0
     saw_residual = saw_residual .or. &
-                   summary_real_equals(line, 'charge_ledger_residual_C', -0.75_dp, 1.0e-14_dp)
+                   summary_real_equals(line, 'charge_ledger_residual_C', 0.25_dp, 1.0e-14_dp)
     saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=11') > 0
     saw_mesh_fp = saw_mesh_fp .or. index(line, 'mesh_fingerprint=') > 0
     saw_ledger_stock = saw_ledger_stock .or. &
                        summary_real_equals( &
-                       line, 'charge_ledger_local_flight_charge_before_C', -1.0_dp, 1.0e-14_dp &
+                       line, 'charge_ledger_surface_charge_after_C', -3.0_dp, 1.0e-14_dp &
                        )
     saw_ledger_closure = saw_ledger_closure .or. &
                          summary_real_equals( &

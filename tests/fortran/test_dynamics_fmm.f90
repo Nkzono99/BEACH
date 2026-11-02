@@ -210,7 +210,7 @@ contains
     npos = 0_i32
     nneg = 0_i32
     do elem_idx = 1_i32, mesh%nelem
-      if (mesh%center_z(elem_idx) >= 0.0d0) then
+      if (mesh%centers(3, elem_idx) >= 0.0d0) then
         npos = npos + 1_i32
       else
         nneg = nneg + 1_i32
@@ -230,7 +230,7 @@ contains
 
     neg_scale = scale*real(npos, dp)/real(nneg, dp)
     do elem_idx = 1_i32, mesh%nelem
-      if (mesh%center_z(elem_idx) >= 0.0d0) then
+      if (mesh%centers(3, elem_idx) >= 0.0d0) then
         mesh%q_elem(elem_idx) = scale
       else
         mesh%q_elem(elem_idx) = -neg_scale
@@ -280,7 +280,6 @@ contains
     type(mesh_type), intent(inout) :: mesh
 
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
   end subroutine mark_normal_plus
 
 end program test_dynamics_fmm

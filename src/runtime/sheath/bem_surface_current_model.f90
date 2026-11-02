@@ -19,7 +19,6 @@ module bem_surface_current_model
     character(len=32) :: model = 'none'
     character(len=1) :: zhao_branch = ' '
     integer(i32) :: electron_species_idx = 0_i32
-    integer(i32) :: ion_species_idx = 0_i32
     integer(i32) :: photoelectron_species_idx = 0_i32
     logical :: photoelectron_active = .false.
     integer(i32) :: secondary_electron_species_idx = 0_i32
@@ -37,8 +36,6 @@ module bem_surface_current_model
     real(dp) :: photoelectron_escape_current_density_a_m2 = 0.0_dp
     real(dp) :: photoelectron_return_current_density_a_m2 = 0.0_dp
     real(dp) :: net_current_density_a_m2 = 0.0_dp
-    real(dp) :: photoelectron_budget_residual_current_density_a_m2 = 0.0_dp
-    real(dp) :: surface_budget_residual_current_density_a_m2 = 0.0_dp
     !> 外部Zhaoシースが壁放出として見るPE束 [1/(m2 s)] と平均法線エネルギー [eV]。
     real(dp) :: outer_photoelectron_flux_m2_s = 0.0_dp
     real(dp) :: outer_photoelectron_mean_energy_ev = 0.0_dp
@@ -107,7 +104,6 @@ contains
       result%has_escape_target(app%n_particle_species), &
       result%has_inflow_kinetic_map(app%n_particle_species), &
       result%has_outflow_kinetic_barrier(app%n_particle_species), &
-      result%has_inflow_number_flux(app%n_particle_species), &
       result%absorbed_current_a(app%n_particle_species), &
       result%emission_current_a(app%n_particle_species), &
       result%escaped_particle_current_a(app%n_particle_species), &
@@ -117,7 +113,6 @@ contains
       result%inflow_kinetic_face(app%n_particle_species), &
       result%outflow_barrier_potential_v(app%n_particle_species), &
       result%outflow_barrier_face(app%n_particle_species), &
-      result%inflow_number_flux_m2_s(app%n_particle_species), &
       result%escape_partner_species(app%n_particle_species), &
       result%emission_target_from_tracked_source(app%n_particle_species), &
       result%reflected_electron_species(app%n_particle_species), &
@@ -128,7 +123,6 @@ contains
     result%has_escape_target = .false.
     result%has_inflow_kinetic_map = .false.
     result%has_outflow_kinetic_barrier = .false.
-    result%has_inflow_number_flux = .false.
     result%absorbed_current_a = 0.0_dp
     result%emission_current_a = 0.0_dp
     result%escaped_particle_current_a = 0.0_dp
@@ -138,7 +132,6 @@ contains
     result%inflow_kinetic_face = 0_i32
     result%outflow_barrier_potential_v = 0.0_dp
     result%outflow_barrier_face = 0_i32
-    result%inflow_number_flux_m2_s = 0.0_dp
     result%escape_partner_species = 0_i32
     result%emission_target_from_tracked_source = .false.
     result%reflected_electron_species = 0_i32
@@ -498,30 +491,20 @@ contains
     result%net_current_density_a_m2 = result%electron_current_density_a_m2 + &
                                       result%ion_current_density_a_m2 + &
                                       result%photoelectron_escape_current_density_a_m2
-    result%photoelectron_budget_residual_current_density_a_m2 = &
-      result%photoelectron_emission_current_density_a_m2 + &
-      result%photoelectron_return_current_density_a_m2 - &
-      result%photoelectron_escape_current_density_a_m2
-    result%surface_budget_residual_current_density_a_m2 = &
-      result%electron_current_density_a_m2 + result%ion_current_density_a_m2 + &
-      result%photoelectron_emission_current_density_a_m2 + &
-      result%photoelectron_return_current_density_a_m2
     if (.not. channels_valid()) return
     if (.not. surface_targets_assigned()) return
     call assign_kinetic_map()
     success = .true.
   contains
 
-    !> 根の電流が有限で、符号と PE・表面の収支が閉じていれば真。偽なら message に理由を入れる。
+    !> 根の電流が有限で、符号が正しく、表面の正味電流が閉じていれば真。偽なら message に理由を入れる。
     logical function channels_valid() result(valid)
       valid = .false.
       if (.not. all(ieee_is_finite([ &
                                    result%electron_current_density_a_m2, result%ion_current_density_a_m2, &
                                    result%photoelectron_emission_current_density_a_m2, &
                                    result%photoelectron_escape_current_density_a_m2, &
-                                   result%photoelectron_return_current_density_a_m2, result%net_current_density_a_m2, &
-                                   result%photoelectron_budget_residual_current_density_a_m2, &
-                                   result%surface_budget_residual_current_density_a_m2 &
+                                   result%photoelectron_return_current_density_a_m2, result%net_current_density_a_m2 &
                                    ]))) then
         message = 'surface-current evaluation produced non-finite currents.'
         return
@@ -558,11 +541,7 @@ contains
                      abs(result%photoelectron_return_current_density_a_m2), tiny(1.0_dp) &
                      )
       budget_tolerance = sqrt(epsilon(1.0_dp))*budget_scale
-      if (abs(result%photoelectron_budget_residual_current_density_a_m2) > budget_tolerance) then
-        message = 'PE current budget does not close.'
-        return
-      end if
-      if (abs(result%surface_budget_residual_current_density_a_m2) > budget_tolerance) then
+      if (abs(result%net_current_density_a_m2) > budget_tolerance) then
         message = 'surface current budget does not close.'
         return
       end if
@@ -576,7 +555,6 @@ contains
       result%active = .true.
       result%reference_area_m2 = area
       result%electron_species_idx = electron_idx
-      result%ion_species_idx = ion_idx
       result%photoelectron_species_idx = photo_idx
       result%photoelectron_active = photoelectron_active
       result%secondary_electron_species_idx = secondary_idx

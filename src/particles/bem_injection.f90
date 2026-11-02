@@ -3,7 +3,7 @@ module bem_injection
   use bem_injection_random, only: seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities
   use bem_injection_geometry, only: compute_face_area_from_bounds
   use bem_injection_flux, only: compute_inflow_flux_from_drifting_maxwellian, &
-                                compute_macro_particles_for_batch, compute_macro_particles_from_flux, &
+                                compute_macro_particles_for_batch, &
                                 sample_reservoir_face_particle_counter
   use bem_photoelectron_injection, only: cast_photo_ray, sample_photo_ray_slot, photo_ray_macro_weight
   implicit none
@@ -15,7 +15,6 @@ module bem_injection
   public :: compute_inflow_flux_from_drifting_maxwellian
   public :: compute_face_area_from_bounds
   public :: compute_macro_particles_for_batch
-  public :: compute_macro_particles_from_flux
   public :: sample_reservoir_face_particle_counter
   public :: cast_photo_ray, sample_photo_ray_slot, photo_ray_macro_weight
 

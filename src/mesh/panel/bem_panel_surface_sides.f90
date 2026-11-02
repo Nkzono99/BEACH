@@ -193,7 +193,6 @@ contains
     do i = 1_i32, m
       element = elements(i)
       mesh%elem_vacuum_sign(element) = signs(i)
-      mesh%vacuum_normals(:, element) = real(signs(i), dp)*mesh%normals(:, element)
     end do
   end subroutine resolve_element_sides
 

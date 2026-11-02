@@ -301,7 +301,6 @@ contains
     tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(soft_mesh, tri_v0, tri_v1, tri_v2)
     soft_mesh%elem_vacuum_sign = 1_i32
-    soft_mesh%vacuum_normals = soft_mesh%normals
     call default_app_config(soft_cfg)
     soft_cfg%sim%rng_seed = 995_i32
     soft_cfg%sim%batch_count = 1_i32

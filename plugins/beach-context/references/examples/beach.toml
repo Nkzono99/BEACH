@@ -150,9 +150,6 @@ magnetic_t = [
 enabled = true
 dir = "outputs/latest"
 
-[output.diagnostics]
-charge_rel_change_threshold = 1e-08
-
 [output.final]
 mesh_potential = false
 

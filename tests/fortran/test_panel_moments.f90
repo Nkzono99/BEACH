@@ -59,7 +59,7 @@ program test_panel_moments
   call resolve_panel_surface_sides(mesh, 'normal_plus', status, message)
   call assert_equal_i32(status, panel_surface_side_ok, 'normal_plus side resolution failed')
   call assert_equal_i32(mesh%elem_vacuum_sign(1), 1_i32, 'vacuum sign mismatch')
-  call assert_allclose_1d(mesh%vacuum_normals(:, 1), [0.0_dp, 0.0_dp, 1.0_dp], 1.0e-15_dp, &
+  call assert_allclose_1d(real(mesh%elem_vacuum_sign(1), dp)*mesh%normals(:, 1), [0.0_dp, 0.0_dp, 1.0_dp], 1.0e-15_dp, &
                           'vacuum normal mismatch')
   call resolve_panel_surface_sides(mesh, 'outward_closed', status, message)
   call assert_equal_i32(status, panel_surface_side_open, 'open surface must reject outward_closed')
@@ -82,13 +82,13 @@ program test_panel_moments
   call resolve_panel_surface_sides(mesh, 'outward_closed', status, message)
   call assert_equal_i32(status, panel_surface_side_ok, 'closed tetrahedron side resolution failed')
   call assert_true(all(mesh%elem_vacuum_sign == 1_i32), 'outward tetrahedron signs must be positive')
-  call assert_true(all(sum(mesh%vacuum_normals*(mesh%centers - 0.25_dp), dim=1) > 0.0_dp), &
+  call assert_true(all(real(mesh%elem_vacuum_sign, dp)*sum(mesh%normals*(mesh%centers - 0.25_dp), dim=1) > 0.0_dp), &
                    'vacuum normals must face away from tetrahedron interior')
   call init_mesh(mesh, tetra_v0, tetra_v2, tetra_v1)
   call resolve_panel_surface_sides(mesh, 'outward_closed', status, message)
   call assert_equal_i32(status, panel_surface_side_ok, 'inward-wound tetrahedron side resolution failed')
   call assert_true(all(mesh%elem_vacuum_sign == -1_i32), 'inward tetrahedron signs must be negative')
-  call assert_true(all(sum(mesh%vacuum_normals*(mesh%centers - 0.25_dp), dim=1) > 0.0_dp), &
+  call assert_true(all(real(mesh%elem_vacuum_sign, dp)*sum(mesh%normals*(mesh%centers - 0.25_dp), dim=1) > 0.0_dp), &
                    'inward-wound tetrahedron vacuum normals must face outward')
   call test_end()
 
@@ -152,7 +152,6 @@ program test_panel_moments
   call test_begin('thin_triangle_retains_collision_geometry')
   call init_mesh(mesh, reshape(v0, [3, 1]), reshape(v1, [3, 1]), reshape([0.0_dp, 1.0e-16_dp, 0.0_dp], [3, 1]))
   call assert_close_dp(mesh%panel_area(1), 0.0_dp, 0.0_dp, 'thin triangle must remain excluded from panel integration')
-  call assert_close_dp(mesh%h_elem(1), sqrt(0.5e-16_dp), 1.0e-23_dp, 'thin collision triangle lost its size')
   call assert_allclose_1d(mesh%normals(:, 1), [0.0_dp, 0.0_dp, 1.0_dp], 0.0_dp, 'thin triangle normal mismatch')
   call assert_allclose_1d(mesh%centers(:, 1), [1.0_dp, 1.0e-16_dp, 0.0_dp]/3.0_dp, 0.0_dp, &
                           'thin triangle centroid mismatch')
@@ -262,7 +261,7 @@ contains
     call assert_true(all(closed%elem_vacuum_sign == [1, 1, 1, 1, -1, -1, -1, -1]), 'per-component signs')
     center(:, 1:4) = 0.25_dp
     center(:, 5:8) = spread([3.25_dp, 0.25_dp, 0.25_dp], 2, 4)
-    call assert_true(all(sum(closed%vacuum_normals*(closed%centers - center), dim=1) > 0.0_dp), &
+    call assert_true(all(real(closed%elem_vacuum_sign, dp)*sum(closed%normals*(closed%centers - center), dim=1) > 0.0_dp), &
                      'each component must face away from its own interior')
   end subroutine check_closed_surface_edge_matching
 
@@ -296,7 +295,6 @@ contains
     call assert_equal_i32(side_status, panel_surface_side_ok, 'interleaved parts must resolve')
     call assert_equal_i32(failed_mesh_id, 0_i32, 'no failed mesh_id on success')
     call assert_true(all(parts%elem_vacuum_sign == [1, -1, 1, -1, -1, 1, -1, 1, -1]), 'per-part signs')
-    call assert_true(all(parts%vacuum_normals(:, 5) == -parts%normals(:, 5)), 'normal_minus vacuum normal')
 
     call init_mesh(parts, v0, v1, v2, elem_mesh_id0=ids)
     call resolve_panel_surface_sides_by_mesh_id( &

@@ -219,7 +219,6 @@ contains
     v2(:, 1) = [0.0_dp, 1.0_dp, 0.25_dp]
     call init_mesh(stats_mesh, v0, v1, v2, q0=[0.0_dp])
     stats_mesh%elem_vacuum_sign = 1_i32
-    stats_mesh%vacuum_normals = stats_mesh%normals
 
     call default_app_config(stats_cfg)
     stats_cfg%sim%use_box = .true.
@@ -290,7 +289,6 @@ contains
     v2(:, 1) = [0.0_dp, 1.0_dp, 0.5_dp]
     call init_mesh(mesh, v0, v1, v2, q0=[0.0_dp])
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
     call default_app_config(cfg)
     cfg%sim%batch_count = 1_i32
     cfg%sim%batch_duration = 1.0_dp
@@ -354,7 +352,6 @@ contains
     v2(:, 1) = [0.0_dp, 1.0_dp, 0.25_dp]
     call init_mesh(barrier_mesh, v0, v1, v2, q0=[0.0_dp])
     barrier_mesh%elem_vacuum_sign = 1_i32
-    barrier_mesh%vacuum_normals = barrier_mesh%normals
 
     call default_app_config(barrier_cfg)
     barrier_cfg%sim%batch_count = 1_i32

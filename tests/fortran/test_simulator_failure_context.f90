@@ -90,7 +90,6 @@ contains
     tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
     call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
     failure_mesh%elem_vacuum_sign = 1_i32
-    failure_mesh%vacuum_normals = failure_mesh%normals
 
     call default_app_config(failure_cfg)
     failure_cfg%sim%rng_seed = 991_i32
@@ -159,7 +158,6 @@ contains
     tri_v2(:, 1) = [0.5d0, 1.0d0, 0.5d0]
     call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
     failure_mesh%elem_vacuum_sign = 1_i32
-    failure_mesh%vacuum_normals = failure_mesh%normals
 
     call default_app_config(failure_cfg)
     failure_cfg%sim%rng_seed = 992_i32
@@ -237,7 +235,6 @@ contains
     tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
     failure_mesh%elem_vacuum_sign = 1_i32
-    failure_mesh%vacuum_normals = failure_mesh%normals
     call default_app_config(failure_cfg)
     failure_cfg%sim%rng_seed = 994_i32
     failure_cfg%sim%batch_count = 1_i32
@@ -287,7 +284,6 @@ contains
     tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
     failure_mesh%elem_vacuum_sign = 1_i32
-    failure_mesh%vacuum_normals = failure_mesh%normals
     call default_app_config(failure_cfg)
     failure_cfg%sim%rng_seed = 995_i32
     failure_cfg%sim%batch_count = 1_i32
@@ -333,7 +329,6 @@ contains
     tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(overflow_mesh, tri_v0, tri_v1, tri_v2)
     overflow_mesh%elem_vacuum_sign = 1_i32
-    overflow_mesh%vacuum_normals = overflow_mesh%normals
     call default_app_config(overflow_cfg)
     overflow_cfg%sim%batch_count = 1_i32
     overflow_cfg%sim%dt = 1.0_dp

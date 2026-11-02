@@ -91,7 +91,7 @@ contains
 
       element_idx = 1_i32 + modulo((target_idx - 1_i32)*7919_i32, local_mesh%nelem)
       near(:, target_idx) = local_mesh%centers(:, element_idx) + &
-                            0.05_dp*local_mesh%h_elem(element_idx)*local_mesh%normals(:, element_idx)
+                            0.05_dp*sqrt(local_mesh%panel_area(element_idx))*local_mesh%normals(:, element_idx)
     end do
   end subroutine build_targets
 

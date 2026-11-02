@@ -10,10 +10,6 @@ module bem_charge_ledger
     integer(i32) :: batch_count = 0_i32
     real(dp) :: surface_charge_before = 0.0_dp
     real(dp) :: surface_charge_after = 0.0_dp
-    real(dp) :: local_flight_charge_before = 0.0_dp
-    real(dp) :: local_flight_charge_after = 0.0_dp
-    real(dp) :: unresolved_stock_before = 0.0_dp
-    real(dp) :: unresolved_stock_after = 0.0_dp
     real(dp), allocatable :: injected_from_remote(:)
     real(dp), allocatable :: emitted_from_surface(:)
     real(dp), allocatable :: absorbed_on_surface(:)
@@ -87,10 +83,6 @@ contains
     self%batch_count = batch_count
     self%surface_charge_before = 0.0_dp
     self%surface_charge_after = 0.0_dp
-    self%local_flight_charge_before = 0.0_dp
-    self%local_flight_charge_after = 0.0_dp
-    self%unresolved_stock_before = 0.0_dp
-    self%unresolved_stock_after = 0.0_dp
     self%injected_from_remote = 0.0_dp
     self%emitted_from_surface = 0.0_dp
     self%absorbed_on_surface = 0.0_dp
@@ -120,13 +112,9 @@ contains
     integer :: n, offset
 
     n = self%nspecies
-    allocate (terms(6 + 5*n))
-    terms(1:6) = [ &
-                 self%surface_charge_after, -self%surface_charge_before, &
-                 self%local_flight_charge_after, -self%local_flight_charge_before, &
-                 self%unresolved_stock_after, -self%unresolved_stock_before &
-                 ]
-    offset = 6
+    allocate (terms(2 + 5*n))
+    terms(1:2) = [self%surface_charge_after, -self%surface_charge_before]
+    offset = 2
     terms(offset + 1:offset + n) = -self%injected_from_remote
     offset = offset + n
     terms(offset + 1:offset + n) = self%escaped_to_infinity
@@ -179,12 +167,8 @@ contains
     call validate_ledger_finite(candidate, 'cumulative charge ledger')
     if (first_batch) then
       candidate%surface_charge_before = batch%surface_charge_before
-      candidate%local_flight_charge_before = batch%local_flight_charge_before
-      candidate%unresolved_stock_before = batch%unresolved_stock_before
     end if
     candidate%surface_charge_after = batch%surface_charge_after
-    candidate%local_flight_charge_after = batch%local_flight_charge_after
-    candidate%unresolved_stock_after = batch%unresolved_stock_after
     candidate%batch_count = max(candidate%batch_count, batch%batch_count)
     call checked_accumulate_charge_array(candidate%injected_from_remote, batch%injected_from_remote, 'injected charge')
     call checked_accumulate_charge_array(candidate%emitted_from_surface, batch%emitted_from_surface, 'emitted charge')
@@ -386,11 +370,9 @@ contains
     character(len=*), intent(in) :: context
 
     if (ledger%batch_count < 0_i32) error stop trim(context)//' batch count must be nonnegative.'
-    if (.not. all(ieee_is_finite([ &
-                                 ledger%surface_charge_before, ledger%surface_charge_after, &
-                                 ledger%local_flight_charge_before, ledger%local_flight_charge_after, &
-                                 ledger%unresolved_stock_before, ledger%unresolved_stock_after &
-                                 ]))) error stop trim(context)//' stocks must be finite.'
+    if (.not. all(ieee_is_finite([ledger%surface_charge_before, ledger%surface_charge_after]))) then
+      error stop trim(context)//' stocks must be finite.'
+    end if
     if (.not. all(ieee_is_finite(ledger%injected_from_remote)) .or. &
         .not. all(ieee_is_finite(ledger%emitted_from_surface)) .or. &
         .not. all(ieee_is_finite(ledger%absorbed_on_surface)) .or. &

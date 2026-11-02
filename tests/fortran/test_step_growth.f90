@@ -160,7 +160,6 @@ contains
     q0(1) = -2.0e-14_dp
     call init_mesh(fixture_mesh, v0, v1, v2, q0=q0)
     fixture_mesh%elem_vacuum_sign = 1_i32
-    fixture_mesh%vacuum_normals = fixture_mesh%normals
     call default_app_config(fixture_cfg)
     fixture_cfg%sim%rng_seed = 996_i32
     fixture_cfg%sim%batch_count = 1_i32
@@ -197,7 +196,6 @@ contains
     q0 = [-2.0e-14_dp]
     call init_mesh(fixture_mesh, tri_v0, tri_v1, tri_v2, q0=q0)
     fixture_mesh%elem_vacuum_sign = 1_i32
-    fixture_mesh%vacuum_normals = fixture_mesh%normals
     call default_app_config(fixture_cfg)
     fixture_cfg%sim%rng_seed = 996_i32
     fixture_cfg%sim%batch_count = 1_i32
@@ -294,7 +292,6 @@ contains
     v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
     call init_mesh(mesh, v0, v1, v2)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
     mesh%q_elem(1) = surface_charge
 
     call default_app_config(cfg)

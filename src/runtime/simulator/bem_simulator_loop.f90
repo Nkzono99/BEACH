@@ -3,7 +3,7 @@ submodule(bem_simulator) bem_simulator_loop
   use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
   use bem_app_config_runtime, only: compute_wall_box_potential_statistics
   use bem_zhao_outflow_refresh, only: zhao_outflow_refresh_type
-  use bem_types, only: adaptive_nonzero_mode_stats
+  use bem_types, only: adaptive_nonzero_mode_stats, charge_rel_change_threshold_reached
   use bem_simulator_workspace, only: fixed_charge_absorbed, fixed_charge_emission, fixed_charge_escaped
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_state_type
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
@@ -93,6 +93,14 @@ contains
     call perf_region_end(perf_region_history_write, t0)
     call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx, charge_ledger, summary_identity)
     call perf_region_end(perf_region_batch_total, batch_t0)
+    ! 全 rank が同じ global q_elem から rel_change を得るので、同じ batch で抜ける。
+    if (charge_rel_change_threshold_reached(app%sim, stats)) then
+      if (mpi_is_root(mpi_ctx)) then
+        print '(a,i0,a,es12.4)', 'charge_rel_change_threshold reached: batch=', stats%batches, &
+          ' rel_change=', stats%last_rel_change
+      end if
+      exit
+    end if
   end do
   if (shared_pool) call pool_counter%destroy()
   call perf_region_end(perf_region_simulation_total, sim_t0)
@@ -304,8 +312,6 @@ contains
         kinetic_reservoir_potential_v=surface_closure%inflow_reservoir_potential_v, &
         kinetic_access_potential_v=surface_closure%inflow_access_potential_v, &
         kinetic_inflow_face=surface_closure%inflow_kinetic_face, &
-        number_flux_override_active=surface_closure%has_inflow_number_flux, &
-        number_flux_override_m2_s=surface_closure%inflow_number_flux_m2_s, &
         kinetic_reservoir_density_m3=surface_closure%inflow_reservoir_density_m3 &
         )
       call prepare_batch_state( &

@@ -136,7 +136,6 @@ contains
 
     call init_mesh(mesh, v0, v1, v2, q0=q0, elem_mesh_id0=mesh_ids, elem_surface_model0=surface_models)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
   end subroutine init_periodic_mesh
 
   subroutine configure_periodic_cell(sim, field_config, periodic_config, panel_config)

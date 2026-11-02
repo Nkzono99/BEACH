@@ -2,7 +2,7 @@
 submodule(bem_output_writer) bem_output_writer_summary
   use bem_irradiation_cell_contract, only: &
     irradiation_cell_contract_type, resolve_irradiation_cell_contract, irradiation_cell_ok
-  use bem_types, only: surface_model_dielectric
+  use bem_types, only: surface_model_dielectric, charge_rel_change_threshold_reached
   use bem_charge_ledger, only: finite_charge_sum
   use bem_matching_plane_summary, only: write_matching_plane_summary
   use bem_checkpoint_contract, only: checkpoint_schema_version_current
@@ -94,6 +94,8 @@ contains
   write (u, '(a,es24.16)') 'multiple_box_events_soft_discarded_abs_charge_C=', &
     stats%multiple_box_events_soft_discarded_abs_charge
   write (u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
+  write (u, '(a,es24.16)') 'charge_rel_change_threshold=', cfg%sim%tol_rel
+  write (u, '(a,l1)') 'charge_rel_change_threshold_reached=', charge_rel_change_threshold_reached(cfg%sim, stats)
   write (u, '(a,es24.16)') 'simulated_time_s=', stats%simulated_time
   write (u, '(a,i0)') 'adaptive_nonzero_mode_rejected_trials=', &
     stats%adaptive_nonzero_mode%rejected_trials
@@ -201,10 +203,6 @@ contains
     write (u, '(a,es24.16)') 'surface_current_model_net_current_density_A_m2=', &
       current_model%net_current_density_a_m2
     write (u, '(a)') 'surface_current_model_current_budget_contract=surface_targets_plus_external_escape'
-    write (u, '(a,es24.16)') 'surface_current_model_pe_budget_residual_current_density_A_m2=', &
-      current_model%photoelectron_budget_residual_current_density_a_m2
-    write (u, '(a,es24.16)') 'surface_current_model_surface_budget_residual_current_density_A_m2=', &
-      current_model%surface_budget_residual_current_density_a_m2
     if (current_model%photoelectron_active) then
       write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', &
         current_model%escaped_particle_current_a(current_model%photoelectron_species_idx)
@@ -254,7 +252,6 @@ contains
     end if
     write (u, '(a,l1)') 'electrostatic_split_periodic_active=', electrostatic_diagnostics%split_periodic_active
     write (u, '(a,a)') 'electrostatic_status=', trim(electrostatic_diagnostics%status)
-    write (u, '(a,es24.16)') 'gauss_residual_C=', electrostatic_diagnostics%gauss_residual
     write (u, '(a,l1)') 'periodic2_cache_hit=', electrostatic_diagnostics%periodic_cache_hit
     write (u, '(a,i0)') 'periodic2_operator_build_count=', electrostatic_diagnostics%periodic_operator_build_count
     write (u, '(a,a)') 'periodic2_cache_fingerprint=', trim(electrostatic_diagnostics%periodic_cache_fingerprint)
@@ -265,14 +262,6 @@ contains
     write (u, '(a,i0)') 'charge_ledger_batch_count=', charge_ledger%batch_count
     write (u, '(a,es24.16)') 'charge_ledger_surface_charge_before_C=', charge_ledger%surface_charge_before
     write (u, '(a,es24.16)') 'charge_ledger_surface_charge_after_C=', charge_ledger%surface_charge_after
-    write (u, '(a,es24.16)') 'charge_ledger_local_flight_charge_before_C=', &
-      charge_ledger%local_flight_charge_before
-    write (u, '(a,es24.16)') 'charge_ledger_local_flight_charge_after_C=', &
-      charge_ledger%local_flight_charge_after
-    write (u, '(a,es24.16)') 'charge_ledger_unresolved_stock_before_C=', &
-      charge_ledger%unresolved_stock_before
-    write (u, '(a,es24.16)') 'charge_ledger_unresolved_stock_after_C=', &
-      charge_ledger%unresolved_stock_after
     write (u, '(a,es24.16)') 'charge_ledger_residual_C=', charge_ledger%residual()
     write (u, '(a,es24.16)') 'charge_ledger_discarded_unresolved_abs_C=', &
       charge_ledger%discarded_unresolved_abs()

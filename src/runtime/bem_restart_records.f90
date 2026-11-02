@@ -226,13 +226,13 @@ contains
   integer :: u, ios, pos, columns
   integer(i32) :: nspecies, batch_count, row_batch, species_idx, loaded
   integer(i64) :: count_values(5)
-  real(dp) :: charge_values(18), fixed_charge_values(13), legacy_charge_values(8), stock_values(6)
+  real(dp) :: charge_values(18), fixed_charge_values(13), legacy_charge_values(8), stock_values(2)
   character(len=512) :: line
   character(len=2048) :: header
   character(len=2048) :: record
   character(len=96) :: key
   character(len=256) :: value
-  logical :: found_nspecies, found_batch, found_stocks(6), has_fixed_current_columns, has_current_budget_columns
+  logical :: found_nspecies, found_batch, found_stocks(2), has_fixed_current_columns, has_current_budget_columns
   logical, allocatable :: seen(:)
 
   nspecies = 0_i32
@@ -263,18 +263,6 @@ contains
     case ('charge_ledger_surface_charge_after_C')
       read (value, *, iostat=ios) stock_values(2)
       found_stocks(2) = ios == 0
-    case ('charge_ledger_local_flight_charge_before_C')
-      read (value, *, iostat=ios) stock_values(3)
-      found_stocks(3) = ios == 0
-    case ('charge_ledger_local_flight_charge_after_C')
-      read (value, *, iostat=ios) stock_values(4)
-      found_stocks(4) = ios == 0
-    case ('charge_ledger_unresolved_stock_before_C')
-      read (value, *, iostat=ios) stock_values(5)
-      found_stocks(5) = ios == 0
-    case ('charge_ledger_unresolved_stock_after_C')
-      read (value, *, iostat=ios) stock_values(6)
-      found_stocks(6) = ios == 0
     end select
   end do
   close (u)
@@ -292,10 +280,6 @@ contains
   ledger%batch_count = batch_count
   ledger%surface_charge_before = stock_values(1)
   ledger%surface_charge_after = stock_values(2)
-  ledger%local_flight_charge_before = stock_values(3)
-  ledger%local_flight_charge_after = stock_values(4)
-  ledger%unresolved_stock_before = stock_values(5)
-  ledger%unresolved_stock_after = stock_values(6)
   allocate (seen(nspecies))
   seen = .false.
   loaded = 0_i32

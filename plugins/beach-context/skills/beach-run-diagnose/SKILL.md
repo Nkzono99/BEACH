@@ -36,7 +36,7 @@ Prefer:
    - `beachx lint beach.toml` checks direct `beach.toml` files with schema and semantic validation.
    - The Fortran runtime reads `beach.toml`.
    - Unknown TOML sections/keys are runtime parser errors.
-   - `output.diagnostics.charge_rel_change_threshold` is not an early-stop condition.
+   - A positive `output.diagnostics.charge_rel_change_threshold` ends the run early (`charge_rel_change_threshold_reached=T`); fewer `batches` than `run.batch_count` is then expected.
    - `output.history.stride_batches <= 0` means no `charge_history.csv`.
    - A periodic2 `cached_kneq0` run that stalls before the first batch line is building the far-correction operator or waiting on `operator-<fingerprint>.bin.lock`; confirm with `periodic2_cache_hit` / `periodic2_operator_build_count` and recommend a separate `beach --prepare-periodic-cache` job with more ranks and a shared `BEACH_CACHE_DIR`.
    - `output.final.mesh_potential = false` means no `mesh_potential.csv`.

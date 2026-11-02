@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `output.diagnostics.charge_rel_change_threshold` を早期終了条件として実装した。正の値を設定すると、
+  accepted batch の表面電荷の相対変化 `rel_change` がこの値を下回った batch で、`run.batch_count` 前でも run を終える。
+  既定値は `1e-8`（監視値として出力されるだけ）から `0`（無効）に変わり、設定しなければ従来どおり
+  `run.batch_count` まで実行する。`summary.txt` に `charge_rel_change_threshold` と
+  `charge_rel_change_threshold_reached` を追加し、runops adapter は後者が `T` の run を `batches` が少なくても完了とみなす。
+  同梱の `examples/beach.toml` と `examples/closed_photoelectron.toml` は閾値の行を削除し、挙動を変えていない。
 - ドキュメントに、計算サイクル、粒子源・境界、周期場、放出モデル、再開と後処理を説明する日本語の概念図を 24 点追加した。
 
 ### Changed
@@ -74,6 +80,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - 周期 object 検証ツールの job 構成（script、job 名、walltime、担当 case）
   と object 評価 plan（charge-history batch と target mesh）を 1 か所の定義から導出するようにした（#58）。
   生成される job script と検証内容は変わらない。
+
+- 未使用・常に定数・重複していた派生型の成分を削除した（計算結果はビット一致）。主なもの:
+  surface closure 契約の number-flux override 経路（どのモデルも設定しなかった）と、それを受ける粒子源 plan の
+  分岐・`compute_macro_particles_from_flux`、`surface_current_model_result_type%ion_species_idx`、
+  charge ledger の local-flight / unresolved stock（本番では常に 0）、mesh の `h_elem`・`vacuum_normals`・
+  `center_x/y/z`（`centers` の複製）、field solver の `min_nelem`・`field_bc_mode`・`child_octant`、
+  FMM plan の M2L・QR・thread の計数、`template_spec%epsilon_r`（設定経路がなかった）、
+  静電 snapshot の `gauss_residual`（常に 0）と `prescribed_phi_origin`（常に原点）。
+  `sim_config` の型の既定値を `default_app_config` と揃えた（`dt=1e-9`、`max_step=400`）。
+
+### Removed
+
+- `summary.txt` から常に 0 または恒等的に決まる key を削除した:
+  `surface_current_model_pe_budget_residual_current_density_A_m2`（定義上 0）、
+  `surface_current_model_surface_budget_residual_current_density_A_m2`（`surface_current_model_net_current_density_A_m2`
+  と同じ式。外部根の残差の検査は後者で行う）、`gauss_residual_C`、
+  `charge_ledger_local_flight_charge_{before,after}_C`、`charge_ledger_unresolved_stock_{before,after}_C`。
+  再開時は旧 checkpoint にあるこれらの key を読み飛ばす。
 
 ### Fixed
 

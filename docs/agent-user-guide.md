@@ -15,7 +15,7 @@ BEACH は、境界要素法による電場評価と粒子追跡を組み合わ�
 - 光電子は `photo_raycast`、`source.inject_face` と同じ species 面の反射、`neutral_return` で閉じる
 - mesh hit は吸収し、表面電荷差分を batch ごとに commit する
 - `run.batch_count` まで実行し、`particles.tracking.max_steps_per_particle` を粒子ごとの上限とする
-- `output.diagnostics.charge_rel_change_threshold` は監視値であり、早期停止条件ではない
+- `output.diagnostics.charge_rel_change_threshold` は既定 0 で無効。正の値なら `rel_change` がそれを下回った accepted batch で run を終える
 
 実装挙動の正本は [`SPEC.md`](../SPEC.md)、設定キーの正本は
 [入力パラメータ](reference/Parameters.md) です。削除済みの `[outer_plasma]`、
@@ -144,7 +144,7 @@ CLI の全オプションは `beachx <command> --help`、Python API は
 - Fortran の挙動と `SPEC.md` の記述が一致している
 - 公開設定を変えた場合、schema、parser、例、日英ドキュメント、テストを更新した
 - field、collision、boundary、injection、resume の変更には対応する回帰テストがある
-- `output.diagnostics.charge_rel_change_threshold` を早期停止として説明していない
+- `output.diagnostics.charge_rel_change_threshold` による早期終了を定常到達の証拠として説明していない
 - 実行完了と数値・物理妥当性を混同していない
 - 日英ページでコマンド、識別子、警告、リンク先の責務が対応している
 

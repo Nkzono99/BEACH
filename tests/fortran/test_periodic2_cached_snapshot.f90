@@ -127,7 +127,7 @@ program test_periodic2_cached_snapshot
     'upper Fourier retry must compose kneq0, k0, and prescribed field exactly once' &
     )
   retry_expected_potential = retry_potential + zero_potential - &
-                             dot_product(sim%e0, target - snapshot%prescribed_phi_origin)
+                             dot_product(sim%e0, target)
   call snapshot%eval_upper_panel_fourier_phi(mesh, target, retry_total_potential, retry_available)
   call assert_true(retry_available, 'upper Fourier retry potential should be available above the mesh')
   call assert_close_dp( &

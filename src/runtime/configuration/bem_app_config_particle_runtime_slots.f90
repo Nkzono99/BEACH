@@ -55,7 +55,6 @@ contains
   end if
 
   layout%batch_idx = batch_idx
-  layout%nspecies = cfg%n_particle_species
   allocate (layout%source_kind(cfg%n_particle_species), layout%source_global_count(cfg%n_particle_species))
   allocate (layout%boundary_global_count(6, cfg%n_particle_species))
   allocate (layout%boundary_vmin(6, cfg%n_particle_species), layout%boundary_barrier(6, cfg%n_particle_species))
@@ -128,8 +127,6 @@ contains
           call compute_macro_particles_for_species( &
             cfg%sim, face_spec, state%boundary_macro_residual(face, s), layout%boundary_global_count(face, s), &
             vmin_normal=layout%boundary_vmin(face, s), number_density_override=face_density_m3, &
-            particle_flux_override=source_plan%effective_particle_flux_m2_s(s), &
-            use_particle_flux_override=source_plan%number_flux_override_active(s), &
             temperature_k_override=layout%temperature_k(s), &
             drift_velocity_override=layout%drift_velocity(:, s), w_particle_override=layout%weight(s) &
             )

@@ -15,7 +15,6 @@ module bem_surface_closure_contract
     logical, allocatable :: has_escape_target(:)
     logical, allocatable :: has_inflow_kinetic_map(:)
     logical, allocatable :: has_outflow_kinetic_barrier(:)
-    logical, allocatable :: has_inflow_number_flux(:)
     real(dp), allocatable :: absorbed_current_a(:)
     real(dp), allocatable :: emission_current_a(:)
     real(dp), allocatable :: escaped_particle_current_a(:)
@@ -26,7 +25,6 @@ module bem_surface_closure_contract
     integer(i32), allocatable :: inflow_kinetic_face(:)
     real(dp), allocatable :: outflow_barrier_potential_v(:)
     integer(i32), allocatable :: outflow_barrier_face(:)
-    real(dp), allocatable :: inflow_number_flux_m2_s(:)
     !> この species の脱出・帰還目標から、そのバッチで追跡した脱出電荷を差し引く species（0 なら無し）。
     !! 外部根の脱出束が複数の放出電子種の合算なら、追跡した側に充てた残りをこの species の目標にする。
     integer(i32), allocatable :: escape_partner_species(:)

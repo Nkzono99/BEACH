@@ -895,7 +895,6 @@ contains
     m2l_shift_idx1_buf = 0_i32
     m2l_shift_idx2_buf = 0_i32
     pair_used = 0_i32
-    plan%m2l_visit_count = 0_i32
     call accumulate_cached_pairs( &
       plan, 1_i32, 1_i32, use_target_tree, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, &
       pair_used, pair_cap &
@@ -919,7 +918,6 @@ contains
       plan%m2l_shift_idx2(1:pair_used) = m2l_shift_idx2_buf(1:pair_used)
     end if
     plan%m2l_pair_count = pair_used
-    plan%m2l_build_count = plan%m2l_build_count + 1_i32
     call build_target_pair_index(plan, n_target_nodes)
 
     deallocate (near_work, near_buf, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf)
@@ -1143,7 +1141,6 @@ contains
     integer(i32), intent(inout) :: pair_used, pair_cap
     integer(i32) :: tc, sc, t_child, s_child
 
-    plan%m2l_visit_count = plan%m2l_visit_count + 1_i32
     tc = active_tree_child_count(plan, use_target_tree, t_node)
     sc = plan%child_count(s_node)
     if (nodes_well_separated(plan, t_node, s_node)) then

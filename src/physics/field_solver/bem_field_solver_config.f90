@@ -24,7 +24,6 @@ contains
   self%field_inv_length_scale = 1.0d0/self%field_length_scale
   self%field_output_scale = k_coulomb*self%field_inv_length_scale*self%field_inv_length_scale
   self%potential_output_scale = k_coulomb*self%field_inv_length_scale
-  self%min_nelem = sim%tree_min_nelem
   self%nelem = mesh%nelem
   self%use_periodic2 = .false.
   self%periodic_axes = 0_i32
@@ -59,7 +58,6 @@ contains
       error stop 'triangle_p0 requires resolved element vacuum sides.'
     end if
   end if
-  self%field_bc_mode = field_bc_mode
   select case (trim(field_bc_mode))
   case ('free')
     self%periodic_far_correction = 'none'

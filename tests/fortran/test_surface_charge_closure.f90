@@ -101,7 +101,6 @@ contains
     tri_v2(:, 4) = [0.98_dp, 1.0_dp, 0.25_dp]
     call init_mesh(neutral_mesh, tri_v0, tri_v1, tri_v2)
     neutral_mesh%elem_vacuum_sign = 1_i32
-    neutral_mesh%vacuum_normals = neutral_mesh%normals
 
     call default_app_config(neutral_cfg)
     neutral_cfg%sim%rng_seed = 998_i32
@@ -178,7 +177,6 @@ contains
     tri_v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
     call init_mesh(fixed_mesh, tri_v0, tri_v1, tri_v2)
     fixed_mesh%elem_vacuum_sign = 1_i32
-    fixed_mesh%vacuum_normals = fixed_mesh%normals
 
     call default_app_config(fixed_cfg)
     fixed_cfg%sim%batch_count = 1_i32
@@ -312,7 +310,6 @@ contains
     tri_v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
     call init_mesh(fixed_mesh, tri_v0, tri_v1, tri_v2)
     fixed_mesh%elem_vacuum_sign = 1_i32
-    fixed_mesh%vacuum_normals = fixed_mesh%normals
 
     call default_app_config(fixed_cfg)
     fixed_cfg%sim%batch_count = 1_i32
@@ -362,7 +359,6 @@ contains
     tri_v2(:, 2) = [0.0_dp, 1.0_dp, 0.75_dp]
     call init_mesh(fixed_mesh, tri_v0, tri_v1, tri_v2)
     fixed_mesh%elem_vacuum_sign = 1_i32
-    fixed_mesh%vacuum_normals = fixed_mesh%normals
 
     call default_app_config(fixed_cfg)
     fixed_cfg%sim%rng_seed = 999_i32
@@ -444,7 +440,6 @@ contains
     tri_v2(:, 2) = [0.0_dp, 1.0e7_dp, 7.5e5_dp]
     call init_mesh(zhao_mesh, tri_v0, tri_v1, tri_v2)
     zhao_mesh%elem_vacuum_sign = 1_i32
-    zhao_mesh%vacuum_normals = zhao_mesh%normals
 
     call default_app_config(zhao_cfg)
     zhao_cfg%sim%rng_seed = 1234_i32

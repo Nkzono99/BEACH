@@ -33,7 +33,6 @@ contains
     c = a + 0.45_dp*(c - a)
     call init_mesh(mesh_out, a, b, c, q0=[1.0e-12_dp, 2.0e-12_dp])
     mesh_out%elem_vacuum_sign = 1_i32
-    mesh_out%vacuum_normals = mesh_out%normals
 
     sim_out = sim_config()
     sim_out%field_solver = 'fmm'

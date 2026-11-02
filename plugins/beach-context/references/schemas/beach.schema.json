@@ -681,8 +681,8 @@
         "tol_rel": {
           "type": "number",
           "minimum": 0,
-          "default": 1e-08,
-          "description": "Monitoring metric; not an early-stop condition."
+          "default": 0,
+          "description": "Stop after the first accepted batch whose relative surface-charge change falls below this value; 0 disables."
         },
         "q_floor": {
           "type": "number",
@@ -2081,8 +2081,8 @@
                 "charge_rel_change_threshold": {
                   "type": "number",
                   "minimum": 0,
-                  "default": 1e-08,
-                  "description": "Monitoring metric; not an early-stop condition."
+                  "default": 0,
+                  "description": "Stop after the first accepted batch whose relative surface-charge change falls below this value; 0 disables."
                 },
                 "charge_floor_c": {
                   "type": "number",

@@ -430,7 +430,6 @@ contains
     v2(:, 2) = [0.0_dp, cell_width, plate_z]
     call init_mesh(fixture_mesh, v0, v1, v2, q0=[0.0_dp, 0.0_dp])
     fixture_mesh%elem_vacuum_sign = 1_i32
-    fixture_mesh%vacuum_normals = fixture_mesh%normals
 
     call default_app_config(fixture_cfg)
     fixture_cfg%sim%rng_seed = 1357_i32
