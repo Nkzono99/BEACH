@@ -303,13 +303,7 @@ contains
       end do
 
       call perf_region_begin(perf_region_prepare_batch, t0)
-      call build_particle_source_plan( &
-        trial_app, source_plan, mpi=mpi_ctx, &
-        kinetic_inflow_active=surface_closure%has_inflow_kinetic_map, &
-        kinetic_access_potential_v=surface_closure%inflow_access_potential_v, &
-        kinetic_inflow_face=surface_closure%inflow_kinetic_face, &
-        kinetic_reservoir_density_m3=surface_closure%inflow_reservoir_density_m3 &
-        )
+      call build_particle_source_plan(trial_app, source_plan, mpi=mpi_ctx, closure=surface_closure)
       call prepare_batch_state( &
         mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, injection_layout, mpi_ctx, &
         inject_state, photo_failure &

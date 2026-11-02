@@ -205,19 +205,19 @@ contains
     write (u, '(a)') 'surface_current_model_current_budget_contract=surface_targets_plus_external_escape'
     if (current_model%photoelectron_active) then
       write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', &
-        current_model%escaped_particle_current_a(current_model%photoelectron_species_idx)
+        current_model%species(current_model%photoelectron_species_idx)%escaped_particle_current_a
     else
       write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', 0.0_dp
     end if
     write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_access_potential_V=', &
-      current_model%inflow_access_potential_v(current_model%electron_species_idx)
+      current_model%species(current_model%electron_species_idx)%kinetic_path_potential_v
     write (u, '(a,i0)') 'surface_current_model_electron_inflow_face=', &
-      current_model%inflow_kinetic_face(current_model%electron_species_idx)
+      current_model%kinetic_face
     if (current_model%photoelectron_active) then
       write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', &
-        current_model%outflow_barrier_potential_v(current_model%photoelectron_species_idx)
+        current_model%species(current_model%photoelectron_species_idx)%kinetic_path_potential_v
       write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', &
-        current_model%outflow_barrier_face(current_model%photoelectron_species_idx)
+        current_model%kinetic_face
     else
       write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', 0.0_dp
       write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', 0_i32

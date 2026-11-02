@@ -11,6 +11,7 @@ module bem_app_config_particle_runtime
     external_inflow_none, external_inflow_scalar_barrier
   use bem_app_config_types, only: &
     app_config, particle_species_spec, particles_per_batch_from_config, particle_inflow_reservoir, species_config_path
+  use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_app_config_potential_runtime, only: &
     compute_face_average_potential, warn_face_average_potential_variation, resolve_face_sampling_geometry
   use bem_string_utils, only: lower_ascii
@@ -29,11 +30,8 @@ module bem_app_config_particle_runtime
     integer(i32) :: mpi_rank = 0_i32
     integer(i32) :: mpi_size = 1_i32
     integer(i32), allocatable :: source_kind(:)
-    logical, allocatable :: kinetic_inflow_active(:)
-    real(dp), allocatable :: kinetic_access_potential_v(:)
-    !> 流入写像の貯留部密度。0なら species 設定の密度を使う。
-    real(dp), allocatable :: kinetic_reservoir_density_m3(:)
-    integer(i32), allocatable :: kinetic_inflow_face(:)
+    !> 外部 closure の写し。reservoir 面の流入写像（species 別の有効フラグ・経路電位・貯留部密度と共通の面）だけを読む。
+    type(surface_closure_contract_type) :: closure
   end type particle_source_plan_type
 
   !> slot の種別。
@@ -205,19 +203,14 @@ contains
 
   !> 設定とMPI配置だけに依存する粒子 source の導出値を構築する。
   !! 乱数、残差、mesh/snapshot依存の障壁は扱わず、run中に不変な値だけを保持する。
-  subroutine build_particle_source_plan( &
-    cfg, plan, mpi_rank, mpi_size, mpi, kinetic_inflow_active, kinetic_access_potential_v, kinetic_inflow_face, &
-    kinetic_reservoir_density_m3 &
-    )
+  !! closure を渡すと、その流入写像を reservoir 面の注入に使う。省略時は流入写像なし。
+  subroutine build_particle_source_plan(cfg, plan, mpi_rank, mpi_size, mpi, closure)
     type(app_config), intent(in) :: cfg
     type(particle_source_plan_type), intent(out) :: plan
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
     type(mpi_context), intent(in), optional :: mpi
-    logical, intent(in), optional :: kinetic_inflow_active(:)
-    real(dp), intent(in), optional :: kinetic_access_potential_v(:)
-    integer(i32), intent(in), optional :: kinetic_inflow_face(:)
-    !> 流入写像の面だけで使う貯留部密度。0以下の要素は species 設定の密度を使う。
-    real(dp), intent(in), optional :: kinetic_reservoir_density_m3(:)
+    !> 外部 closure。species 配列の大きさは cfg の粒子種数。
+    type(surface_closure_contract_type), intent(in), optional :: closure
 
     integer(i32) :: s, local_rank, n_ranks
     logical :: has_enabled_reservoir
@@ -237,21 +230,15 @@ contains
 
     allocate (plan%source_kind(cfg%n_particle_species))
     plan%source_kind = slot_kind_none
-    allocate (plan%kinetic_inflow_active(cfg%n_particle_species))
-    allocate (plan%kinetic_access_potential_v(cfg%n_particle_species))
-    allocate (plan%kinetic_reservoir_density_m3(cfg%n_particle_species))
-    allocate (plan%kinetic_inflow_face(cfg%n_particle_species))
-    plan%kinetic_inflow_active = .false.
-    plan%kinetic_access_potential_v = 0.0_dp
-    plan%kinetic_reservoir_density_m3 = 0.0_dp
-    plan%kinetic_inflow_face = 0_i32
-
-    ! Runtime callers hand over the closure's kinetic map and number-flux override; their shapes and values are
-    ! checked here, while the TOML physics conditions belong to the parser preflight.
-    call apply_kinetic_map_arguments( &
-      plan, cfg%n_particle_species, kinetic_inflow_active, kinetic_access_potential_v, kinetic_inflow_face, &
-      kinetic_reservoir_density_m3 &
-      )
+    if (present(closure)) then
+      ! 貯留部密度は外部根から来る。経路電位は使う所（external_kinetic_face_velocity_correction）が確かめる。
+      if (.not. all(ieee_is_finite(closure%species%inflow_reservoir_density_m3))) then
+        error stop 'particle source kinetic reservoir densities must be finite.'
+      end if
+      plan%closure = closure
+    else
+      allocate (plan%closure%species(cfg%n_particle_species))
+    end if
 
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
@@ -269,51 +256,6 @@ contains
 
     plan%ready = .true.
   end subroutine build_particle_source_plan
-
-  !> 外部 closure の kinetic 写像（有効フラグ・access 電位・面・貯留部密度）を検査して plan へ写す。
-  !! 貯留部の電位は上流の 0 V に固定する。
-  subroutine apply_kinetic_map_arguments( &
-    plan, nspecies, kinetic_inflow_active, kinetic_access_potential_v, kinetic_inflow_face, kinetic_reservoir_density_m3 &
-    )
-    type(particle_source_plan_type), intent(inout) :: plan
-    integer(i32), intent(in) :: nspecies
-    logical, intent(in), optional :: kinetic_inflow_active(:)
-    real(dp), intent(in), optional :: kinetic_access_potential_v(:)
-    integer(i32), intent(in), optional :: kinetic_inflow_face(:)
-    real(dp), intent(in), optional :: kinetic_reservoir_density_m3(:)
-
-    if (present(kinetic_inflow_active) .or. present(kinetic_access_potential_v) .or. present(kinetic_inflow_face)) then
-      if (.not. present(kinetic_inflow_active) .or. .not. present(kinetic_access_potential_v) .or. &
-          .not. present(kinetic_inflow_face)) then
-        error stop 'particle source kinetic map requires active, access, and face arrays together.'
-      end if
-      if (size(kinetic_inflow_active) /= nspecies .or. &
-          size(kinetic_access_potential_v) /= nspecies .or. &
-          size(kinetic_inflow_face) /= nspecies) then
-        error stop 'particle source kinetic map species count mismatch.'
-      end if
-      if (.not. all(ieee_is_finite(kinetic_access_potential_v))) then
-        error stop 'particle source kinetic map potentials must be finite.'
-      end if
-      plan%kinetic_inflow_active = kinetic_inflow_active
-      plan%kinetic_access_potential_v = kinetic_access_potential_v
-      plan%kinetic_inflow_face = kinetic_inflow_face
-      if (any(plan%kinetic_inflow_active .and. &
-              (plan%kinetic_inflow_face < 1_i32 .or. plan%kinetic_inflow_face > 6_i32))) then
-        error stop 'active particle source kinetic map face must be in [1, 6].'
-      end if
-    end if
-
-    if (present(kinetic_reservoir_density_m3)) then
-      if (size(kinetic_reservoir_density_m3) /= nspecies) then
-        error stop 'particle source kinetic reservoir density species count mismatch.'
-      end if
-      if (.not. all(ieee_is_finite(kinetic_reservoir_density_m3))) then
-        error stop 'particle source kinetic reservoir densities must be finite.'
-      end if
-      plan%kinetic_reservoir_density_m3 = max(0.0_dp, kinetic_reservoir_density_m3)
-    end if
-  end subroutine apply_kinetic_map_arguments
 
   !> source plan がこの rank/size と mpi 引数の有無で構築されたかを返す。
   !! rank、size、mpi 引数の有無はそれぞれ独立に一致する必要がある。
