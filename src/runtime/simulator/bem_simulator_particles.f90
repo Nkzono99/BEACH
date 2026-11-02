@@ -563,18 +563,20 @@ contains
     type(external_boundary_contract_type), intent(inout) :: contract
 
     integer(i32) :: axis, face
+    real(dp) :: barrier_potential_v
 
     if (.not. current_model%active) return
-    if (.not. current_model%has_outflow_kinetic_barrier(species_idx)) return
-    face = current_model%outflow_barrier_face(species_idx)
+    if (.not. current_model%species(species_idx)%has_outflow_kinetic_barrier) return
+    face = current_model%kinetic_face
+    barrier_potential_v = current_model%species(species_idx)%kinetic_path_potential_v
     axis = (face + 1_i32)/2_i32
     if (mod(face, 2_i32) == 0_i32) then
       contract%barrier_override_high(axis) = .true.
-      contract%barrier_potential_high_v(axis) = current_model%outflow_barrier_potential_v(species_idx)
+      contract%barrier_potential_high_v(axis) = barrier_potential_v
       contract%barrier_redistribute_high(axis) = current_model%outer_return_cell_uniform
     else
       contract%barrier_override_low(axis) = .true.
-      contract%barrier_potential_low_v(axis) = current_model%outflow_barrier_potential_v(species_idx)
+      contract%barrier_potential_low_v(axis) = barrier_potential_v
       contract%barrier_redistribute_low(axis) = current_model%outer_return_cell_uniform
     end if
   end subroutine apply_species_kinetic_barrier

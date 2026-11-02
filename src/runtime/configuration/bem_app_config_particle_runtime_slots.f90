@@ -101,17 +101,17 @@ contains
           )
         layout%boundary_vmin(face, s) = correction_vmin_normal
         face_density_m3 = species_number_density_m3(cfg%particle_species(s))
-        if (source_plan%kinetic_inflow_active(s) .and. face == source_plan%kinetic_inflow_face(s)) then
+        if (source_plan%closure%species(s)%has_inflow_kinetic_map .and. face == source_plan%closure%kinetic_face) then
           call external_kinetic_face_velocity_correction( &
-            cfg, face_spec, source_plan%kinetic_access_potential_v(s), kinetic_vmin_normal, kinetic_barrier_normal, &
-            mesh, snapshot, warn_face_variation=local_rank == 0_i32 .and. &
+            cfg, face_spec, source_plan%closure%species(s)%kinetic_path_potential_v, kinetic_vmin_normal, &
+            kinetic_barrier_normal, mesh, snapshot, warn_face_variation=local_rank == 0_i32 .and. &
             (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count), &
             face_potential=face_potential(:, face), face_potential_ready=face_potential_ready(face) &
             )
           layout%boundary_vmin(face, s) = max(layout%boundary_vmin(face, s), kinetic_vmin_normal)
           layout%boundary_barrier(face, s) = kinetic_barrier_normal
-          if (source_plan%kinetic_reservoir_density_m3(s) > 0.0_dp) then
-            face_density_m3 = source_plan%kinetic_reservoir_density_m3(s)
+          if (source_plan%closure%species(s)%inflow_reservoir_density_m3 > 0.0_dp) then
+            face_density_m3 = source_plan%closure%species(s)%inflow_reservoir_density_m3
           end if
         end if
         if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then

@@ -84,7 +84,7 @@ program test_surface_current_model
                    'Type A top field sign and finiteness')
   call assert_close_dp(result%reference_area_m2, 2.0_dp, 0.0_dp, 'configured reference area mismatch')
   call assert_close_dp( &
-    result%escaped_particle_current_a(3), &
+    result%species(3)%escaped_particle_current_a, &
     -2.0_dp*result%photoelectron_escape_current_density_a_m2, 1.0e-18_dp, &
     'Zhao PE escape target did not use the configured reference area' &
     )
@@ -119,13 +119,13 @@ program test_surface_current_model
   call assert_true(.not. result%photoelectron_active, 'no-PE Zhao result must disable photoelectron channels')
   call assert_true(result%photoelectron_species_idx == 0_i32, 'no-PE Zhao result must not resolve a PE species')
   call assert_true(result%zhao_branch == 'C', 'no-PE Zhao model must select Type C')
-  call assert_true(all(result%has_absorbed_target), 'no-PE Zhao must target electron and ion absorption')
+  call assert_true(all(result%species%has_absorbed_target), 'no-PE Zhao must target electron and ion absorption')
   call assert_true( &
-    result%absorbed_current_a(1) < 0.0_dp .and. result%absorbed_current_a(2) > 0.0_dp, &
+    result%species(1)%absorbed_current_a < 0.0_dp .and. result%species(2)%absorbed_current_a > 0.0_dp, &
     'no-PE Zhao ambient target signs mismatch' &
     )
-  call assert_true(.not. any(result%has_emission_target), 'no-PE Zhao must not create emission targets')
-  call assert_true(.not. any(result%has_escape_target), 'no-PE Zhao must not create PE escape targets')
+  call assert_true(.not. any(result%species%has_emission_target), 'no-PE Zhao must not create emission targets')
+  call assert_true(.not. any(result%species%has_escape_target), 'no-PE Zhao must not create PE escape targets')
   call assert_close_dp(result%photoelectron_emission_current_density_a_m2, 0.0_dp, 0.0_dp, 'no-PE emission')
   call assert_close_dp(result%photoelectron_escape_current_density_a_m2, 0.0_dp, 0.0_dp, 'no-PE escape')
   call assert_close_dp(result%photoelectron_return_current_density_a_m2, 0.0_dp, 0.0_dp, 'no-PE return')
@@ -404,25 +404,25 @@ program test_surface_current_model
   cfg%sim%bc_low(1:2) = bc_periodic
   cfg%sim%bc_high(1:2) = bc_periodic
   call evaluate_surface_current_model(cfg, result)
-  call assert_true(result%has_outflow_kinetic_barrier(4), 'SEE must have the PE kinetic barrier role')
-  call assert_close_dp(result%outflow_barrier_potential_v(4), result%outflow_barrier_potential_v(3), &
+  call assert_true(result%species(4)%has_outflow_kinetic_barrier, 'SEE must have the PE kinetic barrier role')
+  call assert_close_dp(result%species(4)%kinetic_path_potential_v, result%species(3)%kinetic_path_potential_v, &
                        0.0_dp, 'SEE and PE barrier potentials must agree')
-  call assert_equal_i32(result%outflow_barrier_face(4), 6_i32, 'SEE barrier face')
+  call assert_equal_i32(result%kinetic_face, 6_i32, 'SEE barrier face')
   call assert_true(result%outer_return_cell_uniform, 'SEE uses the periodic-cell outer return map')
-  call assert_true(.not. result%has_absorbed_target(4) .and. .not. result%has_emission_target(4) .and. &
-                   .not. result%has_escape_target(4), 'SEE must stay fully tracked')
+  call assert_true(.not. result%species(4)%has_absorbed_target .and. .not. result%species(4)%has_emission_target .and. &
+                   .not. result%species(4)%has_escape_target, 'SEE must stay fully tracked')
   ! PE の目標は PE+SEE 合算の根の脱出束を持ち、追跡した SEE 脱出は各バッチの固定電流 closure が差し引く。
-  call assert_equal_i32(result%escape_partner_species(3), 4_i32, 'PE escape target must subtract the tracked SEE escape')
-  call assert_equal_i32(result%escape_partner_species(4), 0_i32, 'SEE has no escape partner')
+  call assert_equal_i32(result%species(3)%escape_partner_species, 4_i32, 'PE escape target must subtract the tracked SEE escape')
+  call assert_equal_i32(result%species(4)%escape_partner_species, 0_i32, 'SEE has no escape partner')
   call solve_zhao_outflow_closure(cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, 'A', refreshed, success, message)
   call assert_true(success, 'mixed emission source solve: '//trim(message))
-  call assert_close_dp(refreshed%escaped_particle_current_a(3), &
+  call assert_close_dp(refreshed%species(3)%escaped_particle_current_a, &
                        -refreshed%photoelectron_escape_current_density_a_m2*refreshed%reference_area_m2, &
                        1.0e-20_dp, 'PE escape target must carry the combined root escape')
-  call assert_close_dp(refreshed%absorbed_current_a(3), &
-                       -refreshed%escaped_particle_current_a(3) - refreshed%emission_current_a(3), &
+  call assert_close_dp(refreshed%species(3)%absorbed_current_a, &
+                       -refreshed%species(3)%escaped_particle_current_a - refreshed%species(3)%emission_current_a, &
                        1.0e-20_dp, 'PE return target must remain escape minus emission')
-  call assert_equal_i32(refreshed%escape_partner_species(3), 4_i32, 'refreshed root must keep the SEE escape partner')
+  call assert_equal_i32(refreshed%species(3)%escape_partner_species, 4_i32, 'refreshed root must keep the SEE escape partner')
   call test_end()
 
   call test_begin('mixed_type_c_pins_secondary_and_lets_pe_escape')
@@ -440,31 +440,32 @@ program test_surface_current_model
   cfg%sim%bc_high(1:2) = bc_periodic
   call evaluate_surface_current_model(cfg, result)
   call assert_true(result%zhao_branch == 'C', 'mixed initial root must be Type C')
-  call assert_equal_i32(result%escape_partner_species(3), 0_i32, 'Type C PE has no SEE escape partner')
-  call assert_close_dp(result%absorbed_current_a(3), 0.0_dp, 0.0_dp, 'Type C PE has no return target')
-  call assert_close_dp(result%escaped_particle_current_a(3), -result%emission_current_a(3), 0.0_dp, &
+  call assert_equal_i32(result%species(3)%escape_partner_species, 0_i32, 'Type C PE has no SEE escape partner')
+  call assert_close_dp(result%species(3)%absorbed_current_a, 0.0_dp, 0.0_dp, 'Type C PE has no return target')
+  call assert_close_dp(result%species(3)%escaped_particle_current_a, -result%species(3)%emission_current_a, 0.0_dp, &
                        'Type C PE escape target equals its emission')
-  call assert_true(result%has_absorbed_target(4) .and. result%has_emission_target(4) .and. result%has_escape_target(4) &
-                   .and. result%emission_target_from_tracked_source(4), 'Type C pins the SEE channels to the root')
-  call assert_close_dp(result%escaped_particle_current_a(4), 0.0_dp, 1.0e-12_dp*result%emission_current_a(3), &
+  call assert_true(result%species(4)%has_absorbed_target .and. result%species(4)%has_emission_target .and. &
+                   result%species(4)%has_escape_target .and. result%species(4)%emission_target_from_tracked_source, &
+                   'Type C pins the SEE channels to the root')
+  call assert_close_dp(result%species(4)%escaped_particle_current_a, 0.0_dp, 1.0e-12_dp*result%species(3)%emission_current_a, &
                        'PE-only source leaves no SEE share of the root escape')
   ! 弱い PE の Type C 根は、外部源をわずかに増やした範囲でだけ Type C に留まる。
   call solve_zhao_outflow_closure(cfg, 1.05_dp*result%outer_photoelectron_flux_m2_s, 1.0_dp, 'C', refreshed, &
                                   success, message)
   call assert_true(success .and. refreshed%zhao_branch == 'C', 'mixed Type C outflow solve: '//trim(message))
-  call assert_true(refreshed%escaped_particle_current_a(4) < 0.0_dp, 'refreshed SEE share of the root escape is positive')
-  call assert_close_dp(refreshed%escaped_particle_current_a(3) + refreshed%escaped_particle_current_a(4), &
+  call assert_true(refreshed%species(4)%escaped_particle_current_a < 0.0_dp, 'refreshed SEE share of the root escape is positive')
+  call assert_close_dp(refreshed%species(3)%escaped_particle_current_a + refreshed%species(4)%escaped_particle_current_a, &
                        -refreshed%photoelectron_escape_current_density_a_m2*refreshed%reference_area_m2, &
-                       1.0e-12_dp*refreshed%emission_current_a(3), 'PE and SEE escape targets share the root escape')
-  call assert_close_dp(refreshed%emission_current_a(4) + refreshed%absorbed_current_a(4) + &
-                       refreshed%escaped_particle_current_a(4), 0.0_dp, 1.0e-12_dp*refreshed%emission_current_a(4), &
-                       'SEE emission minus return must equal its escape share')
-  call assert_close_dp(refreshed%absorbed_current_a(3), 0.0_dp, 0.0_dp, 'refreshed Type C PE has no return target')
+                       1.0e-12_dp*refreshed%species(3)%emission_current_a, 'PE and SEE escape targets share the root escape')
+  call assert_close_dp(refreshed%species(4)%emission_current_a + refreshed%species(4)%absorbed_current_a + &
+                       refreshed%species(4)%escaped_particle_current_a, 0.0_dp, &
+                       1.0e-12_dp*refreshed%species(4)%emission_current_a, 'SEE emission minus return must equal its escape share')
+  call assert_close_dp(refreshed%species(3)%absorbed_current_a, 0.0_dp, 0.0_dp, 'refreshed Type C PE has no return target')
   cfg%surface_current%outflow_refresh_batches = 1_i32
   cfg%surface_current%include_reflected_electrons = .true.
   call evaluate_surface_current_model(cfg, result)
-  call assert_equal_i32(result%reflected_electron_species(4), 1_i32, 'Type C SEE subtracts the reflected electrons')
-  call assert_equal_i32(result%reflected_electron_species(3), 0_i32, 'Type C PE keeps its pinned targets')
+  call assert_equal_i32(result%species(4)%reflected_electron_species, 1_i32, 'Type C SEE subtracts the reflected electrons')
+  call assert_equal_i32(result%species(3)%reflected_electron_species, 0_i32, 'Type C PE keeps its pinned targets')
   call test_end()
 
   call test_begin('secondary_only_closure_targets_secondary_reabsorption')
@@ -485,28 +486,28 @@ program test_surface_current_model
   call evaluate_surface_current_model(cfg, result)
   call assert_true(result%zhao_branch == 'C' .and. .not. result%photoelectron_active, &
                    'SEE-only initial root is the zero-source Type C')
-  call assert_true(result%has_absorbed_target(3) .and. result%has_emission_target(3) .and. result%has_escape_target(3) &
-                   .and. result%emission_target_from_tracked_source(3), &
+  call assert_true(result%species(3)%has_absorbed_target .and. result%species(3)%has_emission_target .and. &
+                   result%species(3)%has_escape_target .and. result%species(3)%emission_target_from_tracked_source, &
                    'SEE-only closure must pin SEE return, emission and escape to the root')
-  call assert_equal_i32(result%escape_partner_species(3), 0_i32, 'SEE-only has no escape partner')
-  call assert_close_dp(result%escaped_particle_current_a(3), 0.0_dp, 0.0_dp, 'zero-source root has no SEE escape')
-  call assert_close_dp(result%emission_current_a(3), 0.0_dp, 0.0_dp, 'zero-source root has no SEE emission target')
-  call assert_close_dp(result%absorbed_current_a(3), 0.0_dp, 0.0_dp, 'zero-source root has no SEE return target')
+  call assert_equal_i32(result%species(3)%escape_partner_species, 0_i32, 'SEE-only has no escape partner')
+  call assert_close_dp(result%species(3)%escaped_particle_current_a, 0.0_dp, 0.0_dp, 'zero-source root has no SEE escape')
+  call assert_close_dp(result%species(3)%emission_current_a, 0.0_dp, 0.0_dp, 'zero-source root has no SEE emission target')
+  call assert_close_dp(result%species(3)%absorbed_current_a, 0.0_dp, 0.0_dp, 'zero-source root has no SEE return target')
   ! 観測した SEE 流出で根を解き直すと、SEE の脱出目標は根の脱出束になる。
   call bin_shifted_half_maxwellian(1.0e12_dp, 2.0_dp, 0.0_dp, spectrum)
   call solve_zhao_outflow_closure(cfg, 1.0e12_dp, 2.0_dp, 'C', refreshed, success, message, outer_spectrum_m2_s=spectrum)
   call assert_true(success, 'SEE-only outflow solve: '//trim(message))
   call assert_true(refreshed%photoelectron_escape_current_density_a_m2 > 0.0_dp, 'SEE outflow must give a root escape')
-  call assert_close_dp(refreshed%escaped_particle_current_a(3), &
+  call assert_close_dp(refreshed%species(3)%escaped_particle_current_a, &
                        -refreshed%photoelectron_escape_current_density_a_m2*refreshed%reference_area_m2, &
                        1.0e-20_dp, 'SEE escape target must carry the root escape')
-  call assert_true(refreshed%emission_target_from_tracked_source(3) .and. refreshed%has_absorbed_target(3) .and. &
-                   refreshed%has_emission_target(3), 'refreshed SEE-only root keeps the tracked-source emission target')
-  call assert_true(refreshed%absorbed_current_a(3) <= 0.0_dp .and. refreshed%emission_current_a(3) > 0.0_dp, &
+  call assert_true(refreshed%species(3)%emission_target_from_tracked_source .and. refreshed%species(3)%has_absorbed_target .and. &
+                   refreshed%species(3)%has_emission_target, 'refreshed SEE-only root keeps the tracked-source emission target')
+  call assert_true(refreshed%species(3)%absorbed_current_a <= 0.0_dp .and. refreshed%species(3)%emission_current_a > 0.0_dp, &
                    'SEE return target charges negative and the emission target positive')
-  call assert_close_dp(refreshed%emission_current_a(3) + refreshed%absorbed_current_a(3) + &
-                       refreshed%escaped_particle_current_a(3), 0.0_dp, &
-                       1.0e-12_dp*refreshed%emission_current_a(3), 'SEE emission minus return must equal the root escape')
+  call assert_close_dp(refreshed%species(3)%emission_current_a + refreshed%species(3)%absorbed_current_a + &
+                       refreshed%species(3)%escaped_particle_current_a, 0.0_dp, &
+                       1.0e-12_dp*refreshed%species(3)%emission_current_a, 'SEE emission minus return must equal the root escape')
   call test_end()
 
   call test_begin('reflected_electrons_route_through_the_emitting_species')
@@ -515,14 +516,15 @@ program test_surface_current_model
   cfg%surface_current%outflow_refresh_batches = 1_i32
   cfg%surface_current%include_reflected_electrons = .true.
   call evaluate_surface_current_model(cfg, result)
-  call assert_equal_i32(result%reflected_electron_species(3), 1_i32, 'PE subtracts the tracked reflected electrons')
-  call assert_true(result%absorbed_target_credits_tracked_escape(1), 'electron absorbed target credits its tracked escape')
-  call assert_true(.not. any(result%absorbed_target_credits_tracked_escape(2:3)) .and. &
-                   all(result%reflected_electron_species(1:2) == 0_i32), 'only the electron and PE carry the reflected flags')
+  call assert_equal_i32(result%species(3)%reflected_electron_species, 1_i32, 'PE subtracts the tracked reflected electrons')
+  call assert_true(result%species(1)%absorbed_target_credits_tracked_escape, 'electron absorbed target credits its tracked escape')
+  call assert_true(.not. any(result%species(2:3)%absorbed_target_credits_tracked_escape) .and. &
+                   all(result%species(1:2)%reflected_electron_species == 0_i32), &
+                   'only the electron and PE carry the reflected flags')
   cfg%surface_current%include_reflected_electrons = .false.
   call evaluate_surface_current_model(cfg, result)
-  call assert_true(all(result%reflected_electron_species == 0_i32) .and. &
-                   .not. any(result%absorbed_target_credits_tracked_escape), 'switch off leaves the closure unchanged')
+  call assert_true(all(result%species%reflected_electron_species == 0_i32) .and. &
+                   .not. any(result%species%absorbed_target_credits_tracked_escape), 'switch off leaves the closure unchanged')
   cfg%particle_species(3)%source_mode = 'secondary_emission'
   cfg%particle_species(3)%species_key = 'secondary'
   cfg%surface_current%secondary_electron_species = 'secondary'
@@ -534,8 +536,8 @@ program test_surface_current_model
   cfg%sim%bc_high(1:2) = bc_periodic
   cfg%surface_current%include_reflected_electrons = .true.
   call evaluate_surface_current_model(cfg, result)
-  call assert_equal_i32(result%reflected_electron_species(3), 1_i32, 'without PE the SEE subtracts the reflected electrons')
-  call assert_true(result%absorbed_target_credits_tracked_escape(1), 'SEE-only electron target also credits its escape')
+  call assert_equal_i32(result%species(3)%reflected_electron_species, 1_i32, 'without PE the SEE subtracts the reflected electrons')
+  call assert_true(result%species(1)%absorbed_target_credits_tracked_escape, 'SEE-only electron target also credits its escape')
   call test_end()
 
   call test_begin('reflected_only_closure_pins_the_electron_to_the_root')
@@ -552,23 +554,23 @@ program test_surface_current_model
   cfg%surface_current%include_reflected_electrons = .true.
   call evaluate_surface_current_model(cfg, result)
   call assert_true(result%zhao_branch == 'C', 'reflected-only initial root is the zero-source Type C')
-  call assert_true(result%has_escape_target(1) .and. .not. result%absorbed_target_credits_tracked_escape(1) .and. &
-                   all(result%reflected_electron_species == 0_i32), 'electron channels are pinned, not credited')
-  call assert_close_dp(result%escaped_particle_current_a(1), 0.0_dp, 0.0_dp, 'zero-source root has no escape')
-  call assert_close_dp(result%absorbed_current_a(1) + result%absorbed_current_a(2), 0.0_dp, &
-                       1.0e-9_dp*abs(result%absorbed_current_a(2)), 'zero-source electron and ion targets close')
+  call assert_true(result%species(1)%has_escape_target .and. .not. result%species(1)%absorbed_target_credits_tracked_escape .and. &
+                   all(result%species%reflected_electron_species == 0_i32), 'electron channels are pinned, not credited')
+  call assert_close_dp(result%species(1)%escaped_particle_current_a, 0.0_dp, 0.0_dp, 'zero-source root has no escape')
+  call assert_close_dp(result%species(1)%absorbed_current_a + result%species(2)%absorbed_current_a, 0.0_dp, &
+                       1.0e-9_dp*abs(result%species(2)%absorbed_current_a), 'zero-source electron and ion targets close')
   call bin_shifted_half_maxwellian(5.0e10_dp, 3.0_dp, 0.0_dp, spectrum)
   call solve_zhao_outflow_closure(cfg, 5.0e10_dp, 3.0_dp, 'C', refreshed, success, message, outer_spectrum_m2_s=spectrum)
   call assert_true(success, 'reflected-only outflow solve: '//trim(message))
   call assert_true(refreshed%photoelectron_escape_current_density_a_m2 > 0.0_dp, 'reflected outflow gives a root escape')
-  call assert_close_dp(refreshed%escaped_particle_current_a(1), &
+  call assert_close_dp(refreshed%species(1)%escaped_particle_current_a, &
                        -refreshed%photoelectron_escape_current_density_a_m2*refreshed%reference_area_m2, &
                        1.0e-20_dp, 'electron escape target carries the root escape')
-  call assert_close_dp(refreshed%absorbed_current_a(1), &
+  call assert_close_dp(refreshed%species(1)%absorbed_current_a, &
                        (refreshed%electron_current_density_a_m2 + refreshed%photoelectron_escape_current_density_a_m2)* &
                        refreshed%reference_area_m2, 1.0e-20_dp, 'electron absorbed target is root inflow minus escape')
-  call assert_close_dp(refreshed%absorbed_current_a(1) + refreshed%absorbed_current_a(2), 0.0_dp, &
-                       1.0e-9_dp*abs(refreshed%absorbed_current_a(2)), 'refreshed electron and ion targets close')
+  call assert_close_dp(refreshed%species(1)%absorbed_current_a + refreshed%species(2)%absorbed_current_a, 0.0_dp, &
+                       1.0e-9_dp*abs(refreshed%species(2)%absorbed_current_a), 'refreshed electron and ion targets close')
   call test_end()
 
   call test_summary()
@@ -647,9 +649,9 @@ contains
       trim(label)//' PE current signs mismatch' &
       )
     call assert_true( &
-      all(current%has_absorbed_target) .and. &
-      count(current%has_emission_target) == 1 .and. current%has_emission_target(3) .and. &
-      count(current%has_escape_target) == 1 .and. current%has_escape_target(3), &
+      all(current%species%has_absorbed_target) .and. &
+      count(current%species%has_emission_target) == 1 .and. current%species(3)%has_emission_target .and. &
+      count(current%species%has_escape_target) == 1 .and. current%species(3)%has_escape_target, &
       trim(label)//' current target routing mismatch' &
       )
     call assert_close_dp( &
@@ -663,9 +665,9 @@ contains
       trim(label)//' stationary net current mismatch' &
       )
     call assert_true( &
-      current%absorbed_current_a(1) < 0.0_dp .and. current%absorbed_current_a(2) > 0.0_dp .and. &
-      current%absorbed_current_a(3) <= 0.0_dp .and. current%emission_current_a(3) > 0.0_dp .and. &
-      current%escaped_particle_current_a(3) <= 0.0_dp, &
+      current%species(1)%absorbed_current_a < 0.0_dp .and. current%species(2)%absorbed_current_a > 0.0_dp .and. &
+      current%species(3)%absorbed_current_a <= 0.0_dp .and. current%species(3)%emission_current_a > 0.0_dp .and. &
+      current%species(3)%escaped_particle_current_a <= 0.0_dp, &
       trim(label)//' total-current channel signs mismatch' &
       )
   end subroutine assert_current_decomposition
@@ -677,46 +679,35 @@ contains
 
     call assert_true(trim(current%kinetic_contract) == 'zhao_barrier_v1', trim(label)//' kinetic contract mismatch')
     call assert_true( &
-      count(current%has_inflow_kinetic_map) == 2 .and. all(current%has_inflow_kinetic_map(1:2)), &
+      count(current%species%has_inflow_kinetic_map) == 2 .and. all(current%species(1:2)%has_inflow_kinetic_map), &
       trim(label)//' ambient inflow map routing mismatch' &
       )
-    call assert_true( &
-      all(current%inflow_kinetic_face(1:2) == 6_i32), &
-      trim(label)//' inflow map face must be z-high' &
-      )
+    call assert_equal_i32(current%kinetic_face, 6_i32, trim(label)//' kinetic map face must be z-high')
     ! 電子源はZhaoの準中性から解いた上流Maxwellian密度、イオン源は設定の太陽風密度。
     call assert_close_dp( &
-      current%inflow_reservoir_density_m3(1), current%ambient_electron_density_m3, &
+      current%species(1)%inflow_reservoir_density_m3, current%ambient_electron_density_m3, &
       1.0e-12_dp*current%ambient_electron_density_m3, trim(label)//' electron reservoir density mismatch' &
       )
     call assert_close_dp( &
-      current%inflow_reservoir_density_m3(2), 8.7e6_dp, 1.0e-6_dp, &
+      current%species(2)%inflow_reservoir_density_m3, 8.7e6_dp, 1.0e-6_dp, &
       trim(label)//' ion reservoir density mismatch' &
       )
+    ! 流入写像の access 電位と外部障壁の電位は同じ経路の極値電位。
     call assert_close_dp( &
-      current%inflow_access_potential_v(1), electron_bottleneck_v, 1.0e-12_dp, &
-      trim(label)//' electron access bottleneck mismatch' &
+      current%species(1)%kinetic_path_potential_v, electron_bottleneck_v, 1.0e-12_dp, &
+      trim(label)//' electron path potential mismatch' &
       )
     call assert_close_dp( &
-      current%inflow_access_potential_v(2), 0.0_dp, 1.0e-12_dp, &
-      trim(label)//' ion access bottleneck mismatch' &
+      current%species(2)%kinetic_path_potential_v, 0.0_dp, 1.0e-12_dp, &
+      trim(label)//' ion path potential mismatch' &
       )
-    call assert_true(all(current%has_outflow_kinetic_barrier), trim(label)//' outflow barrier routing mismatch')
-    call assert_close_dp( &
-      current%outflow_barrier_potential_v(1), electron_bottleneck_v, 1.0e-12_dp, &
-      trim(label)//' electron barrier potential mismatch' &
-      )
-    call assert_close_dp( &
-      current%outflow_barrier_potential_v(2), 0.0_dp, 1.0e-12_dp, &
-      trim(label)//' ion barrier potential mismatch' &
-      )
+    call assert_true(all(current%species%has_outflow_kinetic_barrier), trim(label)//' outflow barrier routing mismatch')
     if (current%photoelectron_active) then
       call assert_close_dp( &
-        current%outflow_barrier_potential_v(3), electron_bottleneck_v, 1.0e-12_dp, &
+        current%species(3)%kinetic_path_potential_v, electron_bottleneck_v, 1.0e-12_dp, &
         trim(label)//' PE barrier potential mismatch' &
         )
     end if
-    call assert_true(all(current%outflow_barrier_face == 6_i32), trim(label)//' barrier face must be z-high')
   end subroutine assert_kinetic_contract
 
 end program test_surface_current_model

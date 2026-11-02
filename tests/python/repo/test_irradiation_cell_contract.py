@@ -16,7 +16,7 @@ ALLOWED = {
 PATTERNS = {
     "wall bit": r"\bbtest\s*\(.*?,\s*5(?:_i32)?\s*\)",
     "wall boundary": r"%face_bc\s*\(\s*6(?:_i32)?\s*\)",
-    "kinetic wall face": r"%(?:outflow_barrier_face|inflow_kinetic_face)\b.*=\s*6(?:_i32)?\b",
+    "kinetic wall face": r"%kinetic_face\b\s*=\s*6(?:_i32)?\b",
     "wall barrier query": r"\bopen_face_uses_kinetic_barrier\s*\(\s*6(?:_i32)?\s*,",
     "wall coordinate": r"%box_max\s*\(\s*3(?:_i32)?\s*\)",
     "wall face name": r"['\"]z_high['\"]",
@@ -76,8 +76,7 @@ def test_runtime_queries_irradiation_cell_contract():
 @pytest.mark.parametrize("source", [
     "if (btest(event%face_mask, &\n  5_i32)) return",
     "if (event%face_bc(6_i32) == bc_open) return",
-    "result%outflow_barrier_face(photo_idx) = 6_i32",
-    "result%inflow_kinetic_face([electron_idx, ion_idx]) = 6_i32",
+    "result%kinetic_face = 6_i32",
     "uses = open_face_uses_kinetic_barrier(6_i32, boundary)",
     "reference = app%sim%box_max(3)",
     "call sample_face(mesh, 'z_high', potential)",

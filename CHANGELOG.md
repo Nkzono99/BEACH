@@ -95,6 +95,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   field solver は FMM options へ渡す periodic 設定の写しを持たない。静電 snapshot と FMM plan は options の
   `reference_mode_layers`・`panel_quadrature_order`・operator セル数を写さない。Zhao 外部根の更新は参照面積を
   外部根の結果から読む。surface closure の流入写像から常に 0 V だった貯留部電位を除いた。
+- surface closure 契約の species 別の並列配列 17 本を、species ごとの record（固定電流目標、closure の経路、
+  流入写像と外部障壁）の配列にまとめた（計算結果はビット一致、`summary.txt` は不変）。流入写像と外部障壁の面は
+  常に照射セルの壁面なので契約に 1 つだけ持ち、流入写像の access 電位と外部障壁の電位は同じ外部シース経路の
+  極値電位なので species ごとに 1 つにした。粒子源 plan は流入写像を 4 本の配列へ写さず、契約をそのまま受け取る。
 
 ### Removed
 

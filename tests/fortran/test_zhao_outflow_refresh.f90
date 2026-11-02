@@ -230,7 +230,7 @@ contains
     end do
     receipts = sim_stats()
     call refresh%initialize(app, plate, receipts%matching_plane, closure)
-    call assert_equal_i32(closure%reflected_electron_species(3), 1_i32, 'initial closure routes reflected electrons via PE')
+    call assert_equal_i32(closure%species(3)%reflected_electron_species, 1_i32, 'initial closure routes reflected electrons via PE')
     moments = 0.0_dp
     emission_charge = 0.0_dp
     raw_out = 100.0_dp
@@ -253,8 +253,8 @@ contains
                          'electron_outward_flux reports the reflected flux of the window')
     call assert_close_dp(receipts%matching_plane%feedback(2), (2.2_dp*flux_pe + 3.0_dp*flux_e)/(flux_pe + flux_e), &
                          1.0e-12_dp, 'mean normal energy weights the reflected electrons by flux')
-    call assert_equal_i32(closure%reflected_electron_species(3), 1_i32, 'refreshed closure keeps the reflected route')
-    call assert_true(closure%absorbed_target_credits_tracked_escape(1), 'refreshed closure credits the electron escape')
+    call assert_equal_i32(closure%species(3)%reflected_electron_species, 1_i32, 'refreshed closure keeps the reflected route')
+    call assert_true(closure%species(1)%absorbed_target_credits_tracked_escape, 'refreshed closure credits the electron escape')
   end subroutine check_reflected_electron_refresh
 
   subroutine check_emission_group_refresh(night)
@@ -340,18 +340,18 @@ contains
     ! 根の脱出束は PE+SEE 合算の値で、PE の目標はその全量を持つ。追跡した SEE 脱出は各バッチの closure が差し引く。
     root_escape_charge = qe*receipts%matching_plane%photoelectron_escape_flux_m2_s*area*batch_time
     if (night) then
-      call assert_equal_i32(closure%escape_partner_species(3), 0_i32, 'night has no PE to absorb the SEE escape')
-      call assert_true(closure%has_absorbed_target(4) .and. closure%has_emission_target(4) .and. &
-                       closure%has_escape_target(4) .and. closure%emission_target_from_tracked_source(4), &
+      call assert_equal_i32(closure%species(3)%escape_partner_species, 0_i32, 'night has no PE to absorb the SEE escape')
+      call assert_true(closure%species(4)%has_absorbed_target .and. closure%species(4)%has_emission_target .and. &
+                       closure%species(4)%has_escape_target .and. closure%species(4)%emission_target_from_tracked_source, &
                        'SEE-only closure must pin SEE return, emission and escape to the root')
-      call assert_close_dp(-closure%escaped_particle_current_a(4)*batch_time, root_escape_charge, &
+      call assert_close_dp(-closure%species(4)%escaped_particle_current_a*batch_time, root_escape_charge, &
                            1.0e-12_dp*root_escape_charge, 'SEE escape target must carry the root escape')
-      call assert_close_dp(closure%emission_current_a(4) + closure%absorbed_current_a(4) + &
-                           closure%escaped_particle_current_a(4), 0.0_dp, 1.0e-12_dp*closure%emission_current_a(4), &
-                           'SEE emission minus return must equal the root escape')
+      call assert_close_dp(closure%species(4)%emission_current_a + closure%species(4)%absorbed_current_a + &
+                           closure%species(4)%escaped_particle_current_a, 0.0_dp, &
+                           1.0e-12_dp*closure%species(4)%emission_current_a, 'SEE emission minus return must equal the root escape')
     else
-      call assert_equal_i32(closure%escape_partner_species(3), 4_i32, 'PE must subtract the tracked SEE escape')
-      call assert_close_dp(-closure%escaped_particle_current_a(3)*batch_time, root_escape_charge, &
+      call assert_equal_i32(closure%species(3)%escape_partner_species, 4_i32, 'PE must subtract the tracked SEE escape')
+      call assert_close_dp(-closure%species(3)%escaped_particle_current_a*batch_time, root_escape_charge, &
                            1.0e-12_dp*root_escape_charge, 'PE escape target must carry the combined root escape')
     end if
     ! 窓の途中のバッチ: PE の脱出目標が差し引いた SEE 脱出とその超過が、そのバッチの share と残差になる。
@@ -389,7 +389,7 @@ contains
                          'restart must retain the last share receipt')
     call assert_close_dp(restored_closure%top_field_v_m, closure%top_field_v_m, &
                          1.0e-10_dp*abs(closure%top_field_v_m), 'restart reconstructs external top field')
-    call assert_close_dp(restored_closure%escaped_particle_current_a(3), closure%escaped_particle_current_a(3), &
+    call assert_close_dp(restored_closure%species(3)%escaped_particle_current_a, closure%species(3)%escaped_particle_current_a, &
                          1.0e-20_dp, 'restart PE target split')
     if (.not. night) then
       ! Empty outflow keeps the finite root; without tracked SEE escape the PE targets carry the whole root escape.
@@ -407,7 +407,7 @@ contains
       call assert_close_dp(receipts%matching_plane%secondary_share, 0.0_dp, 0.0_dp, 'no SEE escape gives PE share one')
       call assert_close_dp(receipts%matching_plane%secondary_budget_residual_a_m2, 0.0_dp, 0.0_dp, &
                            'no SEE escape leaves no residual')
-      call assert_close_dp(-closure%escaped_particle_current_a(3), &
+      call assert_close_dp(-closure%species(3)%escaped_particle_current_a, &
                            receipts%matching_plane%photoelectron_escape_flux_m2_s*qe*area, 1.0e-24_dp, &
                            'retained-root PE target must keep the root escape')
     end if
