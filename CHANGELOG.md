@@ -101,6 +101,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   upper-vacuum Fourier plan は構築時に三角形ごとの積分点を作る。batch 幅と外部電場の入力形
   （`run.batch.duration_steps`、外部電場の大きさと角度）と二次電子種の preflight 専用の値は authoring 型が持ち、
   `sim_config` と `particle_species_spec` から外した。計算結果はビット一致。
+- `matching_plane_stats` の匿名配列 `response(6)`・`feedback(4)` を名前付きの 6 成分にした。常に 0 だった
+  イオンの access 電位・外向き束と、電子の access 電位と同じ値だった光電子の障壁電位は持たず、
+  `summary.txt` と `matching_plane_history.csv` には従来どおりの値（0 と同じ電位）を書く。
 - surface closure 契約の species 別の並列配列 17 本を、species ごとの record（固定電流目標、closure の経路、
   流入写像と外部障壁）の配列にまとめた（計算結果はビット一致、`summary.txt` は不変）。流入写像と外部障壁の面は
   常に照射セルの壁面なので契約に 1 つだけ持ち、流入写像の access 電位と外部障壁の電位は同じ外部シース経路の

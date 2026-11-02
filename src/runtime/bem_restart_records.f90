@@ -411,15 +411,20 @@ contains
     if (stats%matching_plane%state_valid) then
       if (.not. all(ieee_is_finite([ &
                                    stats%matching_plane%displacement_c_m2, stats%matching_plane%phi_v, &
-                                   stats%matching_plane%response, stats%matching_plane%feedback, &
+                                   stats%matching_plane%electron_inward_flux_m2_s, stats%matching_plane%ion_inward_flux_m2_s, &
+                                   stats%matching_plane%electron_access_potential_v, &
+                                   stats%matching_plane%photoelectron_outward_flux_m2_s, &
+                                   stats%matching_plane%photoelectron_mean_normal_energy_ev, &
+                                   stats%matching_plane%electron_outward_flux_m2_s, &
                                    stats%matching_plane%photoelectron_return_flux_m2_s, &
                                    stats%matching_plane%photoelectron_escape_flux_m2_s, stats%matching_plane%residual, &
                                    stats%matching_plane%secondary_share, stats%matching_plane%secondary_budget_residual_a_m2 &
                                    ]))) then
         error stop 'Resume checkpoint matching-plane state must be finite.'
       end if
-      if (any(stats%matching_plane%feedback < 0.0_dp) .or. &
-          any(stats%matching_plane%response(2:3) < 0.0_dp) .or. &
+      if (any([stats%matching_plane%photoelectron_outward_flux_m2_s, stats%matching_plane%photoelectron_mean_normal_energy_ev, &
+               stats%matching_plane%electron_outward_flux_m2_s, stats%matching_plane%electron_inward_flux_m2_s, &
+               stats%matching_plane%ion_inward_flux_m2_s] < 0.0_dp) .or. &
           stats%matching_plane%photoelectron_return_flux_m2_s < 0.0_dp .or. &
           stats%matching_plane%photoelectron_escape_flux_m2_s < 0.0_dp .or. &
           stats%matching_plane%iterations <= 0_i32 .or. stats%matching_plane%residual < 0.0_dp .or. &
@@ -427,12 +432,12 @@ contains
         error stop 'Resume checkpoint matching-plane state is outside its physical range.'
       end if
       matching_budget_scale = max( &
-                              1.0_dp, stats%matching_plane%feedback(1), &
+                              1.0_dp, stats%matching_plane%photoelectron_outward_flux_m2_s, &
                               stats%matching_plane%photoelectron_return_flux_m2_s, &
                               stats%matching_plane%photoelectron_escape_flux_m2_s &
                               )
       if (abs( &
-          stats%matching_plane%feedback(1) - &
+          stats%matching_plane%photoelectron_outward_flux_m2_s - &
           stats%matching_plane%photoelectron_return_flux_m2_s - &
           stats%matching_plane%photoelectron_escape_flux_m2_s &
           ) > sqrt(epsilon(1.0_dp))*matching_budget_scale) then
@@ -443,7 +448,7 @@ contains
         error stop 'Resume checkpoint matching-plane photoelectron spectrum must be finite and >= 0.'
       end if
       if (any(stats%matching_plane%photoelectron_spectrum_m2_s > 0.0_dp) .and. &
-          abs(sum(stats%matching_plane%photoelectron_spectrum_m2_s) - stats%matching_plane%feedback(1)) > &
+          abs(sum(stats%matching_plane%photoelectron_spectrum_m2_s) - stats%matching_plane%photoelectron_outward_flux_m2_s) > &
           sqrt(epsilon(1.0_dp))*matching_budget_scale) then
         error stop 'Resume checkpoint matching-plane photoelectron spectrum does not match its outward flux.'
       end if

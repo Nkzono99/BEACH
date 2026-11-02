@@ -115,18 +115,18 @@ program test_zhao_outflow_refresh
     'every one-batch window must refresh the outer root' &
     )
   call assert_close_dp( &
-    stats%matching_plane%feedback(1)/emission_flux, 1.0_dp, 0.02_dp, &
+    stats%matching_plane%photoelectron_outward_flux_m2_s/emission_flux, 1.0_dp, 0.02_dp, &
     'every PE leaving a flat plate must cross H once' &
     )
   call assert_close_dp( &
-    stats%matching_plane%feedback(2), 2.2_dp, 0.15_dp, &
+    stats%matching_plane%photoelectron_mean_normal_energy_ev, 2.2_dp, 0.15_dp, &
     'flat-plate outflow mean normal energy must equal the emission temperature' &
     )
   call assert_close_dp(stats%matching_plane%phi_v, static_root%phi0_v, 0.3_dp, 'refreshed phi0 drifted')
   ! 平板から出たPEの法線エネルギーは放出の半Maxwell分布のまま: K < K_s の割合は 1 - exp(-K_s/T)。
   call assert_close_dp( &
-    sum(stats%matching_plane%photoelectron_spectrum_m2_s), stats%matching_plane%feedback(1), &
-    1.0e-12_dp*stats%matching_plane%feedback(1), 'outer spectrum must carry the outer source flux' &
+    sum(stats%matching_plane%photoelectron_spectrum_m2_s), stats%matching_plane%photoelectron_outward_flux_m2_s, &
+    1.0e-12_dp*stats%matching_plane%photoelectron_outward_flux_m2_s, 'outer spectrum must carry the outer source flux' &
     )
   edges = outflow_spectrum_edges_ev()
   split_bin = minloc(abs(edges - 2.2_dp), dim=1)
@@ -158,12 +158,13 @@ program test_zhao_outflow_refresh
   call assert_true(spectrum_rows_valid, 'spectrum history rows must be positive bins in batch order')
   call assert_equal_i32(last_row_batch, cfg%sim%batch_count, 'spectrum history must end at the last refresh')
   call assert_close_dp( &
-    last_batch_flux, stats%matching_plane%feedback(1), 1.0e-12_dp*stats%matching_plane%feedback(1), &
+    last_batch_flux, stats%matching_plane%photoelectron_outward_flux_m2_s, &
+    1.0e-12_dp*stats%matching_plane%photoelectron_outward_flux_m2_s, &
     'last spectrum history rows must carry the outer source flux' &
     )
   call assert_close_dp( &
     stats%matching_plane%photoelectron_return_flux_m2_s + stats%matching_plane%photoelectron_escape_flux_m2_s, &
-    stats%matching_plane%feedback(1), 1.0e-12_dp*stats%matching_plane%feedback(1), &
+    stats%matching_plane%photoelectron_outward_flux_m2_s, 1.0e-12_dp*stats%matching_plane%photoelectron_outward_flux_m2_s, &
     'outer source return/escape partition mismatch' &
     )
   call assert_close_dp( &
@@ -247,11 +248,12 @@ contains
     call refresh%commit_batch(app, plate, mpi, moments, emission_charge, closed_charge, unclosed_charge, 1_i32, &
                               receipts%matching_plane, closure, refreshed)
     call assert_true(refreshed, 'a full window must refresh the outer root')
-    call assert_close_dp(receipts%matching_plane%feedback(1), flux_pe + flux_e, 1.0e-12_dp*(flux_pe + flux_e), &
+    call assert_close_dp(receipts%matching_plane%photoelectron_outward_flux_m2_s, flux_pe + flux_e, 1.0e-12_dp*(flux_pe + flux_e), &
                          'outer source adds the reflected electron flux to the PE transmission flux')
-    call assert_close_dp(receipts%matching_plane%feedback(3), flux_e, 1.0e-12_dp*flux_e, &
+    call assert_close_dp(receipts%matching_plane%electron_outward_flux_m2_s, flux_e, 1.0e-12_dp*flux_e, &
                          'electron_outward_flux reports the reflected flux of the window')
-    call assert_close_dp(receipts%matching_plane%feedback(2), (2.2_dp*flux_pe + 3.0_dp*flux_e)/(flux_pe + flux_e), &
+    call assert_close_dp(receipts%matching_plane%photoelectron_mean_normal_energy_ev, &
+                         (2.2_dp*flux_pe + 3.0_dp*flux_e)/(flux_pe + flux_e), &
                          1.0e-12_dp, 'mean normal energy weights the reflected electrons by flux')
     call assert_equal_i32(closure%species(3)%reflected_electron_species, 1_i32, 'refreshed closure keeps the reflected route')
     call assert_true(closure%species(1)%absorbed_target_credits_tracked_escape, 'refreshed closure credits the electron escape')
@@ -333,9 +335,10 @@ contains
                                 receipts%matching_plane, closure, refreshed)
       call assert_true(refreshed .eqv. (batch == 2), 'refresh must wait for the full accepted-batch window')
     end do
-    call assert_close_dp(receipts%matching_plane%feedback(2), (2.2_dp*flux_pe + see_temperature*flux_see)/(flux_pe + flux_see), &
+    call assert_close_dp(receipts%matching_plane%photoelectron_mean_normal_energy_ev, &
+                         (2.2_dp*flux_pe + see_temperature*flux_see)/(flux_pe + flux_see), &
                          1.0e-12_dp, 'mean normal energy must be flux weighted')
-    call assert_close_dp(receipts%matching_plane%feedback(1), flux_pe + flux_see, &
+    call assert_close_dp(receipts%matching_plane%photoelectron_outward_flux_m2_s, flux_pe + flux_see, &
                          1.0e-12_dp*(flux_pe + flux_see), 'PE transmission plus SEE weight/area/time normalization')
     ! 根の脱出束は PE+SEE 合算の値で、PE の目標はその全量を持つ。追跡した SEE 脱出は各バッチの closure が差し引く。
     root_escape_charge = qe*receipts%matching_plane%photoelectron_escape_flux_m2_s*area*batch_time
@@ -382,7 +385,7 @@ contains
     call assert_true(all(abs(receipts%matching_plane%photoelectron_spectrum_m2_s - &
                              flux_pe*spectrum_pe - flux_see*spectrum_see) < 1.0e-12_dp*(flux_pe + flux_see)), &
                      'combined spectrum must retain both bin distributions')
-    if (night) call assert_true(receipts%matching_plane%response(6) < 0.0_dp, 'SEE-only outflow must permit C to A')
+    if (night) call assert_true(receipts%matching_plane%electron_access_potential_v < 0.0_dp, 'SEE-only outflow must permit C to A')
     restored = receipts
     call resumed_refresh%initialize(app, plate, restored%matching_plane, restored_closure)
     call assert_close_dp(restored%matching_plane%secondary_share, receipts%matching_plane%secondary_share, 0.0_dp, &

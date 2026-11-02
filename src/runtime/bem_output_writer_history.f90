@@ -140,12 +140,12 @@ contains
   if (.not. stats%matching_plane%state_valid) return
   write (unit_id, '(i0,14(a,es24.16),a,i0,5(a,es24.16))') &
     batch_idx, ',', simulated_time_s, ',', stats%matching_plane%displacement_c_m2, &
-    ',', stats%matching_plane%phi_v, ',', stats%matching_plane%response(2), &
-    ',', stats%matching_plane%response(3), ',', stats%matching_plane%response(4), &
-    ',', stats%matching_plane%response(5), ',', stats%matching_plane%response(6), &
-    ',', stats%matching_plane%feedback(1), &
-    ',', stats%matching_plane%feedback(2), ',', stats%matching_plane%feedback(3), &
-    ',', stats%matching_plane%feedback(4), ',', stats%matching_plane%photoelectron_return_flux_m2_s, &
+    ',', stats%matching_plane%phi_v, ',', stats%matching_plane%electron_inward_flux_m2_s, &
+    ',', stats%matching_plane%ion_inward_flux_m2_s, ',', stats%matching_plane%electron_access_potential_v, &
+    ',', 0.0_dp, ',', stats%matching_plane%electron_access_potential_v, &
+    ',', stats%matching_plane%photoelectron_outward_flux_m2_s, &
+    ',', stats%matching_plane%photoelectron_mean_normal_energy_ev, ',', stats%matching_plane%electron_outward_flux_m2_s, &
+    ',', 0.0_dp, ',', stats%matching_plane%photoelectron_return_flux_m2_s, &
     ',', stats%matching_plane%photoelectron_escape_flux_m2_s, ',', stats%matching_plane%iterations, &
     ',', stats%matching_plane%residual, ',', stats%matching_plane%secondary_share, &
     ',', stats%matching_plane%secondary_budget_residual_a_m2, ',', stats%matching_plane%top_field_v_m, &

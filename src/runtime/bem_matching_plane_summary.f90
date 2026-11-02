@@ -138,12 +138,16 @@ contains
     type(matching_plane_stats), intent(in) :: receipt
     real(dp) :: values(receipt_real_count)
 
+    ! イオンの access 電位と外向き束は常に 0、光電子の障壁は電子の access 電位と同じ値を書く。
     values = [receipt%secondary_share, receipt%secondary_budget_residual_a_m2, receipt%displacement_c_m2, &
-              receipt%phi_v, receipt%top_cell_mean_v_m, receipt%response(2:6), receipt%feedback, &
+              receipt%phi_v, receipt%top_cell_mean_v_m, receipt%electron_inward_flux_m2_s, receipt%ion_inward_flux_m2_s, &
+              receipt%electron_access_potential_v, 0.0_dp, receipt%electron_access_potential_v, &
+              receipt%photoelectron_outward_flux_m2_s, receipt%photoelectron_mean_normal_energy_ev, &
+              receipt%electron_outward_flux_m2_s, 0.0_dp, &
               receipt%photoelectron_return_flux_m2_s, receipt%photoelectron_escape_flux_m2_s, receipt%residual]
   end function receipt_real_values
 
-  !> 表の実数キー順の値を戻す。phi_V は応答の電位（response(1)）も兼ねる。
+  !> 表の実数キー順の値を戻す。イオンの access 電位・外向き束と光電子の障壁（電子の access 電位と同じ）は読まない。
   subroutine restore_receipt_real_values(receipt, values)
     type(matching_plane_stats), intent(inout) :: receipt
     real(dp), intent(in) :: values(receipt_real_count)
@@ -153,8 +157,12 @@ contains
     receipt%displacement_c_m2 = values(3)
     receipt%phi_v = values(4)
     receipt%top_cell_mean_v_m = values(5)
-    receipt%response = [values(4), values(6:10)]
-    receipt%feedback = values(11:14)
+    receipt%electron_inward_flux_m2_s = values(6)
+    receipt%ion_inward_flux_m2_s = values(7)
+    receipt%electron_access_potential_v = values(8)
+    receipt%photoelectron_outward_flux_m2_s = values(11)
+    receipt%photoelectron_mean_normal_energy_ev = values(12)
+    receipt%electron_outward_flux_m2_s = values(13)
     receipt%photoelectron_return_flux_m2_s = values(15)
     receipt%photoelectron_escape_flux_m2_s = values(16)
     receipt%residual = values(17)

@@ -96,8 +96,15 @@ module bem_types
     ! Recomputed from the restored external root and snapshot; not persisted in checkpoints.
     real(dp) :: top_field_v_m = 0.0_dp
     real(dp) :: top_cell_mean_v_m = 0.0_dp
-    real(dp) :: response(6) = 0.0_dp
-    real(dp) :: feedback(4) = 0.0_dp
+    !> 外部根の応答。壁へ向かう電子・イオンの流入束と、Type A の電子が越える経路の極小電位（それ以外は 0）。
+    !! 光電子・二次電子の外部障壁も同じ経路電位で、イオンの access 電位は常に上流の 0 V。
+    real(dp) :: electron_inward_flux_m2_s = 0.0_dp
+    real(dp) :: ion_inward_flux_m2_s = 0.0_dp
+    real(dp) :: electron_access_potential_v = 0.0_dp
+    !> 外部根へ与えた外側源。H 外向きの放出電子束と平均法線エネルギー、そのうち反射して抜けた上流電子の束。
+    real(dp) :: photoelectron_outward_flux_m2_s = 0.0_dp
+    real(dp) :: photoelectron_mean_normal_energy_ev = 0.0_dp
+    real(dp) :: electron_outward_flux_m2_s = 0.0_dp
     real(dp) :: photoelectron_return_flux_m2_s = 0.0_dp
     real(dp) :: photoelectron_escape_flux_m2_s = 0.0_dp
     !> 外部根の光電子源に使った H 外向きスペクトル [1/(m2 s)]、bin 別。全て 0 は表面放出の半 Maxwell 源。
