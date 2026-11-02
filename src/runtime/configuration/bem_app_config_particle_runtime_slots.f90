@@ -100,7 +100,7 @@ contains
           face_potential=face_potential(:, face), face_potential_ready=face_potential_ready(face) &
           )
         layout%boundary_vmin(face, s) = correction_vmin_normal
-        face_density_m3 = species_number_density_m3(cfg%particle_species(s))
+        face_density_m3 = cfg%particle_species(s)%number_density_m3
         if (source_plan%closure%species(s)%has_inflow_kinetic_map .and. face == source_plan%closure%kinetic_face) then
           call external_kinetic_face_velocity_correction( &
             cfg, face_spec, source_plan%closure%species(s)%kinetic_path_potential_v, kinetic_vmin_normal, &
@@ -233,7 +233,7 @@ contains
       call counter_uniforms(cfg%sim%rng_seed, counter, 1_i64, position_uniform)
       x = spec%pos_low + (spec%pos_high - spec%pos_low)*position_uniform
       ! 質量 > 0 と温度 >= 0 は native preflight の validate_volume_seed_species が保証する。
-      sigma = sqrt(k_boltzmann*species_temperature_k(spec)/spec%m_particle)
+      sigma = sqrt(k_boltzmann*spec%temperature_k/spec%m_particle)
       call sample_standard_normal(z, rng_seed=cfg%sim%rng_seed, rng_counter=counter)
       v = sigma*z(:, 1) + spec%drift_velocity
       w = spec%w_particle
@@ -242,7 +242,7 @@ contains
       if (.not. present(mesh)) error stop 'photo_raycast slots require mesh in generate_batch_slot.'
       call sample_photo_ray_slot( &
         mesh, cfg%sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
-        species_temperature_k(spec), spec%normal_drift_speed, layout%photo_ray_weight(s), &
+        spec%temperature_k, spec%normal_drift_speed, layout%photo_ray_weight(s), &
         cfg%sim%rng_seed, [counter, 1_i64], [counter, 2_i64], x, v, w, source_element, emitted, &
         collision_status, bounce_count &
         )
@@ -250,7 +250,7 @@ contains
       call make_boundary_inflow_spec(cfg%sim, spec, face, face_spec)
       call sample_reservoir_face_particle_counter( &
         cfg%sim%box_min, cfg%sim%box_max, face_spec%inject_face, face_spec%pos_low, face_spec%pos_high, &
-        spec%drift_velocity, spec%m_particle, species_temperature_k(spec), &
+        spec%drift_velocity, spec%m_particle, spec%temperature_k, &
         layout%boundary_barrier(face, s), layout%boundary_vmin(face, s), cfg%sim%rng_seed, counter, x, v &
         )
       w = spec%w_particle

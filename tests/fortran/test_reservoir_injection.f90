@@ -15,7 +15,7 @@ program test_reservoir_injection
   use bem_types, only: particles_soa, injection_state
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
-  use bem_constants, only: eps0
+  use bem_constants, only: eps0, kelvin_per_ev
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
@@ -57,8 +57,9 @@ program test_reservoir_injection
 
   call assert_true(trim(cfg_fixed%particle_species(1)%source_mode) == 'volume_seed', 'source_mode mismatch')
   call assert_close_dp(cfg_fixed%sim%batch_duration, 1.0d0, 1.0d-12, 'batch_duration mismatch')
-  call assert_close_dp(cfg_fixed%particle_species(1)%number_density_cm3, 5.0d0, 1.0d-12, 'density mismatch')
-  call assert_close_dp(cfg_fixed%particle_species(1)%temperature_ev, 10.0d0, 1.0d-12, 'temperature_ev mismatch')
+  ! number_density_cm3 = 5 and temperature_ev = 10 resolve to internal units at load.
+  call assert_close_dp(cfg_fixed%particle_species(1)%number_density_m3, 5.0d6, 1.0d-6, 'density mismatch')
+  call assert_close_dp(cfg_fixed%particle_species(1)%temperature_k, 10.0d0*kelvin_per_ev, 1.0d-8, 'temperature mismatch')
   call assert_true(cfg_fixed%particle_species(1)%boundary_inflow_low(3) == particle_inflow_reservoir, 'boundary inflow mismatch')
   call assert_equal_i32(particles_per_batch_from_config(cfg_fixed), 0_i32, 'reservoir static particle count should be zero')
   call test_end()

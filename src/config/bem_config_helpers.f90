@@ -11,8 +11,6 @@ module bem_config_helpers
   public :: resolve_inward_normal
   public :: resolve_particle_boundaries
   public :: particle_boundary_action_for_face
-  public :: species_number_density_m3
-  public :: species_temperature_k
   public :: boundary_face_name
   public :: boundary_inflow_face_enabled
 
@@ -116,24 +114,6 @@ contains
       action = particle_bc_inherit
     end select
   end function particle_boundary_action_for_face
-
-  !> 粒子種設定から有効粒子数密度 [1/m^3] を計算する。
-  pure function species_number_density_m3(spec) result(number_density_m3)
-    type(particle_species_spec), intent(in) :: spec
-    real(dp) :: number_density_m3
-
-    number_density_m3 = spec%number_density_m3
-    if (spec%has_number_density_cm3) number_density_m3 = spec%number_density_cm3*1.0d6
-  end function species_number_density_m3
-
-  !> 粒子種設定から有効温度 [K] を計算する。
-  pure function species_temperature_k(spec) result(temperature_k)
-    type(particle_species_spec), intent(in) :: spec
-    real(dp) :: temperature_k
-
-    temperature_k = spec%temperature_k
-    if (spec%has_temperature_ev) temperature_k = spec%temperature_ev*1.160451812d4
-  end function species_temperature_k
 
   !> face bit 順（1..6 = x_low, x_high, y_low, y_high, z_low, z_high）の面名を返す。
   pure subroutine boundary_face_name(face, name)

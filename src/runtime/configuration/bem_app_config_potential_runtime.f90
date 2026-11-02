@@ -7,7 +7,7 @@ module bem_app_config_potential_runtime
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_app_config_types, only: particle_species_spec
   use bem_string_utils, only: lower_ascii
-  use bem_config_helpers, only: resolve_inward_normal, species_temperature_k
+  use bem_config_helpers, only: resolve_inward_normal
   use, intrinsic :: iso_fortran_env, only: error_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
@@ -130,7 +130,7 @@ contains
 
     call resolve_inward_normal(spec%inject_face, inward_normal)
     normal_drift = dot_product(spec%drift_velocity, inward_normal)
-    characteristic_energy = k_boltzmann*species_temperature_k(spec) + &
+    characteristic_energy = k_boltzmann*spec%temperature_k + &
       0.5_dp*spec%m_particle*normal_drift*normal_drift
     variation_energy = abs(spec%q_particle)*phi_std
     if (characteristic_energy > 0.0_dp) then

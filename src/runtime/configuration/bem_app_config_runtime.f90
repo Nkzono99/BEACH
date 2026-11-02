@@ -12,7 +12,7 @@ module bem_app_config_runtime
     has_boundary_inflow, boundary_inflow_face_enabled, &
     make_boundary_inflow_spec, boundary_face_name, &
     compute_macro_particles_for_species, reservoir_face_velocity_correction, &
-    species_number_density_m3, resolve_parallel_rank_size, species_temperature_k
+    resolve_parallel_rank_size
   use bem_app_config_potential_runtime, only: &
     compute_face_average_potential, compute_wall_box_potential_statistics, &
     warn_face_average_potential_variation, resolve_face_sampling_geometry

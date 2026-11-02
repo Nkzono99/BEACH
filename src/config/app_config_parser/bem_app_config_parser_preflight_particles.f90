@@ -1,7 +1,7 @@
 !> lint 済みの粒子種識別子と有効な粒子源の派生量を確定する。
 submodule(bem_app_config_parser) bem_app_config_parser_preflight_particles
   use bem_app_config_types, only: particle_inflow_none, particles_per_batch_from_config
-  use bem_config_helpers, only: resolve_particle_boundaries, particle_boundary_action_for_face, species_temperature_k
+  use bem_config_helpers, only: resolve_particle_boundaries, particle_boundary_action_for_face
   implicit none
 contains
 
@@ -125,7 +125,7 @@ contains
           call stop_config_error('secondary_emission species must omit '//species_config_path(species_idx)// &
                                  '.charging.closure and remain fully tracked.')
         end if
-        if (spec%q_particle >= 0.0_dp .or. spec%m_particle <= 0.0_dp .or. species_temperature_k(spec) < 0.0_dp) then
+        if (spec%q_particle >= 0.0_dp .or. spec%m_particle <= 0.0_dp .or. spec%temperature_k < 0.0_dp) then
           call stop_config_error('secondary_emission requires negative charge, positive mass, and nonnegative temperature.')
         end if
       end associate
@@ -187,7 +187,7 @@ contains
     if (.not. ieee_is_finite(spec%m_particle) .or. spec%m_particle <= 0.0_dp) then
       call stop_config_error(species_config_path(species_idx)//'.mass_kg must be finite and > 0.')
     end if
-    temperature_k = species_temperature_k(spec)
+    temperature_k = spec%temperature_k
     if (.not. ieee_is_finite(temperature_k) .or. temperature_k < 0.0_dp) then
       call stop_config_error(species_config_path(species_idx)//'.distribution must resolve to a finite temperature >= 0.')
     end if
