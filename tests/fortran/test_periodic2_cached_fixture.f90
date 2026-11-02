@@ -3,7 +3,7 @@ module test_periodic2_cached_fixture
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
   use bem_mesh, only: init_mesh
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
+  use bem_physics_config_types, only: periodic2_physics_config
   implicit none
   private
 
@@ -13,12 +13,10 @@ contains
 
   !> 2 枚の panel を置いた 1 m 立方の periodic2 cell。cached_kneq0 FMM、symmetric_vacuum、一様外部場つき。
   !! cache_dir は実行ごとに一意な directory を渡す。
-  subroutine configure_cached_periodic2_fixture(mesh_out, sim_out, field_out, periodic_out, panel_out, a, b, c, cache_dir)
+  subroutine configure_cached_periodic2_fixture(mesh_out, sim_out, periodic_out, a, b, c, cache_dir)
     type(mesh_type), intent(out) :: mesh_out
     type(sim_config), intent(out) :: sim_out
-    type(field_physics_config), intent(out) :: field_out
     type(periodic2_physics_config), intent(out) :: periodic_out
-    type(panel_kernel_config), intent(out) :: panel_out
     real(dp), intent(out) :: a(3, 2), b(3, 2), c(3, 2)
     character(len=*), intent(in) :: cache_dir
 
@@ -54,14 +52,10 @@ contains
     sim_out%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     sim_out%bc_low = [bc_periodic, bc_periodic, bc_open]
     sim_out%bc_high = [bc_periodic, bc_periodic, bc_open]
-    field_out = field_physics_config(backend='fmm', normalization='si')
     periodic_out = periodic2_physics_config( &
                    nonzero_mode_backend='cached_kneq0', zero_mode_policy='exclude_k0', &
                    lower_boundary_model='symmetric_vacuum' &
                    )
-    panel_out = panel_kernel_config( &
-                kernel_id='triangle_p0_exact_p2m_near', surface_side_policy='per_element' &
-                )
   end subroutine configure_cached_periodic2_fixture
 
 end module test_periodic2_cached_fixture

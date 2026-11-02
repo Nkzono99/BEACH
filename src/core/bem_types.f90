@@ -35,9 +35,6 @@ module bem_types
   type, extends(photo_raycast_config) :: sim_config
     real(dp) :: dt = 1.0d-9
     integer(i32) :: batch_count = 1_i32
-    logical :: has_batch_duration = .false.
-    real(dp) :: batch_duration_step = 0.0d0
-    logical :: has_batch_duration_step = .false.
     integer(i32) :: max_step = 400
     !> 粒子ごとの適応サブステップ。step 候補の中点電場が前回受理した中点電場からこの割合より大きく変わり、
     !! その差が step の仕事に換算して 1e-4 eV を超えるときは step を半分にして取り直す。0 で無効。
@@ -69,15 +66,7 @@ module bem_types
     logical :: has_tree_leaf_max = .false.
     integer(i32) :: tree_min_nelem = 256_i32
     real(dp) :: e0(3) = 0.0d0
-    logical :: has_e0_vector = .false.
-    real(dp) :: e0_abs = 0.0d0
-    logical :: has_e0_abs = .false.
-    real(dp) :: e0_phi_xy_deg = 0.0d0
-    logical :: has_e0_phi_xy_deg = .false.
-    real(dp) :: e0_phi_z_deg = 0.0d0
-    logical :: has_e0_phi_z_deg = .false.
     real(dp) :: b0(3) = 0.0d0
-    character(len=32) :: reservoir_potential_model = 'none'
     real(dp) :: phi_infty = 0.0d0
     !> バッチ粒子の rank 配分。`static` は rank ごとに固定分割、`shared` は全 rank 共有の slot pool を chunk 単位で取り合う。
     character(len=8) :: particle_distribution = 'static'
@@ -170,12 +159,8 @@ module bem_types
     real(dp), allocatable :: bb_min(:, :)
     real(dp), allocatable :: bb_max(:, :)
     real(dp), allocatable :: panel_area(:)
-    real(dp), allocatable :: panel_moment1(:, :)
-    real(dp), allocatable :: panel_moment2(:, :, :)
     real(dp), allocatable :: panel_edge_length(:, :)
     real(dp), allocatable :: panel_edge_outward(:, :, :)
-    real(dp), allocatable :: panel_quad_position(:, :, :)
-    real(dp), allocatable :: panel_quad_weight(:, :)
     real(dp), allocatable :: q_elem(:)
     integer(i32), allocatable :: elem_mesh_id(:)
     integer(i32), allocatable :: elem_surface_model(:)

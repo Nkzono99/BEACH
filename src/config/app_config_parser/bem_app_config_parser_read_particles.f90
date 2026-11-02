@@ -82,7 +82,7 @@ contains
     select case (trim(k))
     case ('npcls_per_step', 'w_particle', 'target_macro_particles_per_batch', &
           'rays_per_batch', 'emit_current_density_a_m2', 'boundary_inflow')
-      spec%has_secondary_forbidden_source_option = .true.
+      auth%has_secondary_forbidden_source_option = .true.
     end select
     select case (trim(k))
     case ('secondary_emission_enabled')
@@ -102,7 +102,7 @@ contains
       call get_toml_real(table, keys(ikey), spec%secondary_emission_const_yield, &
                          species_path//'.surface_interaction.secondary_emission.const_yield')
     case ('secondary_emission_target_species')
-      call get_toml_string(table, keys(ikey), spec%secondary_emission_target_species, &
+      call get_toml_string(table, keys(ikey), auth%secondary_emission_target_species, &
                            species_path//'.surface_interaction.secondary_emission.target_species')
     case ('species_key')
       call get_toml_string(table, keys(ikey), spec%species_key, species_path//'.species_key')
@@ -175,7 +175,7 @@ contains
       if (.not. associated(child)) error stop species_path//'.inflow must be a table.'
       call apply_species_boundary_inflow_toml_table(spec, child, species_path)
     case ('surface_charge_closure')
-      spec%has_surface_charge_closure = .true.
+      auth%has_surface_charge_closure = .true.
       call get_toml_string( &
         table, keys(ikey), spec%surface_charge_closure, species_path//'.charging.closure' &
         )

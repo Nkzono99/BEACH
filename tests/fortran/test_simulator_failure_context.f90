@@ -104,9 +104,7 @@ contains
     failure_cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
     failure_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     failure_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call normalize_legacy_physics_config( &
-      failure_cfg%sim, failure_cfg%field, failure_cfg%periodic2, failure_cfg%panel &
-      )
+    call normalize_legacy_physics_config(failure_cfg%sim, failure_cfg%periodic2)
 
     failure_cfg%n_particle_species = 1_i32
     failure_cfg%particle_species(1) = species_from_defaults()
@@ -173,9 +171,7 @@ contains
     failure_cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
     failure_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     failure_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call normalize_legacy_physics_config( &
-      failure_cfg%sim, failure_cfg%field, failure_cfg%periodic2, failure_cfg%panel &
-      )
+    call normalize_legacy_physics_config(failure_cfg%sim, failure_cfg%periodic2)
 
     failure_cfg%n_particle_species = 2_i32
     failure_cfg%particle_species(1) = species_from_defaults()

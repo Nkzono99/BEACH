@@ -4,7 +4,6 @@ module bem_mesh
   use bem_types, only: mesh_type, sim_config, surface_model_insulator
   use bem_periodic2_axes, only: resolve_periodic2_axes
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
-  use bem_triangle_quadrature, only: fill_panel_quadrature
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
   private :: place_periodic2_collision_mesh
@@ -40,9 +39,8 @@ contains
     allocate (mesh%v0(3, n), mesh%v1(3, n), mesh%v2(3, n))
     allocate (mesh%centers(3, n), mesh%normals(3, n))
     allocate (mesh%bb_min(3, n), mesh%bb_max(3, n))
-    allocate (mesh%panel_area(n), mesh%panel_moment1(3, n), mesh%panel_moment2(3, 3, n))
+    allocate (mesh%panel_area(n))
     allocate (mesh%panel_edge_length(3, n), mesh%panel_edge_outward(3, 3, n))
-    allocate (mesh%panel_quad_position(3, 7, n), mesh%panel_quad_weight(7, n))
     allocate (mesh%q_elem(n), mesh%elem_mesh_id(n), mesh%elem_surface_model(n), mesh%elem_epsilon_r(n))
     allocate (mesh%elem_vacuum_sign(n))
 
@@ -160,11 +158,8 @@ contains
         mesh%centers(:, i) = panel%centroid
         mesh%normals(:, i) = panel%normal
         mesh%panel_area(i) = panel%area
-        mesh%panel_moment1(:, i) = panel%moment1
-        mesh%panel_moment2(:, :, i) = panel%moment2
         mesh%panel_edge_length(:, i) = panel%edge_length
         mesh%panel_edge_outward(:, :, i) = panel%edge_outward
-        call fill_panel_quadrature(panel, mesh%panel_quad_position(:, :, i), mesh%panel_quad_weight(:, i))
       else
         ! Collision geometry still includes thin triangles rejected by panel integration.
         mesh%centers(:, i) = (mesh%v0(:, i) + mesh%v1(:, i) + mesh%v2(:, i))/3.0_dp
@@ -178,12 +173,8 @@ contains
           mesh%normals(:, i) = 0.0_dp
         end if
         mesh%panel_area(i) = 0.0_dp
-        mesh%panel_moment1(:, i) = 0.0_dp
-        mesh%panel_moment2(:, :, i) = 0.0_dp
         mesh%panel_edge_length(:, i) = 0.0_dp
         mesh%panel_edge_outward(:, :, i) = 0.0_dp
-        mesh%panel_quad_position(:, :, i) = 0.0_dp
-        mesh%panel_quad_weight(:, i) = 0.0_dp
       end if
     end do
 

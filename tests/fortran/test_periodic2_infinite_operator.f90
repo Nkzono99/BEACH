@@ -171,9 +171,9 @@ program test_periodic2_infinite_operator
   options%target_box_max = [1.0_dp, 1.0_dp, 5.5_dp]
   call build_plan(plan_tall, src_pos, options)
   cache_path_tall = plan_tall%periodic_cache_path
-  call assert_true(all(plan_tall%periodic_operator_anchor_cells == [2_i32, 2_i32, 9_i32]), &
+  call assert_true(all(plan_tall%options%periodic_operator_anchor_cells == [2_i32, 2_i32, 9_i32]), &
                    'tall box must stack anchors along its long axis only')
-  call assert_true(all(plan_tall%periodic_operator_source_cells == [2_i32, 2_i32, 18_i32]), &
+  call assert_true(all(plan_tall%options%periodic_operator_source_cells == [2_i32, 2_i32, 18_i32]), &
                    'tall box source cells must refine the anchor lattice by powers of two')
   call assert_equal_i32(plan_tall%periodic_operator_anchor_count, 36_i32, 'tall box anchor count must equal the lattice size')
   call update_state(plan_tall, state_tall, q)

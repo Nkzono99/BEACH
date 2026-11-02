@@ -10,7 +10,7 @@ module bem_app_config_parser
     field_physics_config, panel_kernel_config, normalize_legacy_physics_config, derive_field_panel_config, &
     validate_active_physics_config, physics_config_ok
   use bem_app_config_authoring, only: &
-    app_config_authoring, particle_authoring_spec, template_authoring_spec, mesh_group_authoring_spec, &
+    app_config_authoring, sim_input_authoring_spec, particle_authoring_spec, template_authoring_spec, mesh_group_authoring_spec, &
     domain_authoring_spec, field_boundary_authoring_spec, particle_boundary_authoring_spec, reservoir_authoring_spec, &
     init_app_config_authoring, ensure_authoring_particle_capacity, ensure_authoring_template_capacity, &
     ensure_authoring_group_capacity, normalize_high_level_config, lower_boundary_authoring
@@ -44,14 +44,16 @@ module bem_app_config_parser
       type(app_config_authoring), intent(in) :: authoring
     end subroutine finalize_loaded_config
 
-    !> `sim.batch_duration` と `sim.batch_duration_step` の整合を検証して確定値を反映する。
-    module subroutine resolve_batch_duration(cfg)
+    !> `run.batch.duration_s` と `run.batch.duration_steps` の整合を検証して `sim%batch_duration` を確定する。
+    module subroutine resolve_batch_duration(cfg, sim_input)
       type(app_config), intent(inout) :: cfg
+      type(sim_input_authoring_spec), intent(in) :: sim_input
     end subroutine resolve_batch_duration
 
-    !> `sim.e0` または `sim.e0_abs` + angle 指定を内部ベクトルへ正規化する。
-    module subroutine resolve_external_e_field(cfg)
+    !> 外部電場のベクトル指定、または大きさと角度の指定を `sim%e0` へ正規化する。
+    module subroutine resolve_external_e_field(cfg, sim_input)
       type(app_config), intent(inout) :: cfg
+      type(sim_input_authoring_spec), intent(in) :: sim_input
     end subroutine resolve_external_e_field
 
     !> box境界に結び付いた reservoir 流入の密度条件を検査し、目標 macro 粒子数から重みを導いて書き戻す。
@@ -91,9 +93,10 @@ module bem_app_config_parser
       type(reservoir_authoring_spec), intent(inout) :: reservoir
     end subroutine apply_reservoir_toml_table
 
-    module subroutine apply_sim_toml_table(cfg, table)
+    module subroutine apply_sim_toml_table(cfg, table, sim_input)
       type(app_config), intent(inout) :: cfg
       type(config_toml_table), intent(inout) :: table
+      type(sim_input_authoring_spec), intent(inout) :: sim_input
     end subroutine apply_sim_toml_table
 
     module subroutine apply_output_toml_table(cfg, table)
@@ -187,8 +190,9 @@ module bem_app_config_parser
       type(app_config), intent(inout) :: cfg
     end subroutine validate_field_config
 
-    module subroutine validate_particle_species_config(cfg)
+    module subroutine validate_particle_species_config(cfg, authoring)
       type(app_config), intent(inout) :: cfg
+      type(app_config_authoring), intent(in) :: authoring
     end subroutine validate_particle_species_config
 
     module subroutine validate_surface_current_model_config(cfg, periodic2_split_explicit)
@@ -291,7 +295,7 @@ contains
       select case (trim(key_name))
       case ('sim')
         if (.not. associated(section)) error stop 'TOML section [run], [particles.tracking], or [fields] must be a table.'
-        call apply_sim_toml_table(cfg, section)
+        call apply_sim_toml_table(cfg, section, authoring%sim_input)
       case ('domain')
         if (.not. associated(section)) error stop 'TOML section [domain] must be a table.'
         call apply_domain_toml_table(section, authoring%domain)

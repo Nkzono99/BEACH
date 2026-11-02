@@ -135,7 +135,6 @@ program test_output_writer_io
   call test_begin('resolved_local_boundary_receipt')
   call default_app_config(cfg)
   stats = sim_stats()
-  cfg%sim%reservoir_potential_model = 'infinity_barrier'
   cfg%boundary_contract%inflow_map = external_inflow_scalar_barrier
   call write_result_files(out_dir_disabled, mesh, stats, cfg)
   call assert_resolved_boundary_summary( &

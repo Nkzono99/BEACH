@@ -8,7 +8,7 @@ program test_periodic2_adaptive_batch
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
+  use bem_physics_config_types, only: periodic2_physics_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use test_periodic2_cached_fixture, only: configure_cached_periodic2_fixture
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, &
@@ -18,15 +18,13 @@ program test_periodic2_adaptive_batch
 
   type(mesh_type) :: mesh
   type(sim_config) :: sim
-  type(field_physics_config) :: field_config
   type(periodic2_physics_config) :: periodic_config
-  type(panel_kernel_config) :: panel_config
   real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2)
   character(len=512) :: cache_path
   character(len=:), allocatable :: cache_dir
 
   cache_dir = unique_test_path('test_periodic2_adaptive_batch_tmp_')
-  call configure_cached_periodic2_fixture(mesh, sim, field_config, periodic_config, panel_config, v0, v1, v2, cache_dir)
+  call configure_cached_periodic2_fixture(mesh, sim, periodic_config, v0, v1, v2, cache_dir)
   call test_init(1)
   call test_adaptive_kneq0_rejects_then_accepts_half_step()
   call delete_periodic_cache(cache_path, cache_dir)
@@ -75,13 +73,10 @@ contains
     adaptive_cfg%sim%batch_count = 1_i32
     adaptive_cfg%sim%dt = 1.0e-5_dp
     adaptive_cfg%sim%batch_duration = maximum_duration
-    adaptive_cfg%sim%has_batch_duration = .true.
     adaptive_cfg%sim%max_step = 1_i32
     adaptive_cfg%sim%q_floor = 1.0e-40_dp
     adaptive_cfg%sim%e0 = 0.0_dp
-    adaptive_cfg%field = field_config
     adaptive_cfg%periodic2 = periodic_config
-    adaptive_cfg%panel = panel_config
     adaptive_cfg%n_particle_species = 1_i32
     adaptive_cfg%particle_species(1) = species_from_defaults()
     adaptive_cfg%particle_species(1)%species_key = 'photoelectron'
@@ -103,9 +98,7 @@ contains
     adaptive_cfg%particle_species(1)%has_ray_direction = .true.
 
     call prepare_periodic2_collision_mesh(adaptive_mesh, adaptive_cfg%sim)
-    call step_probe%init( &
-      adaptive_mesh, adaptive_cfg%sim, adaptive_cfg%field, adaptive_cfg%periodic2, adaptive_cfg%panel &
-      )
+    call step_probe%init(adaptive_mesh, adaptive_cfg%sim, adaptive_cfg%periodic2)
     call step_probe%refresh(adaptive_mesh)
     cache_path = step_probe%diagnostics%periodic_cache_path
     full_trial_charge = [ &

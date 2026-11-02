@@ -301,8 +301,6 @@ contains
     cfg%sim%max_step = 400_i32
     cfg%sim%q_floor = 1.0e-30_dp
     cfg%sim%field_solver = 'direct'
-    cfg%field%backend = 'direct'
-    cfg%panel%kernel_id = 'triangle_p0_exact_direct'
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [-1.0_dp, -1.0_dp, -2.0_dp]
     cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]

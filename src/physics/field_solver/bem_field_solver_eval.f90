@@ -365,9 +365,6 @@ contains
     geometry%centroid = mesh%centers(:, element)
     geometry%normal = mesh%normals(:, element)
     geometry%area = mesh%panel_area(element)
-    geometry%moment0 = mesh%panel_area(element)
-    geometry%moment1 = mesh%panel_moment1(:, element)
-    geometry%moment2 = mesh%panel_moment2(:, :, element)
     geometry%edge_length = mesh%panel_edge_length(:, element)
     geometry%edge_outward = mesh%panel_edge_outward(:, :, element)
   end subroutine geometry_from_mesh

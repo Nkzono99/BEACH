@@ -42,15 +42,12 @@ module bem_physics_config_types
 
 contains
 
-  !> 現行 `sim_config` を型付き場設定へ写像する。
-  subroutine normalize_legacy_physics_config(sim, field, periodic2, panel)
+  !> 現行 `sim_config` の periodic2 遠方補正から periodic2 の backend 契約を決める。
+  subroutine normalize_legacy_physics_config(sim, periodic2)
     type(sim_config), intent(in) :: sim
-    type(field_physics_config), intent(out) :: field
     type(periodic2_physics_config), intent(out) :: periodic2
-    type(panel_kernel_config), intent(out) :: panel
     character(len=32) :: bc_mode, far_mode
 
-    call derive_field_panel_config(sim, field, panel)
     periodic2 = periodic2_physics_config()
 
     bc_mode = lower_ascii(trim(sim%field_bc_mode))

@@ -1,7 +1,6 @@
 !> `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 submodule(bem_field_solver) bem_field_solver_config
   use bem_coulomb_fmm_core, only: destroy_plan, destroy_state
-  use bem_physics_config_types, only: validate_phase1_panel_config, physics_config_ok
   use bem_periodic2_axes, only: resolve_periodic2_axes
   implicit none
 contains
@@ -12,8 +11,6 @@ contains
   logical :: use_periodic2
   integer(i32) :: periodic_axes(2)
   real(dp) :: field_length_scale, periodic_len(2), target_box_min(3), target_box_max(3)
-  integer(i32) :: panel_status
-  character(len=256) :: panel_message
 
   call destroy_plan(self%fmm_core_plan)
   call destroy_state(self%fmm_core_state)
@@ -36,17 +33,6 @@ contains
 
   requested_mode = lower_ascii(trim(sim%field_solver))
   field_bc_mode = lower_ascii(trim(sim%field_bc_mode))
-  if (present(periodic_config)) continue
-  if (present(panel_config)) then
-    call validate_phase1_panel_config(sim, panel_config, panel_status, panel_message)
-    if (panel_status /= physics_config_ok) error stop 'field solver panel config: '//trim(panel_message)
-  end if
-  if (present(field_config)) then
-    if (trim(lower_ascii(field_config%backend)) /= trim(requested_mode) .or. &
-        trim(lower_ascii(field_config%normalization)) /= trim(field_normalization)) then
-      error stop 'typed field config does not match sim field config.'
-    end if
-  end if
   if (mesh%nelem > 0_i32) then
     if (any(mesh%panel_area <= 0.0_dp)) then
       error stop 'triangle_p0 requires finite, non-degenerate triangles.'

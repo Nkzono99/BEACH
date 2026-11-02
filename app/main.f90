@@ -20,7 +20,6 @@ program main
   use bem_mesh, only: prepare_built_periodic2_collision_mesh
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_snapshot_type
-  use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
   implicit none
 
   type(mesh_type) :: mesh
@@ -231,14 +230,11 @@ contains
   !! rank 数に応じて短くなる。結果ファイルや checkpoint は書かない。
   subroutine prepare_periodic_cache_and_stop()
     type(electrostatic_snapshot_type) :: snapshot
-    type(field_physics_config) :: field_config
-    type(panel_kernel_config) :: panel_config
     type(electrostatic_diagnostics_type) :: diagnostics
     integer(8) :: clock_start, clock_end, clock_rate
 
     call system_clock(clock_start, clock_rate)
-    call derive_field_panel_config(app%sim, field_config, panel_config)
-    call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config, mpi=mpi)
+    call snapshot%init(mesh, app%sim, app%periodic2, mpi=mpi)
     call snapshot%get_diagnostics(diagnostics)
     call mpi_world_barrier(mpi)
     call system_clock(clock_end)

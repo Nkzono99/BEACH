@@ -38,7 +38,7 @@ program benchmark_field_kernel_runtime
   mesh_seconds = perf_wall_time_seconds() - t0
 
   t0 = perf_wall_time_seconds()
-  call solver%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
+  call solver%init(mesh, cfg%sim)
   init_seconds = perf_wall_time_seconds() - t0
 
   do i = 1_i32, mesh%nelem

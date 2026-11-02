@@ -224,8 +224,6 @@ contains
 
   !> 再開 batch を検査し、場ソルバ・浮遊導体・外部根の更新を初期化して、replay と共有 pool の作業領域を用意する。
   subroutine initialize_fields()
-    type(field_physics_config) :: field_config
-    type(panel_kernel_config) :: panel_config
 
     bfield = app%sim%b0
     final_batch_idx = app%sim%batch_count
@@ -239,8 +237,7 @@ contains
 
     call perf_region_begin(perf_region_simulation_total, sim_t0)
     call perf_region_begin(perf_region_field_solver_init, t0)
-    call derive_field_panel_config(app%sim, field_config, panel_config)
-    call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config, mpi=mpi_ctx)
+    call snapshot%init(mesh, app%sim, app%periodic2, mpi=mpi_ctx)
     call conductor_solver%init(mesh, app%sim, snapshot)
     call perf_region_end(perf_region_field_solver_init, t0)
     call outflow_refresh%initialize(app, mesh, stats%matching_plane, surface_closure, cell)

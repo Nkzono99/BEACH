@@ -7,7 +7,7 @@ program test_dynamics_field_solver
   use bem_mesh, only: init_mesh
   use bem_templates, only: make_plane, make_sphere
   use bem_field_solver, only: field_solver_type, resolve_field_solver_tree_params
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
+  use bem_physics_config_types, only: periodic2_physics_config
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
@@ -466,9 +466,7 @@ contains
     type(mesh_type) :: mesh_panel
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
-    type(field_physics_config) :: field_config
     type(periodic2_physics_config) :: periodic_config
-    type(panel_kernel_config) :: panel_config
     type(panel_geometry_type) :: geometry
     real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1), target(3)
     real(dp) :: field(3), expected_field(3), potential, expected_potential, mesh_potential(1)
@@ -486,12 +484,8 @@ contains
     sim = sim_config()
     sim%field_solver = 'direct'
     sim%field_bc_mode = 'free'
-    field_config = field_physics_config(backend='direct', normalization='si')
     periodic_config = periodic2_physics_config()
-    panel_config = panel_kernel_config( &
-                   kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
-                   )
-    call solver%init(mesh_panel, sim, field_config, periodic_config, panel_config)
+    call solver%init(mesh_panel, sim)
 
     target = [0.2_dp, 0.3_dp, 0.4_dp]
     call solver%eval_e(mesh_panel, target, field)
@@ -517,9 +511,7 @@ contains
     type(field_solver_type) :: direct_solver = field_solver_type()
     type(field_solver_type) :: tree_solver = field_solver_type()
     type(sim_config) :: direct_sim, tree_sim
-    type(field_physics_config) :: direct_field_config, tree_field_config
     type(periodic2_physics_config) :: periodic_config
-    type(panel_kernel_config) :: direct_panel_config, tree_panel_config
     real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2)
     real(dp) :: near_target(3), far_target(3), charge_center(3), displacement(3)
     real(dp) :: direct_field(3), tree_field(3), expected_field(3)
@@ -544,12 +536,8 @@ contains
     direct_sim%field_bc_mode = 'free'
     direct_sim%field_normalization = 'length'
     direct_sim%field_length_scale = 3.5_dp
-    direct_field_config = field_physics_config(backend='direct', normalization='length')
-    direct_panel_config = panel_kernel_config( &
-                          kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
-                          )
     periodic_config = periodic2_physics_config()
-    call direct_solver%init(mesh_panel, direct_sim, direct_field_config, periodic_config, direct_panel_config)
+    call direct_solver%init(mesh_panel, direct_sim)
 
     tree_sim = direct_sim
     tree_sim%field_solver = 'treecode'
@@ -557,11 +545,7 @@ contains
     tree_sim%tree_leaf_max = 1_i32
     tree_sim%has_tree_theta = .true.
     tree_sim%has_tree_leaf_max = .true.
-    tree_field_config = field_physics_config(backend='treecode', normalization='length')
-    tree_panel_config = panel_kernel_config( &
-                        kernel_id='triangle_p0_exact_tree_near', surface_side_policy='per_element' &
-                        )
-    call tree_solver%init(mesh_panel, tree_sim, tree_field_config, periodic_config, tree_panel_config)
+    call tree_solver%init(mesh_panel, tree_sim)
 
     call assert_true(trim(tree_solver%mode) == 'treecode', 'triangle panel treecode mode mismatch')
     call assert_true(tree_solver%child_count(1) > 0_i32, 'triangle panel tree root must be internal')

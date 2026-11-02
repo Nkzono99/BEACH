@@ -2,6 +2,7 @@
 submodule(bem_app_config_authoring) bem_app_config_authoring_domain
   use bem_types, only: bc_open, bc_periodic
   use bem_string_utils, only: lower_ascii
+  use bem_external_boundary_contract, only: resolve_external_boundary_contract, external_boundary_ok
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
@@ -10,7 +11,9 @@ contains
   !> domain / field / particle / reservoir の公開設定をruntime設定へ lower する。
   module procedure lower_boundary_authoring
   integer :: axis
+  integer(i32) :: status
   character(len=32) :: mode
+  character(len=256) :: message
 
   if (authoring%domain%present) then
     cfg%sim%use_box = .true.
@@ -55,12 +58,13 @@ contains
   mode = lower_ascii(trim(authoring%reservoir%inflow_model))
   select case (trim(mode))
   case ('source_vdf')
-    cfg%sim%reservoir_potential_model = 'none'
+    call resolve_external_boundary_contract('none', cfg%boundary_contract, status, message)
   case ('infinity_barrier')
-    cfg%sim%reservoir_potential_model = 'infinity_barrier'
+    call resolve_external_boundary_contract('infinity_barrier', cfg%boundary_contract, status, message)
   case default
     error stop 'particles.reservoir.inflow_model is not supported.'
   end select
+  if (status /= external_boundary_ok) error stop trim(message)
   cfg%sim%phi_infty = authoring%reservoir%phi_infty
   cfg%sim%injection_face_phi_grid_n = authoring%reservoir%face_potential_grid_n
   end procedure lower_boundary_authoring

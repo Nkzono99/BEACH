@@ -4,7 +4,7 @@ program test_upper_fourier_switch
   use bem_constants, only: pi
   use bem_types, only: mesh_type, sim_config, bc_periodic, bc_open
   use bem_mesh, only: init_mesh
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
+  use bem_physics_config_types, only: periodic2_physics_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
@@ -13,9 +13,7 @@ program test_upper_fourier_switch
   implicit none
   type(mesh_type) :: mesh
   type(sim_config) :: sim
-  type(field_physics_config) :: field
   type(periodic2_physics_config) :: periodic
-  type(panel_kernel_config) :: panel
   type(electrostatic_snapshot_type) :: switched, baseline, automatic, repeated
   real(dp) :: a(3, 2), b(3, 2), c(3, 2), target(3), e(3), expected_e(3), phi, expected_phi, phi0, ez0
   real(dp) :: height, mismatch, phi_rms, ez_rms, top_field, fmm_error_at_switch
@@ -46,17 +44,15 @@ program test_upper_fourier_switch
   sim%bc_low = [bc_periodic, bc_periodic, bc_open]
   sim%bc_high = sim%bc_low
   sim%e0 = [0.1_dp, -0.2_dp, 0.3_dp]
-  field%backend = 'fmm'
-  panel%kernel_id = 'triangle_p0_exact_p2m_near'
   periodic%nonzero_mode_backend = 'cached_kneq0'
   periodic%zero_mode_policy = 'exclude_k0'
   periodic%lower_boundary_model = 'e_bottom_zero'
 
   call test_begin('switch_dispatches_all_local_fields_and_preserves_lower_region')
-  call baseline%init(mesh, sim, field, periodic, panel)
+  call baseline%init(mesh, sim, periodic)
   periodic%upper_fourier_switch = 'height'
   periodic%upper_fourier_switch_height = 0.7_dp
-  call switched%init(mesh, sim, field, periodic, panel)
+  call switched%init(mesh, sim, periodic)
   call assert_true(.not. baseline%diagnostics%upper_fourier_switch_active, 'default switch must be off')
   do point = 1, 3
     target = [0.31_dp, 0.53_dp, 0.7_dp + 0.15_dp*real(point - 1, dp)]
@@ -94,9 +90,9 @@ program test_upper_fourier_switch
 
   call test_begin('auto_selection_is_deterministic_and_obeys_decay_order')
   periodic%upper_fourier_switch = 'auto'
-  call automatic%init(mesh, sim, field, periodic, panel)
+  call automatic%init(mesh, sim, periodic)
   mesh%q_elem = [-5.0e-12_dp, 9.0e-12_dp]
-  call repeated%init(mesh, sim, field, periodic, panel)
+  call repeated%init(mesh, sim, periodic)
   mesh%q_elem = [1.0e-12_dp, -0.3e-12_dp]
   height = automatic%diagnostics%upper_fourier_switch_height_m
   mismatch = automatic%diagnostics%upper_fourier_switch_selected_mismatch_v
@@ -114,7 +110,7 @@ program test_upper_fourier_switch
   periodic%upper_fourier_switch = 'off'
   periodic%upper_fourier_mode_layers = 0_i32
   periodic%lower_boundary_model = 'e_top_from_sheath'
-  call switched%init(mesh, sim, field, periodic, panel)
+  call switched%init(mesh, sim, periodic)
   call switched%set_matching_plane_gauge(mesh, 1.0_dp, 2.0_dp)
   top_field = -2.7_dp
   call switched%set_matching_plane_top_field(mesh, top_field)

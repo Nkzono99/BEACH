@@ -6,7 +6,7 @@ program test_physics_config_types
   use bem_physics_config_types, only: &
     field_physics_config, periodic2_physics_config, panel_kernel_config, &
     physics_config_ok, physics_config_invalid_combination, physics_config_unavailable, &
-    normalize_legacy_physics_config, validate_active_physics_config, validate_upper_fourier_height, &
+    normalize_legacy_physics_config, derive_field_panel_config, validate_active_physics_config, validate_upper_fourier_height, &
     upper_fourier_auto_height_range
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32
   implicit none
@@ -25,7 +25,8 @@ program test_physics_config_types
   sim%field_solver = 'treecode'
   sim%field_normalization = 'mesh'
   sim%field_bc_mode = 'free'
-  call normalize_legacy_physics_config(sim, field, periodic2, panel)
+  call normalize_legacy_physics_config(sim, periodic2)
+  call derive_field_panel_config(sim, field, panel)
   call assert_true(trim(field%backend) == 'treecode', 'free backend mismatch')
   call assert_true(trim(field%normalization) == 'mesh', 'free normalization mismatch')
   call assert_true(trim(panel%kernel_id) == 'triangle_p0_exact_tree_near', 'tree panel kernel mismatch')
@@ -37,7 +38,8 @@ program test_physics_config_types
   call test_begin('upper_panel_fourier_retry_contract')
   call configure_xy_periodic(sim, 'fmm', 'cached_kneq0')
   sim%multiple_box_events_retry_backend = 'upper_panel_fourier'
-  call normalize_legacy_physics_config(sim, field, periodic2, panel)
+  call normalize_legacy_physics_config(sim, periodic2)
+  call derive_field_panel_config(sim, field, panel)
   call validate_active_physics_config(sim, field, periodic2, panel, status, message)
   call assert_equal_i32(status, physics_config_ok, 'upper Fourier retry should accept cached kneq0')
   periodic2%nonzero_mode_backend = 'panel_spectral_reference'
@@ -47,7 +49,8 @@ program test_physics_config_types
 
   call test_begin('periodic_far_correction_normalization')
   call configure_xy_periodic(sim, 'fmm', 'none')
-  call normalize_legacy_physics_config(sim, field, periodic2, panel)
+  call normalize_legacy_physics_config(sim, periodic2)
+  call derive_field_panel_config(sim, field, panel)
   call assert_true(trim(periodic2%nonzero_mode_backend) == 'legacy_finite_images', 'finite backend mismatch')
   call assert_true(trim(periodic2%zero_mode_policy) == 'legacy_not_decomposed', 'finite zero mode mismatch')
   call assert_true(trim(periodic2%lower_boundary_model) == 'legacy_implicit', 'finite lower boundary mismatch')
@@ -58,17 +61,20 @@ program test_physics_config_types
   sim%bc_low = [bc_periodic, bc_periodic, bc_open]
   sim%bc_high = [bc_periodic, bc_periodic, bc_open]
   sim%field_periodic_far_correction = 'auto'
-  call normalize_legacy_physics_config(sim, field, periodic2, panel)
+  call normalize_legacy_physics_config(sim, periodic2)
+  call derive_field_panel_config(sim, field, panel)
   call assert_true(trim(periodic2%nonzero_mode_backend) == 'legacy_finite_images', 'auto must select finite images')
   sim%field_periodic_far_correction = 'unknown'
-  call normalize_legacy_physics_config(sim, field, periodic2, panel)
+  call normalize_legacy_physics_config(sim, periodic2)
+  call derive_field_panel_config(sim, field, panel)
   call validate_active_physics_config(sim, field, periodic2, panel, status, message)
   call assert_equal_i32(status, physics_config_invalid_combination, 'unknown far correction must fail closed')
   call test_end()
 
   call test_begin('cached_kneq0_contract')
   call configure_xy_periodic(sim, 'fmm', 'cached_kneq0')
-  call normalize_legacy_physics_config(sim, field, periodic2, panel)
+  call normalize_legacy_physics_config(sim, periodic2)
+  call derive_field_panel_config(sim, field, panel)
   call assert_true(trim(periodic2%nonzero_mode_backend) == 'cached_kneq0', 'cached backend mismatch')
   call assert_true(trim(periodic2%zero_mode_policy) == 'exclude_k0', 'cached zero mode mismatch')
   call assert_true(trim(periodic2%lower_boundary_model) == 'e_bottom_zero', 'cached lower boundary mismatch')
@@ -94,7 +100,8 @@ program test_physics_config_types
 
   call test_begin('panel_spectral_reference_contract')
   call configure_xy_periodic(sim, 'direct', 'none')
-  call normalize_legacy_physics_config(sim, field, periodic2, panel)
+  call normalize_legacy_physics_config(sim, periodic2)
+  call derive_field_panel_config(sim, field, panel)
   periodic2%nonzero_mode_backend = 'panel_spectral_reference'
   periodic2%zero_mode_policy = 'exclude_k0'
   periodic2%lower_boundary_model = 'e_bottom_zero'
@@ -108,7 +115,8 @@ program test_physics_config_types
 
   call test_begin('adaptive_limit_must_be_finite')
   call configure_xy_periodic(sim, 'fmm', 'cached_kneq0')
-  call normalize_legacy_physics_config(sim, field, periodic2, panel)
+  call normalize_legacy_physics_config(sim, periodic2)
+  call derive_field_panel_config(sim, field, panel)
   periodic2%max_nonzero_mode_potential_step = ieee_value(0.0_dp, ieee_quiet_nan)
   call validate_active_physics_config(sim, field, periodic2, panel, status, message)
   call assert_equal_i32(status, physics_config_invalid_combination, 'NaN adaptive limit must fail closed')
@@ -119,7 +127,8 @@ program test_physics_config_types
 
   call test_begin('upper_fourier_switch_preflight')
   call configure_xy_periodic(sim, 'fmm', 'cached_kneq0')
-  call normalize_legacy_physics_config(sim, field, periodic2, panel)
+  call normalize_legacy_physics_config(sim, periodic2)
+  call derive_field_panel_config(sim, field, panel)
   periodic2%upper_fourier_switch = 'height'
   periodic2%upper_fourier_switch_height = 0.7_dp
   call validate_upper_fourier_height(sim, periodic2, 0.35_dp, status, message)
@@ -163,7 +172,8 @@ contains
     integer :: k, plane
 
     call configure_xy_periodic(sim, 'fmm', 'cached_kneq0')
-    call normalize_legacy_physics_config(sim, field, periodic2, panel)
+    call normalize_legacy_physics_config(sim, periodic2)
+    call derive_field_panel_config(sim, field, panel)
     periodic2%upper_fourier_switch = 'auto'
     do k = 1, size(offsets)
       sim%box_min(3) = offsets(k)

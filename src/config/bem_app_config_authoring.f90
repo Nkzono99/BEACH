@@ -3,7 +3,7 @@ module bem_app_config_authoring
   use bem_kinds, only: dp, i32
   use bem_app_config_types, only: app_config, species_config_path, mesh_part_config_path
   use bem_app_config_authoring_types, only: &
-    app_config_authoring, domain_authoring_spec, field_boundary_authoring_spec, &
+    app_config_authoring, sim_input_authoring_spec, domain_authoring_spec, field_boundary_authoring_spec, &
     particle_boundary_authoring_spec, reservoir_authoring_spec, periodic2_authoring_spec, &
     particle_authoring_spec, mesh_group_authoring_spec, template_authoring_spec
   implicit none
@@ -12,6 +12,7 @@ module bem_app_config_authoring
   integer, parameter :: default_group_capacity = 8
 
   public :: app_config_authoring
+  public :: sim_input_authoring_spec
   public :: domain_authoring_spec
   public :: field_boundary_authoring_spec
   public :: particle_boundary_authoring_spec

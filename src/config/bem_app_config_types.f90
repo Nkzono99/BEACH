@@ -56,10 +56,7 @@ module bem_app_config_types
     real(dp) :: secondary_emission_yield_max = 1.5_dp
     real(dp) :: secondary_emission_energy_max_ev = 500.0_dp
     real(dp) :: secondary_emission_const_yield = 0.0_dp
-    character(len=64) :: secondary_emission_target_species = ''
     integer(i32) :: secondary_emission_target_idx = 0_i32
-    logical :: has_secondary_forbidden_source_option = .false.
-    logical :: has_surface_charge_closure = .false.
     real(dp) :: number_density_cm3 = 0.0d0
     real(dp) :: number_density_m3 = 0.0d0
     logical :: has_number_density_cm3 = .false.
@@ -155,9 +152,7 @@ module bem_app_config_types
     type(sim_config) :: sim
     !> preflight で解決する基底契約。種別 kinetic barrier の面別 override は run 側で重ねる。
     type(external_boundary_contract_type) :: boundary_contract
-    type(field_physics_config) :: field
     type(periodic2_physics_config) :: periodic2
-    type(panel_kernel_config) :: panel
     type(surface_current_model_config) :: surface_current
   end type app_config
 
@@ -256,7 +251,7 @@ contains
     cfg%mesh_parts(1)%ny = 1
     cfg%mesh_parts(1)%center = [0.0d0, 0.0d0, 0.0d0]
     cfg%mesh_parts(1)%surface_side_policy = 'normal_plus'
-    call normalize_legacy_physics_config(cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
+    call normalize_legacy_physics_config(cfg%sim, cfg%periodic2)
   end subroutine default_app_config
 
   !> `[[particles.species]]` の既定値を返す。

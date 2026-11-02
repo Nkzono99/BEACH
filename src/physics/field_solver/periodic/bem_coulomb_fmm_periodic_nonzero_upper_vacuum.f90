@@ -3,6 +3,8 @@ module bem_coulomb_fmm_periodic_nonzero_upper_vacuum
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0, pi
   use bem_types, only: mesh_type
+  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry
+  use bem_triangle_quadrature, only: fill_panel_quadrature
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
   private
@@ -40,7 +42,9 @@ contains
     real(dp), intent(in) :: length_x, length_y
     integer(i32), intent(in) :: mode_layers
     real(dp) :: source_phase, source_decay, normalized_weight
-    integer(i32) :: element, mode, nx, ny, point
+    integer(i32) :: element, mode, nx, ny, point, status
+    type(panel_geometry_type) :: panel
+    real(dp), allocatable :: quad_position(:, :, :), quad_weight(:, :)
 
     if (mesh%nelem < 1_i32) error stop 'upper-vacuum Fourier plan requires a non-empty mesh.'
     if (.not. ieee_is_finite(length_x) .or. .not. ieee_is_finite(length_y) .or. &
@@ -63,6 +67,12 @@ contains
     allocate (self%panel_moment_imag(self%nelem, self%nmode))
     self%panel_moment_real = 0.0_dp
     self%panel_moment_imag = 0.0_dp
+    ! 面積が正の panel だけなので、各 panel の 7 点 cubature を作れる。
+    allocate (quad_position(3, 7, self%nelem), quad_weight(7, self%nelem))
+    do element = 1, self%nelem
+      call init_panel_geometry(mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), panel, status)
+      call fill_panel_quadrature(panel, quad_position(:, :, element), quad_weight(:, element))
+    end do
 
     mode = 0_i32
     do nx = -mode_layers, mode_layers
@@ -74,11 +84,11 @@ contains
         self%wave_number(mode) = sqrt(self%kx(mode)**2 + self%ky(mode)**2)
         do element = 1, self%nelem
           do point = 1, 7
-            normalized_weight = mesh%panel_quad_weight(point, element)/mesh%panel_area(element)
-            source_phase = self%kx(mode)*mesh%panel_quad_position(1, point, element) + &
-                           self%ky(mode)*mesh%panel_quad_position(2, point, element)
+            normalized_weight = quad_weight(point, element)/mesh%panel_area(element)
+            source_phase = self%kx(mode)*quad_position(1, point, element) + &
+                           self%ky(mode)*quad_position(2, point, element)
             source_decay = exp( &
-                           self%wave_number(mode)*(mesh%panel_quad_position(3, point, element) - &
+                           self%wave_number(mode)*(quad_position(3, point, element) - &
                                                    self%source_z_max) &
                            )
             self%panel_moment_real(element, mode) = self%panel_moment_real(element, mode) + &

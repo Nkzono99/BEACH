@@ -1,4 +1,4 @@
-!> Triangle geometry, cached moments, cubature, and surface-side invariants.
+!> Triangle geometry, cubature, and surface-side invariants.
 program test_panel_moments
   use bem_kinds, only: dp, i32
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
@@ -17,11 +17,6 @@ program test_panel_moments
   type(mesh_type) :: mesh
   real(dp) :: v0(3), v1(3), v2(3), cubature_value
   real(dp) :: tetra_v0(3, 4), tetra_v1(3, 4), tetra_v2(3, 4)
-  real(dp), parameter :: unit_moment1(3) = [1.0_dp/6.0_dp, 1.0_dp/6.0_dp, 0.0_dp]
-  real(dp), parameter :: unit_moment2(9) = [ &
-                         1.0_dp/12.0_dp, 1.0_dp/24.0_dp, 0.0_dp, &
-                         1.0_dp/24.0_dp, 1.0_dp/12.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp &
-                         ]
   character(len=128) :: message
   integer(i32) :: status
   integer :: x_power, y_power
@@ -31,27 +26,19 @@ program test_panel_moments
   v2 = [0.0_dp, 1.0_dp, 0.0_dp]
   call test_init(11)
 
-  call test_begin('unit_triangle_geometry_and_raw_moments')
+  call test_begin('unit_triangle_geometry')
   call init_panel_geometry(v0, v1, v2, geom, status)
   call assert_equal_i32(status, panel_geometry_ok, 'valid triangle status mismatch')
   call assert_close_dp(geom%area, 0.5_dp, 1.0e-15_dp, 'triangle area mismatch')
   call assert_allclose_1d(geom%centroid, [1.0_dp/3.0_dp, 1.0_dp/3.0_dp, 0.0_dp], 1.0e-15_dp, 'centroid mismatch')
   call assert_allclose_1d(geom%normal, [0.0_dp, 0.0_dp, 1.0_dp], 1.0e-15_dp, 'normal mismatch')
-  call assert_close_dp(geom%moment0, 0.5_dp, 1.0e-15_dp, 'zeroth moment mismatch')
-  call assert_allclose_1d(geom%moment1, unit_moment1, 1.0e-15_dp, 'first moment mismatch')
-  call assert_allclose_1d(reshape(geom%moment2, [9]), unit_moment2, 1.0e-15_dp, 'second moment mismatch')
   call test_end()
 
   call test_begin('mesh_owns_panel_geometry')
   call init_mesh(mesh, reshape(v0, [3, 1]), reshape(v1, [3, 1]), reshape(v2, [3, 1]))
   call assert_close_dp(mesh%panel_area(1), 0.5_dp, 1.0e-15_dp, 'mesh panel area mismatch')
-  call assert_allclose_1d(mesh%panel_moment1(:, 1), unit_moment1, 1.0e-15_dp, &
-                          'mesh panel moment mismatch')
-  call assert_allclose_1d(reshape(mesh%panel_moment2(:, :, 1), [9]), unit_moment2, 1.0e-15_dp, &
-                          'mesh second moment mismatch')
   call assert_allclose_1d(mesh%panel_edge_length(:, 1), [1.0_dp, sqrt(2.0_dp), 1.0_dp], 1.0e-15_dp, &
                           'mesh edge cache mismatch')
-  call assert_close_dp(sum(mesh%panel_quad_weight(:, 1)), 0.5_dp, 1.0e-15_dp, 'mesh quadrature weight mismatch')
   call test_end()
 
   call test_begin('open_surface_explicit_side')
@@ -115,24 +102,17 @@ program test_panel_moments
   end do
   call test_end()
 
-  call test_begin('moment_permutation_and_scaling_invariants')
+  call test_begin('permutation_and_scaling_invariants')
   call init_panel_geometry(v1, v2, v0, cyclic, status)
   call assert_equal_i32(status, panel_geometry_ok, 'cyclic triangle status mismatch')
   call assert_close_dp(cyclic%area, geom%area, 1.0e-15_dp, 'cyclic area mismatch')
-  call assert_allclose_1d(cyclic%moment1, geom%moment1, 1.0e-15_dp, 'cyclic first moment mismatch')
-  call assert_allclose_1d(reshape(cyclic%moment2, [9]), reshape(geom%moment2, [9]), 1.0e-15_dp, 'cyclic moments mismatch')
   call assert_allclose_1d(cyclic%normal, geom%normal, 1.0e-15_dp, 'cyclic normal mismatch')
   call init_panel_geometry(v0, v2, v1, reversed, status)
   call assert_equal_i32(status, panel_geometry_ok, 'reversed triangle status mismatch')
   call assert_allclose_1d(reversed%normal, -geom%normal, 1.0e-15_dp, 'reversed normal mismatch')
-  call assert_allclose_1d(reversed%moment1, geom%moment1, 1.0e-15_dp, 'reversed first moment mismatch')
-  call assert_allclose_1d(reshape(reversed%moment2, [9]), reshape(geom%moment2, [9]), 1.0e-15_dp, 'reversed moments mismatch')
   call init_panel_geometry(2.0_dp*v0, 2.0_dp*v1, 2.0_dp*v2, scaled, status)
   call assert_equal_i32(status, panel_geometry_ok, 'scaled triangle status mismatch')
-  call assert_close_dp(scaled%moment0, 4.0_dp*geom%moment0, 1.0e-14_dp, 'scaled zeroth moment mismatch')
-  call assert_allclose_1d(scaled%moment1, 8.0_dp*geom%moment1, 1.0e-14_dp, 'scaled first moment mismatch')
-  call assert_allclose_1d(reshape(scaled%moment2, [9]), 16.0_dp*reshape(geom%moment2, [9]), 1.0e-14_dp, &
-                          'scaled second moment mismatch')
+  call assert_close_dp(scaled%area, 4.0_dp*geom%area, 1.0e-14_dp, 'scaled area mismatch')
   call test_end()
 
   call test_begin('reused_cubature_replaces_geometry_and_rule')
@@ -155,7 +135,6 @@ program test_panel_moments
   call assert_allclose_1d(mesh%normals(:, 1), [0.0_dp, 0.0_dp, 1.0_dp], 0.0_dp, 'thin triangle normal mismatch')
   call assert_allclose_1d(mesh%centers(:, 1), [1.0_dp, 1.0e-16_dp, 0.0_dp]/3.0_dp, 0.0_dp, &
                           'thin triangle centroid mismatch')
-  call assert_true(all(mesh%panel_quad_weight == 0.0_dp), 'thin triangle retained quadrature weights')
   call test_end()
 
   call test_summary()

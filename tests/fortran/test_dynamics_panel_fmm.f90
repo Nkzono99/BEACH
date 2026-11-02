@@ -4,7 +4,7 @@ program test_dynamics_panel_fmm
   use bem_types, only: mesh_type, sim_config
   use bem_templates, only: make_plane
   use bem_field_solver, only: field_solver_type
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
+  use bem_physics_config_types, only: periodic2_physics_config
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32
   implicit none
@@ -12,9 +12,7 @@ program test_dynamics_panel_fmm
   type(mesh_type) :: mesh
   type(field_solver_type) :: direct_solver, fmm_solver
   type(sim_config) :: direct_sim, fmm_sim
-  type(field_physics_config) :: direct_field, fmm_field
   type(periodic2_physics_config) :: periodic
-  type(panel_kernel_config) :: direct_panel, fmm_panel
   real(dp), parameter :: fmm_relative_tolerance = 2.0e-3_dp
   real(dp) :: target(3), direct_e(3), fmm_e(3), direct_phi, fmm_phi, rel_e, rel_phi
   real(dp), allocatable :: direct_mesh_phi(:), fmm_mesh_phi(:)
@@ -36,11 +34,7 @@ program test_dynamics_panel_fmm
   direct_sim = sim_config()
   direct_sim%field_solver = 'direct'
   direct_sim%field_bc_mode = 'free'
-  direct_field = field_physics_config(backend='direct', normalization='si')
-  direct_panel = panel_kernel_config( &
-                 kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
-                 )
-  call direct_solver%init(mesh, direct_sim, direct_field, periodic, direct_panel)
+  call direct_solver%init(mesh, direct_sim)
 
   fmm_sim = direct_sim
   fmm_sim%field_solver = 'fmm'
@@ -51,11 +45,7 @@ program test_dynamics_panel_fmm
   fmm_sim%tree_leaf_max = 4_i32
   fmm_sim%has_tree_theta = .true.
   fmm_sim%has_tree_leaf_max = .true.
-  fmm_field = field_physics_config(backend='fmm', normalization='si')
-  fmm_panel = panel_kernel_config( &
-              kernel_id='triangle_p0_exact_p2m_near', surface_side_policy='per_element' &
-              )
-  call fmm_solver%init(mesh, fmm_sim, fmm_field, periodic, fmm_panel)
+  call fmm_solver%init(mesh, fmm_sim)
 
   target = [0.17_dp, -0.21_dp, 0.42_dp]
   call direct_solver%eval_e(mesh, target, direct_e)
@@ -94,11 +84,7 @@ program test_dynamics_panel_fmm
   fmm_sim = direct_sim
   fmm_sim%field_solver = 'auto'
   fmm_sim%tree_min_nelem = mesh%nelem
-  fmm_field = field_physics_config(backend='auto', normalization='si')
-  fmm_panel = panel_kernel_config( &
-              kernel_id='triangle_p0_exact_auto', surface_side_policy='per_element' &
-              )
-  call fmm_solver%init(mesh, fmm_sim, fmm_field, periodic, fmm_panel)
+  call fmm_solver%init(mesh, fmm_sim)
   call assert_true(trim(fmm_solver%mode) == 'fmm', 'panel auto case at tree_min_nelem must select FMM')
   call direct_solver%eval_e(mesh, target, direct_e)
   call fmm_solver%eval_e(mesh, target, fmm_e)

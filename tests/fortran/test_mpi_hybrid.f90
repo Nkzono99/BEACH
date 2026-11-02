@@ -248,7 +248,6 @@ program test_mpi_hybrid
   call default_app_config(reservoir_cfg)
   reservoir_cfg%sim%batch_count = 4_i32
   reservoir_cfg%sim%batch_duration = 1.0_dp
-  reservoir_cfg%sim%has_batch_duration = .true.
   reservoir_cfg%sim%use_box = .true.
   reservoir_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
   reservoir_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -900,13 +899,10 @@ contains
     cfg%sim%rng_seed = 4242_i32
     cfg%sim%batch_count = 1_i32
     cfg%sim%batch_duration = 1.0_dp
-    cfg%sim%has_batch_duration = .true.
     cfg%sim%dt = 0.1_dp
     cfg%sim%max_step = 20_i32
     cfg%sim%q_floor = 1.0e-30_dp
     cfg%sim%field_solver = 'direct'
-    cfg%field%backend = 'direct'
-    cfg%panel%kernel_id = 'triangle_p0_exact_direct'
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -990,8 +986,6 @@ contains
     cfg%sim%max_step = 1_i32
     cfg%sim%q_floor = 1.0e-30_dp
     cfg%sim%field_solver = 'direct'
-    cfg%field%backend = 'direct'
-    cfg%panel%kernel_id = 'triangle_p0_exact_direct'
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]

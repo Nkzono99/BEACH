@@ -95,6 +95,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   field solver は FMM options へ渡す periodic 設定の写しを持たない。静電 snapshot と FMM plan は options の
   `reference_mode_layers`・`panel_quadrature_order`・operator セル数を写さない。Zhao 外部根の更新は参照面積を
   外部根の結果から読む。surface closure の流入写像から常に 0 V だった貯留部電位を除いた。
+- 静電 snapshot と field solver の初期化は `sim` と periodic2 設定だけを受け取り、`sim` から導出する型付きの
+  field/panel 設定（`app_config%field`・`%panel`、どこからも読まれていなかった）を受け取らない。
+  panel の Cartesian moment（`moment0/1/2`、mesh の `panel_moment1/2`）と mesh の積分点配列を削除し、
+  upper-vacuum Fourier plan は構築時に三角形ごとの積分点を作る。batch 幅と外部電場の入力形
+  （`run.batch.duration_steps`、外部電場の大きさと角度）と二次電子種の preflight 専用の値は authoring 型が持ち、
+  `sim_config` と `particle_species_spec` から外した。計算結果はビット一致。
 
 ### Removed
 

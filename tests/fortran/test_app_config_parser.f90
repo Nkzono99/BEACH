@@ -268,7 +268,6 @@ program test_app_config_parser
     trim(cfg%sim%field_periodic_far_correction) == 'none', &
     'default periodic far correction mismatch' &
     )
-  call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'default inflow model mismatch')
   call assert_equal_i32(cfg%boundary_contract%inflow_map, external_inflow_none, 'default inflow contract mismatch')
   call assert_true(trim(cfg%sim%multiple_box_events_retry_backend) == 'none', 'default retry backend mismatch')
   call assert_equal_i32(cfg%surface_current%outflow_refresh_batches, 0_i32, 'default outer-root refresh mismatch')
@@ -611,7 +610,7 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%field_bc_mode) == 'periodic2', 'tutorial field boundary mismatch')
   call assert_true(trim(cfg%sim%field_periodic_far_correction) == 'cached_kneq0', 'tutorial far correction mismatch')
   call assert_true(trim(cfg%periodic2%lower_boundary_model) == 'e_bottom_zero', 'tutorial lower boundary mismatch')
-  call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'tutorial must use source VDF inflow')
+  call assert_equal_i32(cfg%boundary_contract%inflow_map, external_inflow_none, 'tutorial must use source VDF inflow')
   call assert_equal_i32(cfg%n_particle_species, 2_i32, 'tutorial species count mismatch')
   call assert_true(cfg%particle_species(1)%q_particle < 0.0_dp .and. cfg%particle_species(2)%q_particle > 0.0_dp, &
                    'tutorial must inject electrons and protons')
@@ -626,7 +625,7 @@ program test_app_config_parser
   call default_app_config(cfg)
   call load_app_config('examples/closed_photoelectron.toml', cfg)
   call assert_equal_i32(cfg%n_particle_species, 3_i32, 'closed case species count mismatch')
-  call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'closed case must use source VDF inflow')
+  call assert_equal_i32(cfg%boundary_contract%inflow_map, external_inflow_none, 'closed case must use source VDF inflow')
   call assert_true(trim(cfg%particle_species(1)%source_mode) == 'volume_seed', 'electron source mode mismatch')
   call assert_equal_i32( &
     cfg%particle_species(1)%boundary_inflow_high(3), particle_inflow_reservoir, &

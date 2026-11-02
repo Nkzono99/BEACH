@@ -10,7 +10,6 @@ module bem_field_solver
   use bem_string_utils, only: lower_ascii
   use bem_runtime_modes, only: field_solver_mode_direct, field_solver_mode_treecode, field_solver_mode_fmm, &
                                field_solver_mode_id
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
   implicit none
   private
 
@@ -62,13 +61,10 @@ module bem_field_solver
   interface
     !> 設定とメッシュから電場ソルバを初期化する。
     !! mpi は cached_kneq0 の root operator を rank で分担して作るときの文脈（省略時は単一 rank）。
-    module subroutine init_field_solver(self, mesh, sim, field_config, periodic_config, panel_config, mpi)
+    module subroutine init_field_solver(self, mesh, sim, mpi)
       class(field_solver_type), intent(inout) :: self
       type(mesh_type), intent(in) :: mesh
       type(sim_config), intent(in) :: sim
-      type(field_physics_config), intent(in), optional :: field_config
-      type(periodic2_physics_config), intent(in), optional :: periodic_config
-      type(panel_kernel_config), intent(in), optional :: panel_config
       type(mpi_context), intent(in), optional :: mpi
     end subroutine init_field_solver
 

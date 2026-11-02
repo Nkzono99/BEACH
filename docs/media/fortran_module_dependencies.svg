@@ -1162,7 +1162,7 @@
 <!-- bem_panel_geometry -->
 <g id="node40" class="node">
 <title>bem_panel_geometry</title>
-<g id="a_node40"><a xlink:title="Ordered triangle geometry and exact Cartesian surface moments.">
+<g id="a_node40"><a xlink:title="Ordered triangle geometry: vertices, centroid, normal, area, and edge data.">
 <path fill="#f8fafc" stroke="#334155" d="M2464.5,-10538.9113C2464.5,-10538.9113 2365.5,-10538.9113 2365.5,-10538.9113 2359.5,-10538.9113 2353.5,-10532.9113 2353.5,-10526.9113 2353.5,-10526.9113 2353.5,-10514.9113 2353.5,-10514.9113 2353.5,-10508.9113 2359.5,-10502.9113 2365.5,-10502.9113 2365.5,-10502.9113 2464.5,-10502.9113 2464.5,-10502.9113 2470.5,-10502.9113 2476.5,-10508.9113 2476.5,-10514.9113 2476.5,-10514.9113 2476.5,-10526.9113 2476.5,-10526.9113 2476.5,-10532.9113 2470.5,-10538.9113 2464.5,-10538.9113"/>
 <text text-anchor="middle" x="2415" y="-10518.4113" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#000000">bem_panel_geometry</text>
 </a>

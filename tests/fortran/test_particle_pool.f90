@@ -346,7 +346,6 @@ contains
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [0.0d0, 0.0d0, 0.0d0]
     cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
-    cfg%sim%reservoir_potential_model = 'infinity_barrier'
     cfg%boundary_contract%inflow_map = external_inflow_scalar_barrier
     cfg%sim%phi_infty = 0.0d0
     cfg%sim%injection_face_phi_grid_n = 2_i32
@@ -393,7 +392,7 @@ contains
     state%boundary_macro_residual = 0.0_dp
     state%macro_residual = 0.0d0
     allocate (photo_emission_dq(mesh%nelem), photo_source_charge(mesh%nelem))
-    call snapshot%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
+    call snapshot%init(mesh, cfg%sim, cfg%periodic2)
     call snapshot%refresh(mesh)
     call seed_particles_from_config(cfg)
     call build_particle_source_plan(cfg, plan)
@@ -442,7 +441,6 @@ contains
     cfg%sim%rng_seed = 4242_i32
     cfg%sim%batch_count = 2_i32
     cfg%sim%batch_duration = 1.0_dp
-    cfg%sim%has_batch_duration = .true.
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -638,13 +636,10 @@ contains
     cfg%sim%rng_seed = 998_i32
     cfg%sim%batch_count = 1_i32
     cfg%sim%batch_duration = 1.0_dp
-    cfg%sim%has_batch_duration = .true.
     cfg%sim%dt = 0.6_dp
     cfg%sim%max_step = 1_i32
     cfg%sim%q_floor = 1.0e-30_dp
     cfg%sim%field_solver = 'direct'
-    cfg%field%backend = 'direct'
-    cfg%panel%kernel_id = 'triangle_p0_exact_direct'
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]

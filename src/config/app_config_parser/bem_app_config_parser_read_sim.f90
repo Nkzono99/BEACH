@@ -215,10 +215,10 @@ contains
       call get_toml_int(table, keys(ikey), cfg%sim%particle_pool_chunk, 'run.batch.particle_pool_chunk')
     case ('batch_duration')
       call get_toml_real(table, keys(ikey), cfg%sim%batch_duration, 'run.batch.duration_s')
-      cfg%sim%has_batch_duration = .true.
+      sim_input%has_batch_duration = .true.
     case ('batch_duration_step')
-      call get_toml_real(table, keys(ikey), cfg%sim%batch_duration_step, 'run.batch.duration_steps')
-      cfg%sim%has_batch_duration_step = .true.
+      call get_toml_real(table, keys(ikey), sim_input%batch_duration_step, 'run.batch.duration_steps')
+      sim_input%has_batch_duration_step = .true.
     case ('max_step')
       call get_toml_int(table, keys(ikey), cfg%sim%max_step, 'particles.tracking.max_steps_per_particle')
     case ('substep_field_change_max')
@@ -276,16 +276,16 @@ contains
       cfg%sim%near_field_precision = lower_ascii(trim(cfg%sim%near_field_precision))
     case ('e0')
       call get_toml_real_array(table, keys(ikey), cfg%sim%e0, 'fields.external.electric_v_m')
-      cfg%sim%has_e0_vector = .true.
+      sim_input%has_e0_vector = .true.
     case ('e0_abs')
-      call get_toml_real(table, keys(ikey), cfg%sim%e0_abs, 'fields.external.electric_magnitude_v_m')
-      cfg%sim%has_e0_abs = .true.
+      call get_toml_real(table, keys(ikey), sim_input%e0_abs, 'fields.external.electric_magnitude_v_m')
+      sim_input%has_e0_abs = .true.
     case ('e0_phi_xy_deg')
-      call get_toml_real(table, keys(ikey), cfg%sim%e0_phi_xy_deg, 'fields.external.electric_azimuth_deg')
-      cfg%sim%has_e0_phi_xy_deg = .true.
+      call get_toml_real(table, keys(ikey), sim_input%e0_phi_xy_deg, 'fields.external.electric_azimuth_deg')
+      sim_input%has_e0_phi_xy_deg = .true.
     case ('e0_phi_z_deg')
-      call get_toml_real(table, keys(ikey), cfg%sim%e0_phi_z_deg, 'fields.external.electric_elevation_deg')
-      cfg%sim%has_e0_phi_z_deg = .true.
+      call get_toml_real(table, keys(ikey), sim_input%e0_phi_z_deg, 'fields.external.electric_elevation_deg')
+      sim_input%has_e0_phi_z_deg = .true.
     case ('b0')
       call get_toml_real_array(table, keys(ikey), cfg%sim%b0, 'fields.external.magnetic_t')
     case ('multiple_box_events_policy')

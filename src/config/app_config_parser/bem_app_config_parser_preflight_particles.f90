@@ -25,13 +25,13 @@ contains
     has_boundary_inflow = any(cfg%particle_species(i)%boundary_inflow_low /= particle_inflow_none) .or. &
                           any(cfg%particle_species(i)%boundary_inflow_high /= particle_inflow_none)
     call validate_species_boundaries(cfg, i, effective_low, effective_high)
-    call validate_species_source(cfg, i, has_boundary_inflow)
+    call validate_species_source(cfg, i, has_boundary_inflow, authoring%particle_species(i))
     call validate_surface_charge_closure(cfg, i, effective_low, effective_high)
   end do
   ! Resolve targets after every species has received its unique key.
   do i = 1, cfg%n_particle_species
     if (.not. cfg%particle_species(i)%enabled .or. .not. cfg%particle_species(i)%secondary_emission_enabled) cycle
-    call resolve_secondary_emission_target(cfg, i)
+    call resolve_secondary_emission_target(cfg, i, authoring%particle_species(i)%secondary_emission_target_species)
   end do
   batch_n = particles_per_batch_from_config(cfg)
   end procedure validate_particle_species_config
@@ -93,10 +93,11 @@ contains
   end subroutine validate_species_boundaries
 
   !> source mode ごとの条件を検査し、流入重みと photo ray 方向を確定する。
-  subroutine validate_species_source(cfg, species_idx, has_boundary_inflow)
+  subroutine validate_species_source(cfg, species_idx, has_boundary_inflow, auth)
     type(app_config), intent(inout) :: cfg
     integer, intent(in) :: species_idx
     logical, intent(in) :: has_boundary_inflow
+    type(particle_authoring_spec), intent(in) :: auth
 
     if (has_boundary_inflow .and. trim(cfg%particle_species(species_idx)%source_mode) /= 'volume_seed') then
       call stop_config_error(species_config_path(species_idx)//'.inflow cannot be combined with '// &
@@ -117,10 +118,10 @@ contains
       call resolve_photo_raycast_direction(cfg, species_idx)
     case ('secondary_emission')
       associate (spec => cfg%particle_species(species_idx))
-        if (spec%has_secondary_forbidden_source_option) then
+        if (auth%has_secondary_forbidden_source_option) then
           call stop_config_error('secondary_emission species must omit sampling, inflow, and emission source options.')
         end if
-        if (spec%has_surface_charge_closure .or. trim(spec%surface_charge_closure) /= 'explicit') then
+        if (auth%has_surface_charge_closure .or. trim(spec%surface_charge_closure) /= 'explicit') then
           call stop_config_error('secondary_emission species must omit '//species_config_path(species_idx)// &
                                  '.charging.closure and remain fully tracked.')
         end if
@@ -134,9 +135,10 @@ contains
   end subroutine validate_species_source
 
   !> 二次電子の収率モデルを検査し、target species を有効な secondary_emission 種の index へ解決する。
-  subroutine resolve_secondary_emission_target(cfg, species_idx)
+  subroutine resolve_secondary_emission_target(cfg, species_idx, target_species)
     type(app_config), intent(inout) :: cfg
     integer, intent(in) :: species_idx
+    character(len=*), intent(in) :: target_species
     integer :: j
 
     associate (spec => cfg%particle_species(species_idx))
@@ -158,9 +160,9 @@ contains
       end select
       spec%secondary_emission_target_idx = 0_i32
       do j = 1, cfg%n_particle_species
-        if (len_trim(spec%secondary_emission_target_species) == 0) exit
+        if (len_trim(target_species) == 0) exit
         if (.not. cfg%particle_species(j)%enabled) cycle
-        if (trim(spec%secondary_emission_target_species) /= trim(cfg%particle_species(j)%species_key)) cycle
+        if (trim(target_species) /= trim(cfg%particle_species(j)%species_key)) cycle
         if (trim(cfg%particle_species(j)%source_mode) /= 'secondary_emission') exit
         spec%secondary_emission_target_idx = int(j, i32)
         exit
