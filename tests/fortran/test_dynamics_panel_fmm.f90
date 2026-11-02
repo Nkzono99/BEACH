@@ -32,19 +32,19 @@ program test_dynamics_panel_fmm
   call assert_equal_i32(status, panel_surface_side_ok, 'panel side setup status')
 
   direct_sim = sim_config()
-  direct_sim%field_solver = 'direct'
+  direct_sim%solver%method = 'direct'
   direct_sim%field_bc_mode = 'free'
   call direct_solver%init(mesh, direct_sim)
 
   fmm_sim = direct_sim
-  fmm_sim%field_solver = 'fmm'
+  fmm_sim%solver%method = 'fmm'
   fmm_sim%use_box = .true.
   fmm_sim%box_min = [-1.2_dp, -1.2_dp, -0.5_dp]
   fmm_sim%box_max = [1.2_dp, 1.2_dp, 2.5_dp]
-  fmm_sim%tree_theta = 0.45_dp
-  fmm_sim%tree_leaf_max = 4_i32
-  fmm_sim%has_tree_theta = .true.
-  fmm_sim%has_tree_leaf_max = .true.
+  fmm_sim%solver%tree_theta = 0.45_dp
+  fmm_sim%solver%tree_leaf_max = 4_i32
+  fmm_sim%solver%has_tree_theta = .true.
+  fmm_sim%solver%has_tree_leaf_max = .true.
   call fmm_solver%init(mesh, fmm_sim)
 
   target = [0.17_dp, -0.21_dp, 0.42_dp]
@@ -82,8 +82,8 @@ program test_dynamics_panel_fmm
 
   call test_begin('panel_auto_selects_fmm_adapter')
   fmm_sim = direct_sim
-  fmm_sim%field_solver = 'auto'
-  fmm_sim%tree_min_nelem = mesh%nelem
+  fmm_sim%solver%method = 'auto'
+  fmm_sim%solver%tree_min_nelem = mesh%nelem
   call fmm_solver%init(mesh, fmm_sim)
   call assert_true(trim(fmm_solver%mode) == 'fmm', 'panel auto case at tree_min_nelem must select FMM')
   call direct_solver%eval_e(mesh, target, direct_e)
@@ -105,7 +105,7 @@ contains
     integer :: iteration
 
     call test_begin('panel_solver_reinitialization_and_empty_refresh_preserve_fields')
-    reference_sim%field_solver = 'direct'
+    reference_sim%solver%method = 'direct'
     r = [0.13_dp, -0.17_dp, 0.4_dp]
     do iteration = 1, size(modes)
       call make_plane(small_mesh, size_x=1.0_dp, size_y=1.0_dp, &
@@ -114,15 +114,15 @@ contains
       call resolve_panel_surface_sides(small_mesh, 'normal_plus', status, message)
       call assert_equal_i32(status, panel_surface_side_ok, 'reinitialization panel sides')
       sim = reference_sim
-      sim%field_solver = modes(iteration)
-      sim%has_tree_leaf_max = .true.
-      sim%tree_leaf_max = 32_i32
-      sim%field_normalization = 'length'
-      sim%field_length_scale = 2.0_dp
+      sim%solver%method = modes(iteration)
+      sim%solver%has_tree_leaf_max = .true.
+      sim%solver%tree_leaf_max = 32_i32
+      sim%solver%normalization = 'length'
+      sim%solver%length_scale = 2.0_dp
       call reference%init(small_mesh, reference_sim)
       call solver%init(small_mesh, sim)
       call check_fields(solver, reference, small_mesh, sim, reference_sim, r)
-      if (trim(sim%field_solver) == 'fmm') then
+      if (trim(sim%solver%method) == 'fmm') then
         call solver%refresh(empty_mesh)
         call solver%eval_e(empty_mesh, r, actual_e)
         call solver%eval_potential(empty_mesh, sim, r, actual_phi)

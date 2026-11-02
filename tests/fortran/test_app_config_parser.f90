@@ -262,21 +262,21 @@ program test_app_config_parser
 
   call test_begin('default_config')
   call default_app_config(cfg)
-  call assert_true(trim(cfg%sim%field_solver) == 'auto', 'default field solver mismatch')
+  call assert_true(trim(cfg%sim%solver%method) == 'auto', 'default field solver mismatch')
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'default field boundary mismatch')
   call assert_true( &
-    trim(cfg%sim%field_periodic_far_correction) == 'none', &
+    trim(cfg%sim%periodic%far_correction) == 'none', &
     'default periodic far correction mismatch' &
     )
   call assert_equal_i32(cfg%boundary_contract%inflow_map, external_inflow_none, 'default inflow contract mismatch')
-  call assert_true(trim(cfg%sim%multiple_box_events_retry_backend) == 'none', 'default retry backend mismatch')
+  call assert_true(trim(cfg%sim%box_events%retry_backend) == 'none', 'default retry backend mismatch')
   call assert_equal_i32(cfg%surface_current%outflow_refresh_batches, 0_i32, 'default outer-root refresh mismatch')
   call assert_equal_i32( &
-    cfg%sim%multiple_box_events_soft_discard_count_grace, 1000_i32, &
+    cfg%sim%box_events%soft_discard_count_grace, 1000_i32, &
     'default soft-discard count grace mismatch' &
     )
   call assert_close_dp( &
-    cfg%sim%multiple_box_events_soft_discard_fraction_limit, 1.0e-6_dp, 1.0e-18_dp, &
+    cfg%sim%box_events%soft_discard_fraction_limit, 1.0e-6_dp, 1.0e-18_dp, &
     'default soft-discard fraction limit mismatch' &
     )
   call assert_equal_i32(cfg%checkpoint_stride, 0_i32, 'default checkpoint stride mismatch')
@@ -287,7 +287,7 @@ program test_app_config_parser
   call default_app_config(cfg)
   call load_app_config(sim_variant_path, cfg)
   call assert_equal_i32( &
-    cfg%sim%multiple_box_events_soft_discard_count_grace, 7_i32, &
+    cfg%sim%box_events%soft_discard_count_grace, 7_i32, &
     'soft-discard count grace parse mismatch' &
     )
   call delete_file_if_exists(sim_variant_path)
@@ -298,7 +298,7 @@ program test_app_config_parser
   call default_app_config(cfg)
   call load_app_config(sim_variant_path, cfg)
   call assert_close_dp( &
-    cfg%sim%multiple_box_events_soft_discard_fraction_limit, 2.5e-5_dp, 1.0e-17_dp, &
+    cfg%sim%box_events%soft_discard_fraction_limit, 2.5e-5_dp, 1.0e-17_dp, &
     'soft-discard fraction limit parse mismatch' &
     )
   call delete_file_if_exists(sim_variant_path)
@@ -392,7 +392,7 @@ program test_app_config_parser
   call default_app_config(cfg)
   call load_app_config(sim_variant_path, cfg)
   call assert_true( &
-    trim(cfg%sim%multiple_box_events_retry_backend) == 'upper_panel_fourier', &
+    trim(cfg%sim%box_events%retry_backend) == 'upper_panel_fourier', &
     'split periodic case must accept upper Fourier retry with abort fallback' &
     )
   call delete_file_if_exists(sim_variant_path)
@@ -608,7 +608,7 @@ program test_app_config_parser
   call default_app_config(cfg)
   call load_app_config('examples/tutorial_floating_plate.toml', cfg)
   call assert_true(trim(cfg%sim%field_bc_mode) == 'periodic2', 'tutorial field boundary mismatch')
-  call assert_true(trim(cfg%sim%field_periodic_far_correction) == 'cached_kneq0', 'tutorial far correction mismatch')
+  call assert_true(trim(cfg%sim%periodic%far_correction) == 'cached_kneq0', 'tutorial far correction mismatch')
   call assert_true(trim(cfg%periodic2%lower_boundary_model) == 'e_bottom_zero', 'tutorial lower boundary mismatch')
   call assert_equal_i32(cfg%boundary_contract%inflow_map, external_inflow_none, 'tutorial must use source VDF inflow')
   call assert_equal_i32(cfg%n_particle_species, 2_i32, 'tutorial species count mismatch')

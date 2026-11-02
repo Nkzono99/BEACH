@@ -96,9 +96,9 @@ contains
     failure_cfg%sim%batch_count = 1_i32
     failure_cfg%sim%dt = 1.0d0
     failure_cfg%sim%max_step = 1_i32
-    failure_cfg%sim%field_solver = 'fmm'
+    failure_cfg%sim%solver%method = 'fmm'
     failure_cfg%sim%field_bc_mode = 'periodic2'
-    failure_cfg%sim%field_periodic_far_correction = 'none'
+    failure_cfg%sim%periodic%far_correction = 'none'
     failure_cfg%sim%use_box = .true.
     failure_cfg%sim%box_min = [0.0d0, 0.0d0, -1.0d0]
     failure_cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
@@ -163,9 +163,9 @@ contains
     failure_cfg%sim%batch_duration = 0.5d0
     failure_cfg%sim%dt = 1.0d0
     failure_cfg%sim%max_step = 1_i32
-    failure_cfg%sim%field_solver = 'fmm'
+    failure_cfg%sim%solver%method = 'fmm'
     failure_cfg%sim%field_bc_mode = 'periodic2'
-    failure_cfg%sim%field_periodic_far_correction = 'none'
+    failure_cfg%sim%periodic%far_correction = 'none'
     failure_cfg%sim%use_box = .true.
     failure_cfg%sim%box_min = [0.0d0, 0.0d0, 0.0d0]
     failure_cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]

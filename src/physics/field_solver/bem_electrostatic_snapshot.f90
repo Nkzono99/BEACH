@@ -351,13 +351,13 @@ contains
     self%diagnostics%periodic_cache_path = self%nonzero_solver%fmm_core_plan%periodic_operator%cache_path
     if (periodic_config%upper_fourier_switch /= 'off') then
       call init_snapshot_upper_fourier_switch(self, mesh, sim)
-    else if (trim(lower_ascii(sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier') then
+    else if (trim(lower_ascii(sim%box_events%retry_backend)) == 'upper_panel_fourier') then
       call self%upper_fourier_plan%build( &
         mesh, self%periodic_length(1), self%periodic_length(2), self%periodic_options%reference_mode_layers &
         )
       call self%upper_fourier_plan%refresh(mesh%q_elem)
     end if
-    self%use_upper_panel_fourier_retry = trim(lower_ascii(sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier'
+    self%use_upper_panel_fourier_retry = trim(lower_ascii(sim%box_events%retry_backend)) == 'upper_panel_fourier'
   end subroutine init_cached_periodic_snapshot
 
   pure real(dp) function zero_mode_bottom_field(self, charge) result(field)

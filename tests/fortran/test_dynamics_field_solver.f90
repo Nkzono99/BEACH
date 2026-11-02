@@ -76,18 +76,18 @@ contains
     call make_plane(mesh_small, size_x=1.0d0, size_y=1.0d0, nx=1_i32, ny=1_i32, center=[0.0d0, 0.0d0, 0.0d0])
     call mark_normal_plus(mesh_small)
     sim = sim_config()
-    sim%field_solver = 'AUTO'
-    sim%tree_min_nelem = 64_i32
+    sim%solver%method = 'AUTO'
+    sim%solver%tree_min_nelem = 64_i32
     call solver%init(mesh_small, sim)
     call assert_true(trim(solver%mode) == 'direct', 'auto solver should select direct for small meshes')
 
     call make_plane(mesh_threshold, size_x=1.0d0, size_y=1.0d0, nx=4_i32, ny=4_i32, center=[0.0d0, 0.0d0, 0.0d0])
     call mark_normal_plus(mesh_threshold)
     sim = sim_config()
-    sim%field_solver = 'AUTO'
-    sim%tree_min_nelem = mesh_threshold%nelem
-    sim%tree_theta = 0.95d0
-    sim%tree_leaf_max = 1_i32
+    sim%solver%method = 'AUTO'
+    sim%solver%tree_min_nelem = mesh_threshold%nelem
+    sim%solver%tree_theta = 0.95d0
+    sim%solver%tree_leaf_max = 1_i32
     call solver%init(mesh_threshold, sim)
     call assert_true(trim(solver%mode) == 'fmm', 'auto solver should select FMM at tree_min_nelem')
     call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'auto FMM must use the tuned theta, not the unset default')
@@ -95,16 +95,16 @@ contains
 
     ! The element-count table itself is the pure resolver used by init and by the summary writer.
     sim = sim_config()
-    sim%field_solver = 'AUTO'
-    sim%tree_min_nelem = 1_i32
-    sim%tree_theta = 0.95d0
-    sim%tree_leaf_max = 1_i32
+    sim%solver%method = 'AUTO'
+    sim%solver%tree_min_nelem = 1_i32
+    sim%solver%tree_theta = 0.95d0
+    sim%solver%tree_leaf_max = 1_i32
     do k = 1, size(nelem_cases)
       call resolve_field_solver_tree_params(nelem_cases(k), sim, theta, leaf_max)
       call assert_close_dp(theta, theta_cases(k), 1.0d-12, 'auto theta mismatch in the element-count table')
       call assert_equal_i32(leaf_max, leaf_cases(k), 'auto leaf_max mismatch in the element-count table')
     end do
-    sim%tree_min_nelem = 64_i32
+    sim%solver%tree_min_nelem = 64_i32
     call resolve_field_solver_tree_params(63_i32, sim, theta, leaf_max)
     call assert_close_dp(theta, 0.95d0, 0.0d0, 'direct auto selection keeps the configured theta')
     call assert_equal_i32(leaf_max, 1_i32, 'direct auto selection keeps the configured leaf_max')
@@ -131,12 +131,12 @@ contains
 
     do k = 1, size(mode_cases)
       sim = sim_config()
-      sim%field_solver = mode_cases(k)
-      sim%tree_min_nelem = 100000_i32
-      sim%tree_theta = 0.95d0
-      sim%tree_leaf_max = 3_i32
-      sim%has_tree_theta = has_theta_cases(k)
-      sim%has_tree_leaf_max = has_leaf_cases(k)
+      sim%solver%method = mode_cases(k)
+      sim%solver%tree_min_nelem = 100000_i32
+      sim%solver%tree_theta = 0.95d0
+      sim%solver%tree_leaf_max = 3_i32
+      sim%solver%has_tree_theta = has_theta_cases(k)
+      sim%solver%has_tree_leaf_max = has_leaf_cases(k)
       call resolve_field_solver_tree_params(nelem_cases(k), sim, theta, leaf_max)
       call assert_close_dp(theta, theta_expected(k), 1.0d-12, 'explicit tree mode theta resolution mismatch')
       call assert_equal_i32(leaf_max, leaf_expected(k), 'explicit tree mode leaf_max resolution mismatch')
@@ -146,20 +146,20 @@ contains
     call mark_normal_plus(mesh_small)
 
     sim = sim_config()
-    sim%field_solver = 'treecode'
-    sim%tree_theta = 0.93d0
-    sim%tree_leaf_max = 3_i32
-    sim%has_tree_theta = .true.
+    sim%solver%method = 'treecode'
+    sim%solver%tree_theta = 0.93d0
+    sim%solver%tree_leaf_max = 3_i32
+    sim%solver%has_tree_theta = .true.
     call solver%init(mesh_small, sim)
     call assert_true(trim(solver%mode) == 'treecode', 'treecode mode mismatch')
     call assert_close_dp(solver%theta, 0.93d0, 1.0d-12, 'treecode init must keep the explicit theta')
     call assert_equal_i32(solver%leaf_max, 12_i32, 'treecode init must autotune the unset leaf_max')
 
     sim = sim_config()
-    sim%field_solver = 'fmm'
-    sim%tree_theta = 0.92d0
-    sim%tree_leaf_max = 5_i32
-    sim%has_tree_leaf_max = .true.
+    sim%solver%method = 'fmm'
+    sim%solver%tree_theta = 0.92d0
+    sim%solver%tree_leaf_max = 5_i32
+    sim%solver%has_tree_leaf_max = .true.
     call solver%init(mesh_small, sim)
     call assert_true(trim(solver%mode) == 'fmm', 'fmm mode mismatch')
     call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'fmm init must autotune the unset theta')
@@ -182,10 +182,10 @@ contains
     mesh_tree%q_elem = 1.0d-12
 
     sim = sim_config()
-    sim%field_solver = 'treecode'
-    sim%tree_theta = 0.10d0
-    sim%tree_leaf_max = 6_i32
-    sim%tree_min_nelem = 64_i32
+    sim%solver%method = 'treecode'
+    sim%solver%tree_theta = 0.10d0
+    sim%solver%tree_leaf_max = 6_i32
+    sim%solver%tree_min_nelem = 64_i32
     call solver%init(mesh_tree, sim)
 
     ! The far target accepts tree nodes, so the comparison sees the refreshed node moments.
@@ -303,12 +303,12 @@ contains
     call mark_normal_plus(mesh_tree)
 
     sim = sim_config()
-    sim%field_solver = 'treecode'
-    sim%field_normalization = 'si'
-    sim%tree_theta = 0.5d0
-    sim%tree_leaf_max = 1_i32
-    sim%has_tree_theta = .true.
-    sim%has_tree_leaf_max = .true.
+    sim%solver%method = 'treecode'
+    sim%solver%normalization = 'si'
+    sim%solver%tree_theta = 0.5d0
+    sim%solver%tree_leaf_max = 1_i32
+    sim%solver%has_tree_theta = .true.
+    sim%solver%has_tree_leaf_max = .true.
     call solver%init(mesh_tree, sim)
 
     call assert_true(solver%child_count(1) > 0_i32, 'treecode cancellation fixture root must be internal')
@@ -326,9 +326,9 @@ contains
     mesh_direct%q_elem = 1.0d-13
 
     sim = sim_config()
-    sim%field_solver = 'direct'
-    sim%field_normalization = 'length'
-    sim%field_length_scale = 1.0d-4
+    sim%solver%method = 'direct'
+    sim%solver%normalization = 'length'
+    sim%solver%length_scale = 1.0d-4
     call solver%init(mesh_direct, sim)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
@@ -358,13 +358,13 @@ contains
     mesh_tree%q_elem = 1.0d-13
 
     sim = sim_config()
-    sim%field_solver = 'treecode'
-    sim%field_normalization = 'length'
-    sim%field_length_scale = 1.0d-4
-    sim%tree_theta = 0.10d0
-    sim%tree_leaf_max = 10000_i32
-    sim%has_tree_leaf_max = .true.
-    sim%tree_min_nelem = 64_i32
+    sim%solver%method = 'treecode'
+    sim%solver%normalization = 'length'
+    sim%solver%length_scale = 1.0d-4
+    sim%solver%tree_theta = 0.10d0
+    sim%solver%tree_leaf_max = 10000_i32
+    sim%solver%has_tree_leaf_max = .true.
+    sim%solver%tree_min_nelem = 64_i32
     call solver%init(mesh_tree, sim)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
@@ -388,12 +388,12 @@ contains
     mesh_fmm%q_elem = 1.0d-13
 
     sim = sim_config()
-    sim%field_solver = 'fmm'
-    sim%field_normalization = 'length'
-    sim%field_length_scale = 1.0d-4
-    sim%tree_theta = 0.4d0
-    sim%tree_leaf_max = 12_i32
-    sim%tree_min_nelem = 64_i32
+    sim%solver%method = 'fmm'
+    sim%solver%normalization = 'length'
+    sim%solver%length_scale = 1.0d-4
+    sim%solver%tree_theta = 0.4d0
+    sim%solver%tree_leaf_max = 12_i32
+    sim%solver%tree_min_nelem = 64_i32
     call solver%init(mesh_fmm, sim)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
@@ -432,14 +432,14 @@ contains
     mesh_fmm%q_elem = 1.0d-13
 
     sim = sim_config()
-    sim%field_solver = 'fmm'
-    sim%field_normalization = 'box'
+    sim%solver%method = 'fmm'
+    sim%solver%normalization = 'box'
     sim%use_box = .true.
     sim%box_min = [1.0d-3, 2.0d-3, -1.0d-3]
     sim%box_max = [1.1d-3, 2.1d-3, -0.8d-3]
-    sim%tree_theta = 0.4d0
-    sim%tree_leaf_max = 12_i32
-    sim%tree_min_nelem = 64_i32
+    sim%solver%tree_theta = 0.4d0
+    sim%solver%tree_leaf_max = 12_i32
+    sim%solver%tree_min_nelem = 64_i32
     call solver%init(mesh_fmm, sim)
 
     ! The first target lies below box_min(2) and takes the direct fallback. The second lies inside the
@@ -482,7 +482,7 @@ contains
     call assert_equal_i32(status, panel_surface_side_ok, 'panel side setup failed')
 
     sim = sim_config()
-    sim%field_solver = 'direct'
+    sim%solver%method = 'direct'
     sim%field_bc_mode = 'free'
     periodic_config = periodic2_physics_config()
     call solver%init(mesh_panel, sim)
@@ -532,19 +532,19 @@ contains
     call assert_equal_i32(status, panel_surface_side_ok, 'tree panel side setup failed')
 
     direct_sim = sim_config()
-    direct_sim%field_solver = 'direct'
+    direct_sim%solver%method = 'direct'
     direct_sim%field_bc_mode = 'free'
-    direct_sim%field_normalization = 'length'
-    direct_sim%field_length_scale = 3.5_dp
+    direct_sim%solver%normalization = 'length'
+    direct_sim%solver%length_scale = 3.5_dp
     periodic_config = periodic2_physics_config()
     call direct_solver%init(mesh_panel, direct_sim)
 
     tree_sim = direct_sim
-    tree_sim%field_solver = 'treecode'
-    tree_sim%tree_theta = 1.0_dp
-    tree_sim%tree_leaf_max = 1_i32
-    tree_sim%has_tree_theta = .true.
-    tree_sim%has_tree_leaf_max = .true.
+    tree_sim%solver%method = 'treecode'
+    tree_sim%solver%tree_theta = 1.0_dp
+    tree_sim%solver%tree_leaf_max = 1_i32
+    tree_sim%solver%has_tree_theta = .true.
+    tree_sim%solver%has_tree_leaf_max = .true.
     call tree_solver%init(mesh_panel, tree_sim)
 
     call assert_true(trim(tree_solver%mode) == 'treecode', 'triangle panel treecode mode mismatch')

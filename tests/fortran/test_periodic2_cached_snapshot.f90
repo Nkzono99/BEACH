@@ -278,7 +278,7 @@ contains
     call assert_c_ok(status, 'FieldKernel create status')
     status = beach_kernel_set_periodic_cache( &
              kernel_handle, c_loc(cache_bytes), int(size(cache_bytes), c_int), &
-             real(sim%field_periodic_generation_tolerance, c_double) &
+             real(sim%periodic%generation_tolerance, c_double) &
              )
     call assert_c_ok(status, 'FieldKernel cache status')
     status = beach_kernel_build( &

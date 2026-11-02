@@ -19,18 +19,18 @@ program test_step_growth
   call test_begin('step_growth_sets_a_default_threshold')
   call write_grouped_config(config_path, 'step_growth = true')
   call load_app_config(config_path, cfg)
-  call assert_true(cfg%sim%step_growth, 'step_growth should be enabled')
-  call assert_equal_i32(cfg%sim%step_growth_max, 5_i32, 'default step_growth_max mismatch')
-  call assert_close_dp(cfg%sim%substep_field_change_max, 0.05_dp, 0.0_dp, 'step_growth should set the default threshold')
-  call assert_close_dp(cfg%sim%step_growth_energy_fraction, 0.01_dp, 0.0_dp, 'default energy fraction mismatch')
+  call assert_true(cfg%sim%substep%growth, 'step_growth should be enabled')
+  call assert_equal_i32(cfg%sim%substep%growth_max, 5_i32, 'default step_growth_max mismatch')
+  call assert_close_dp(cfg%sim%substep%field_change_max, 0.05_dp, 0.0_dp, 'step_growth should set the default threshold')
+  call assert_close_dp(cfg%sim%substep%growth_energy_fraction, 0.01_dp, 0.0_dp, 'default energy fraction mismatch')
   call write_grouped_config(config_path, 'step_growth = true'//new_line('a')//'step_growth_max = 3'// &
                             new_line('a')//'substep_field_change_max = 0.2')
   call load_app_config(config_path, cfg_explicit)
-  call assert_equal_i32(cfg_explicit%sim%step_growth_max, 3_i32, 'explicit step_growth_max mismatch')
-  call assert_close_dp(cfg_explicit%sim%substep_field_change_max, 0.2_dp, 0.0_dp, 'explicit threshold must be kept')
+  call assert_equal_i32(cfg_explicit%sim%substep%growth_max, 3_i32, 'explicit step_growth_max mismatch')
+  call assert_close_dp(cfg_explicit%sim%substep%field_change_max, 0.2_dp, 0.0_dp, 'explicit threshold must be kept')
   call write_grouped_config(config_path, 'substep_field_change_max = 0.1')
   call load_app_config(config_path, cfg_off)
-  call assert_true(.not. cfg_off%sim%step_growth, 'step_growth stays off by default')
+  call assert_true(.not. cfg_off%sim%substep%growth, 'step_growth stays off by default')
   call delete_file_if_exists(config_path)
   call test_end()
 
@@ -70,8 +70,8 @@ contains
     call assert_equal_i64(stats_off%adaptive_substeps, 0_i64, 'disabled sub-steps must not count sub-steps')
 
     call configure_adaptive_substep_fixture(mesh_on, cfg_on)
-    cfg_on%sim%substep_field_change_max = 0.2_dp
-    cfg_on%sim%substep_max_halvings = 10_i32
+    cfg_on%sim%substep%field_change_max = 0.2_dp
+    cfg_on%sim%substep%max_halvings = 10_i32
     call run_absorption_insulator(mesh_on, cfg_on, stats_on)
     call assert_equal_i64(stats_on%processed_particles, 1_i64, 'adaptive run processes one electron')
     call assert_true(stats_on%adaptive_substep_halved_steps > 0_i64, 'steps near the charged panel must be halved')
@@ -98,8 +98,8 @@ contains
     impact_off = detector_impact(mesh_off)
 
     call configure_detector_fixture(mesh_on, cfg_on)
-    cfg_on%sim%substep_field_change_max = 0.2_dp
-    cfg_on%sim%substep_max_halvings = 10_i32
+    cfg_on%sim%substep%field_change_max = 0.2_dp
+    cfg_on%sim%substep%max_halvings = 10_i32
     call run_absorption_insulator(mesh_on, cfg_on, stats_on)
     impact_on = detector_impact(mesh_on)
 
@@ -165,7 +165,7 @@ contains
     fixture_cfg%sim%batch_count = 1_i32
     fixture_cfg%sim%dt = 1.0e-10_dp
     fixture_cfg%sim%max_step = 400_i32
-    fixture_cfg%sim%field_solver = 'direct'
+    fixture_cfg%sim%solver%method = 'direct'
     fixture_cfg%sim%use_box = .true.
     fixture_cfg%sim%box_min = [-2.0e-4_dp, -2.0e-4_dp, -2.0e-4_dp]
     fixture_cfg%sim%box_max = [2.0e-4_dp, 2.0e-4_dp, 2.0e-4_dp]
@@ -264,9 +264,9 @@ contains
     call assert_equal_i64(stats_plain%adaptive_grown_steps, 0_i64, 'plain run must not grow steps')
 
     call setup_fixture(mesh_grown, cfg_grown, surface_charge)
-    cfg_grown%sim%step_growth = .true.
-    cfg_grown%sim%step_growth_max = 4_i32
-    cfg_grown%sim%substep_field_change_max = 0.05_dp
+    cfg_grown%sim%substep%growth = .true.
+    cfg_grown%sim%substep%growth_max = 4_i32
+    cfg_grown%sim%substep%field_change_max = 0.05_dp
     call seed_particles_from_config(cfg_grown)
     call run_absorption_insulator(mesh_grown, cfg_grown, stats_grown)
     call assert_equal_i64(stats_grown%absorbed, 4_i64, 'grown run should absorb every particle')
@@ -300,7 +300,7 @@ contains
     cfg%sim%dt = 1.0_dp
     cfg%sim%max_step = 400_i32
     cfg%sim%q_floor = 1.0e-30_dp
-    cfg%sim%field_solver = 'direct'
+    cfg%sim%solver%method = 'direct'
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [-1.0_dp, -1.0_dp, -2.0_dp]
     cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]

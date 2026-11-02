@@ -109,7 +109,7 @@ contains
     plate%elem_vacuum_sign = 1_i32
     call default_app_config(app)
     app%write_output = .false.
-    app%sim%field_solver = 'direct'
+    app%sim%solver%method = 'direct'
     app%sim%use_box = .true.
     app%sim%box_min = [-0.5_dp, -0.5_dp, -0.01_dp]
     app%sim%box_max = [0.5_dp, 0.5_dp, 1.0e-4_dp]

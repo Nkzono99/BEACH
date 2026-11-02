@@ -639,7 +639,7 @@ contains
     cfg%sim%dt = 0.6_dp
     cfg%sim%max_step = 1_i32
     cfg%sim%q_floor = 1.0e-30_dp
-    cfg%sim%field_solver = 'direct'
+    cfg%sim%solver%method = 'direct'
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]

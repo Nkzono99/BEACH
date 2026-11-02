@@ -126,7 +126,7 @@ FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、
 `%fmm_core_state` が保持します。旧 FMM の複製 view と未使用の局所展開配列は削除しました。
 診断時は core plan / state を参照し、treecode 用配列から FMM の状態を読まないでください。
 `init` は既存の FMM 作業状態を解放してから再構築します。たとえば、同じ `solver` に対して
-`call solver%init(mesh, sim)` を再度呼び、`sim%field_solver` を切り替えられます。
+`call solver%init(mesh, sim)` を再度呼び、`sim%solver%method` を切り替えられます。
 `refresh(mesh)` は電荷更新に用い、FMM では空メッシュまたは要素数の変更にも対応します。
 同じ要素数で頂点座標を変更した場合は `init` で幾何を再構築してください。
 

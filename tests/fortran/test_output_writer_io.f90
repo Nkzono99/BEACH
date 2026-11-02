@@ -118,7 +118,7 @@ program test_output_writer_io
     out_dir_disabled//'/summary.txt', 'direct', saw_auto_resolved_direct &
     )
   call assert_true(saw_auto_resolved_direct, 'auto field solver receipt should resolve a small mesh to direct')
-  cfg%sim%tree_min_nelem = 2_i32
+  cfg%sim%solver%tree_min_nelem = 2_i32
   call write_result_files(out_dir_disabled, mesh, stats, cfg)
   call scan_resolved_field_solver( &
     out_dir_disabled//'/summary.txt', 'fmm', saw_auto_resolved_fmm &
@@ -241,7 +241,7 @@ program test_output_writer_io
   ledger%injected_count(1) = 1
   ledger%absorbed_count(1) = 1
   cfg%output_dir = out_dir_ledger
-  cfg%sim%field_solver = 'fmm'
+  cfg%sim%solver%method = 'fmm'
   stats%processed_particles = 8
   stats%multiple_box_events_soft_discarded = 2
   call write_result_files(out_dir_ledger, mesh, stats, cfg, charge_ledger=ledger)
@@ -332,7 +332,7 @@ program test_output_writer_io
                                    trim(line) == 'field_reconstruction_periodic_ewald_layers=4'
     saw_field_reconstruction(22) = saw_field_reconstruction(22) .or. &
                                    trim(line) == &
-                                   'field_reconstruction_periodic_cache_dir='//trim(cfg%sim%field_periodic_cache_dir)
+                                   'field_reconstruction_periodic_cache_dir='//trim(cfg%sim%periodic%cache_dir)
     saw_field_reconstruction(23) = saw_field_reconstruction(23) .or. &
                                    index(line, 'field_reconstruction_periodic_generation_tolerance=') == 1
   end do

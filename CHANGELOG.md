@@ -104,6 +104,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `matching_plane_stats` の匿名配列 `response(6)`・`feedback(4)` を名前付きの 6 成分にした。常に 0 だった
   イオンの access 電位・外向き束と、電子の access 電位と同じ値だった光電子の障壁電位は持たず、
   `summary.txt` と `matching_plane_history.csv` には従来どおりの値（0 と同じ電位）を書く。
+- `sim_config` の設定を役割ごとの入れ子の型にまとめた: `sim%solver`（`fields.solver.*`）、
+  `sim%periodic`（`fields.periodic.*` の遠方補正・Ewald・cache）、`sim%substep`（適応サブステップと step の伸長）、
+  `sim%box_events`（複数 box event の扱い）。TOML のキーと既定値は変わらない。
 - surface closure 契約の species 別の並列配列 17 本を、species ごとの record（固定電流目標、closure の経路、
   流入写像と外部障壁）の配列にまとめた（計算結果はビット一致、`summary.txt` は不変）。流入写像と外部障壁の面は
   常に照射セルの壁面なので契約に 1 つだけ持ち、流入写像の access 電位と外部障壁の電位は同じ外部シース経路の

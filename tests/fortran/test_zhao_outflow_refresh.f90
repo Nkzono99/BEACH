@@ -443,7 +443,7 @@ contains
     fixture_cfg%sim%batch_duration = 1.0e-3_dp
     fixture_cfg%sim%max_step = 2000_i32
     fixture_cfg%sim%q_floor = 1.0e-30_dp
-    fixture_cfg%sim%field_solver = 'direct'
+    fixture_cfg%sim%solver%method = 'direct'
     fixture_cfg%sim%field_bc_mode = 'periodic2'
     fixture_cfg%sim%use_box = .true.
     fixture_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]

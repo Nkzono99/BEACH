@@ -747,7 +747,7 @@ contains
     type(sim_config), intent(in) :: sim
     type(sim_stats), intent(in) :: stats
 
-    if (trim(lower_ascii(sim%multiple_box_events_policy)) /= 'soft_discard') return
+    if (trim(lower_ascii(sim%box_events%policy)) /= 'soft_discard') return
     if (stats%processed_particles < 0_i64 .or. stats%multiple_box_events_soft_discarded < 0_i64 .or. &
         stats%multiple_box_events_soft_discarded > stats%processed_particles .or. &
         .not. ieee_is_finite(stats%multiple_box_events_soft_discarded_abs_charge) .or. &
@@ -769,8 +769,8 @@ contains
     real(dp) :: projected_fraction, projected_abs_charge
     logical :: fraction_exceeded, charge_warning
 
-    if (trim(lower_ascii(sim%multiple_box_events_policy)) /= 'soft_discard') return
-    count_grace = int(sim%multiple_box_events_soft_discard_count_grace, i64)
+    if (trim(lower_ascii(sim%box_events%policy)) /= 'soft_discard') return
+    count_grace = int(sim%box_events%soft_discard_count_grace, i64)
     if (batch_count < 0_i64 .or. batch_processed < 0_i64) then
       error stop 'soft-discard batch counters must be nonnegative.'
     end if
@@ -793,17 +793,17 @@ contains
       error stop 'multiple_box_events soft-discard cumulative absolute charge is not finite.'
     end if
     fraction_exceeded = projected_count > count_grace .and. &
-                        projected_fraction > sim%multiple_box_events_soft_discard_fraction_limit
+                        projected_fraction > sim%box_events%soft_discard_fraction_limit
     charge_warning = &
       stats%multiple_box_events_soft_discarded_abs_charge <= &
-      sim%multiple_box_events_soft_discard_abs_charge_limit .and. &
-      projected_abs_charge > sim%multiple_box_events_soft_discard_abs_charge_limit
+      sim%box_events%soft_discard_abs_charge_limit .and. &
+      projected_abs_charge > sim%box_events%soft_discard_abs_charge_limit
 
     if (charge_warning .and. mpi_is_root(mpi)) then
       write (error_unit, '(a,i0,a,es13.5,a,es13.5)') &
         'WARNING: multiple_box_events soft-discard cumulative absolute-charge threshold crossed: batch=', &
         batch_idx, ' abs_charge_C=', projected_abs_charge, &
-        ' particles.tracking.events.discard_charge_warning_c=', sim%multiple_box_events_soft_discard_abs_charge_limit
+        ' particles.tracking.events.discard_charge_warning_c=', sim%box_events%soft_discard_abs_charge_limit
       flush (error_unit)
     end if
     if (.not. fraction_exceeded) return
@@ -813,9 +813,9 @@ contains
         'multiple_box_events soft-discard cumulative fraction limit exceeded: batch=', batch_idx, &
         ' count=', projected_count, ' particles.tracking.events.discard_count_grace=', count_grace, &
         ' processed=', projected_processed, ' fraction=', projected_fraction, &
-        ' particles.tracking.events.discard_fraction_limit=', sim%multiple_box_events_soft_discard_fraction_limit, &
+        ' particles.tracking.events.discard_fraction_limit=', sim%box_events%soft_discard_fraction_limit, &
         ' abs_charge_C=', projected_abs_charge, &
-        ' particles.tracking.events.discard_charge_warning_c=', sim%multiple_box_events_soft_discard_abs_charge_limit
+        ' particles.tracking.events.discard_charge_warning_c=', sim%box_events%soft_discard_abs_charge_limit
       flush (error_unit)
     end if
     error stop 'multiple_box_events soft-discard cumulative fraction limit exceeded.'

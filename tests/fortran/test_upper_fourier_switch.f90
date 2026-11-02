@@ -32,12 +32,12 @@ program test_upper_fourier_switch
   c = a + 0.5_dp*(c - a)
   call init_mesh(mesh, a, b, c, q0=[1.0e-12_dp, -0.3e-12_dp], elem_mesh_id0=[1_i32, 2_i32])
   mesh%elem_vacuum_sign = 1_i32
-  sim%field_solver = 'fmm'
+  sim%solver%method = 'fmm'
   sim%field_bc_mode = 'periodic2'
-  sim%field_periodic_far_correction = 'cached_kneq0'
-  sim%field_periodic_ewald_layers = 3_i32
+  sim%periodic%far_correction = 'cached_kneq0'
+  sim%periodic%ewald_layers = 3_i32
   cache_dir = unique_test_path('test_upper_fourier_switch_tmp_')
-  sim%field_periodic_cache_dir = cache_dir
+  sim%periodic%cache_dir = cache_dir
   sim%use_box = .true.
   sim%box_min = 0.0_dp
   sim%box_max = 1.0_dp

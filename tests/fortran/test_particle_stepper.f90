@@ -176,8 +176,8 @@ contains
 
     call init_single_element_mesh(mesh, 0.0d0)
     sim = sim_config()
-    sim%field_solver = 'direct'
-    sim%field_normalization = 'si'
+    sim%solver%method = 'direct'
+    sim%solver%normalization = 'si'
     sim%e0 = [1.0d0, 0.0d0, 0.0d0]
     call field_solver%init(mesh, sim)
     call field_solver%refresh(mesh)
@@ -210,8 +210,8 @@ contains
 
     call init_single_element_mesh(mesh, 1.0d-10)
     sim = sim_config()
-    sim%field_solver = 'direct'
-    sim%field_normalization = 'si'
+    sim%solver%method = 'direct'
+    sim%solver%normalization = 'si'
     sim%e0 = 0.0d0
     call field_solver%init(mesh, sim)
     call field_solver%refresh(mesh)
@@ -249,8 +249,8 @@ contains
 
     call init_single_element_mesh(mesh, 1.0d-10)
     sim = sim_config()
-    sim%field_solver = 'direct'
-    sim%field_normalization = 'si'
+    sim%solver%method = 'direct'
+    sim%solver%normalization = 'si'
     sim%use_box = .true.
     sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -329,8 +329,8 @@ contains
 
     call init_x_plane_mesh(mesh, mesh_x)
     sim = sim_config()
-    sim%field_solver = 'direct'
-    sim%field_normalization = 'si'
+    sim%solver%method = 'direct'
+    sim%solver%normalization = 'si'
     sim%use_box = .true.
     sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -355,8 +355,8 @@ contains
     call resolve_panel_surface_sides(mesh, 'normal_plus', status, message)
     if (status /= panel_surface_side_ok) error stop 'upper retry panel side setup failed: '//trim(message)
     sim = sim_config()
-    sim%field_solver = 'direct'
-    sim%field_normalization = 'si'
+    sim%solver%method = 'direct'
+    sim%solver%normalization = 'si'
     sim%use_box = .true.
     sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -674,8 +674,8 @@ contains
 
     call init_x_plane_mesh(mesh, 10.0_dp)
     sim = sim_config()
-    sim%field_solver = 'direct'
-    sim%field_normalization = 'si'
+    sim%solver%method = 'direct'
+    sim%solver%normalization = 'si'
     sim%use_box = .true.
     sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     sim%box_max = [0.3_dp, 1.0_dp, 1.0_dp]
@@ -1002,8 +1002,8 @@ contains
 
     call init_x_plane_mesh(mesh, 10.0_dp)
     sim = sim_config()
-    sim%field_solver = 'direct'
-    sim%field_normalization = 'si'
+    sim%solver%method = 'direct'
+    sim%solver%normalization = 'si'
     sim%use_box = .true.
     sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]

@@ -695,7 +695,7 @@ contains
     type(sim_config), intent(out) :: sim
 
     sim = sim_config()
-    sim%field_solver = 'fmm'
+    sim%solver%method = 'fmm'
     sim%field_bc_mode = 'periodic2'
     sim%use_box = .true.
     sim%box_min = [0.0d0, 0.0d0, -1.0d0]

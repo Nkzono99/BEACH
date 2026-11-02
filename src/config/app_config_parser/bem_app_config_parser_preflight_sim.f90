@@ -17,21 +17,21 @@ contains
     error stop 'run.batch.particle_distribution must be "static" or "shared".'
   end if
   if (cfg%sim%particle_pool_chunk < 1_i32) error stop 'run.batch.particle_pool_chunk must be >= 1.'
-  if (.not. ieee_is_finite(cfg%sim%substep_field_change_max) .or. cfg%sim%substep_field_change_max < 0.0_dp) then
+  if (.not. ieee_is_finite(cfg%sim%substep%field_change_max) .or. cfg%sim%substep%field_change_max < 0.0_dp) then
     error stop 'particles.tracking.substep_field_change_max must be finite and >= 0.'
   end if
-  if (cfg%sim%substep_max_halvings < 0_i32 .or. cfg%sim%substep_max_halvings > 16_i32) then
+  if (cfg%sim%substep%max_halvings < 0_i32 .or. cfg%sim%substep%max_halvings > 16_i32) then
     error stop 'particles.tracking.substep_max_halvings must be between 0 and 16.'
   end if
-  if (cfg%sim%step_growth_max < 1_i32 .or. cfg%sim%step_growth_max > 16_i32) then
+  if (cfg%sim%substep%growth_max < 1_i32 .or. cfg%sim%substep%growth_max > 16_i32) then
     error stop 'particles.tracking.step_growth_max must be between 1 and 16.'
   end if
-  if (.not. ieee_is_finite(cfg%sim%step_growth_energy_fraction) .or. cfg%sim%step_growth_energy_fraction <= 0.0_dp .or. &
-      cfg%sim%step_growth_energy_fraction > 1.0_dp) then
+  if (.not. ieee_is_finite(cfg%sim%substep%growth_energy_fraction) .or. cfg%sim%substep%growth_energy_fraction <= 0.0_dp .or. &
+      cfg%sim%substep%growth_energy_fraction > 1.0_dp) then
     error stop 'particles.tracking.step_growth_energy_fraction must be in (0, 1].'
   end if
   ! Step growth reuses the sub-step criterion; without an explicit threshold use a conservative default.
-  if (cfg%sim%step_growth .and. cfg%sim%substep_field_change_max <= 0.0_dp) cfg%sim%substep_field_change_max = 0.05_dp
+  if (cfg%sim%substep%growth .and. cfg%sim%substep%field_change_max <= 0.0_dp) cfg%sim%substep%field_change_max = 0.05_dp
   if (cfg%sim%q_floor <= 0.0_dp) error stop 'output.diagnostics.charge_floor_c must be > 0.'
   if (.not. ieee_is_finite(cfg%sim%tol_rel) .or. cfg%sim%tol_rel < 0.0_dp) then
     error stop 'output.diagnostics.charge_rel_change_threshold must be finite and >= 0.'

@@ -237,7 +237,7 @@ contains
     cfg%checkpoint_stride = 0_i32
     cfg%resume_output = .false.
     cfg%sim = sim_config()
-    cfg%sim%field_periodic_cache_dir = default_periodic_cache_directory(missing_ok=.true.)
+    cfg%sim%periodic%cache_dir = default_periodic_cache_directory(missing_ok=.true.)
     allocate (cfg%mesh_parts(max_templates))
     allocate (cfg%particle_species(max_particle_species))
     cfg%particle_species = particle_species_spec()

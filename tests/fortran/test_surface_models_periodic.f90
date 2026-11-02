@@ -40,7 +40,7 @@ contains
     call periodic_plate_fixture(v0, v1, v2, q0, mesh_ids, surface_models)
     call init_periodic_mesh(mesh, v0, v1, v2, q0, mesh_ids, surface_models)
     call configure_periodic_cell(sim, periodic_config)
-    sim%field_periodic_cache_dir = cache_dir
+    sim%periodic%cache_dir = cache_dir
     call snapshot%init(mesh, sim, periodic_config)
     cache_path = snapshot%diagnostics%periodic_cache_path
 
@@ -74,8 +74,8 @@ contains
     call periodic_plate_fixture(v0, v1, v2, q0, mesh_ids, surface_models)
     call init_periodic_mesh(mesh, v0, v1, v2, q0, mesh_ids, surface_models)
     call configure_periodic_cell(sim, periodic_config)
-    sim%field_solver = 'direct'
-    sim%field_periodic_far_correction = 'none'
+    sim%solver%method = 'direct'
+    sim%periodic%far_correction = 'none'
     periodic_config = periodic2_physics_config( &
                       nonzero_mode_backend='panel_spectral_reference', zero_mode_policy='exclude_k0', &
                       lower_boundary_model='symmetric_vacuum', reference_mode_layers=6_i32, panel_quadrature_order=12_i32 &
@@ -137,17 +137,17 @@ contains
     type(periodic2_physics_config), intent(out) :: periodic_config
 
     sim = sim_config()
-    sim%field_solver = 'fmm'
+    sim%solver%method = 'fmm'
     sim%field_bc_mode = 'periodic2'
-    sim%field_periodic_far_correction = 'cached_kneq0'
-    sim%field_periodic_image_layers = 1_i32
-    sim%field_periodic_ewald_layers = 3_i32
-    sim%field_periodic_generation_tolerance = 1.0e-8_dp
-    sim%field_normalization = 'si'
-    sim%tree_theta = 0.5_dp
-    sim%has_tree_theta = .true.
-    sim%tree_leaf_max = 8_i32
-    sim%has_tree_leaf_max = .true.
+    sim%periodic%far_correction = 'cached_kneq0'
+    sim%periodic%image_layers = 1_i32
+    sim%periodic%ewald_layers = 3_i32
+    sim%periodic%generation_tolerance = 1.0e-8_dp
+    sim%solver%normalization = 'si'
+    sim%solver%tree_theta = 0.5_dp
+    sim%solver%has_tree_theta = .true.
+    sim%solver%tree_leaf_max = 8_i32
+    sim%solver%has_tree_leaf_max = .true.
     sim%e0 = [0.2_dp, -0.1_dp, 0.3_dp]
     sim%use_box = .true.
     sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]

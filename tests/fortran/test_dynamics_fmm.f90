@@ -47,9 +47,9 @@ contains
     mesh_fmm%q_elem = 1.0d-12
 
     sim = sim_config()
-    sim%field_solver = 'fmm'
+    sim%solver%method = 'fmm'
     sim%field_bc_mode = 'free'
-    sim%tree_min_nelem = 64_i32
+    sim%solver%tree_min_nelem = 64_i32
     sim%use_box = .true.
     sim%box_min = [0.0d0, 0.0d0, -1.0d0]
     sim%box_max = [1.0d0, 1.0d0, 1.0d0]
@@ -106,13 +106,13 @@ contains
     call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
-    sim%field_solver = 'fmm'
+    sim%solver%method = 'fmm'
     sim%field_bc_mode = 'periodic2'
-    sim%field_periodic_far_correction = 'none'
-    sim%field_periodic_image_layers = 2_i32
-    sim%tree_leaf_max = 128_i32
-    sim%has_tree_leaf_max = .true.
-    sim%tree_min_nelem = 64_i32
+    sim%periodic%far_correction = 'none'
+    sim%periodic%image_layers = 2_i32
+    sim%solver%tree_leaf_max = 128_i32
+    sim%solver%has_tree_leaf_max = .true.
+    sim%solver%tree_min_nelem = 64_i32
     sim%use_box = .true.
     sim%box_min = [0.0d0, 0.0d0, -1.0d0]
     sim%box_max = [1.0d0, 1.0d0, 1.0d0]
@@ -133,7 +133,7 @@ contains
     do i = 1_i32, int(size(queries, 2), i32)
       r = queries(:, i)
       call electric_field_at_periodic2_images( &
-        mesh_fmm, r, sim%box_min, sim%box_max, [1_i32, 2_i32], sim%field_periodic_image_layers, e_direct &
+        mesh_fmm, r, sim%box_min, sim%box_max, [1_i32, 2_i32], sim%periodic%image_layers, e_direct &
         )
       call solver%eval_e(mesh_fmm, r, e_fmm)
       call assert_true(all(ieee_is_finite(e_direct)), 'periodic image oracle field must be finite')
@@ -167,14 +167,14 @@ contains
     mesh_fmm%q_elem = 1.0d-12
 
     sim_auto = sim_config()
-    sim_auto%field_solver = 'fmm'
+    sim_auto%solver%method = 'fmm'
     sim_auto%field_bc_mode = 'periodic2'
-    sim_auto%field_periodic_far_correction = 'auto'
-    sim_auto%field_periodic_image_layers = 1_i32
-    sim_auto%field_periodic_ewald_layers = 2_i32
-    sim_auto%tree_leaf_max = 128_i32
-    sim_auto%has_tree_leaf_max = .true.
-    sim_auto%tree_min_nelem = 64_i32
+    sim_auto%periodic%far_correction = 'auto'
+    sim_auto%periodic%image_layers = 1_i32
+    sim_auto%periodic%ewald_layers = 2_i32
+    sim_auto%solver%tree_leaf_max = 128_i32
+    sim_auto%solver%has_tree_leaf_max = .true.
+    sim_auto%solver%tree_min_nelem = 64_i32
     sim_auto%use_box = .true.
     sim_auto%box_min = [0.0d0, 0.0d0, -1.0d0]
     sim_auto%box_max = [1.0d0, 1.0d0, 1.0d0]
@@ -183,7 +183,7 @@ contains
     call solver_auto%init(mesh_fmm, sim_auto)
 
     sim_none = sim_auto
-    sim_none%field_periodic_far_correction = 'none'
+    sim_none%periodic%far_correction = 'none'
     call solver_none%init(mesh_fmm, sim_none)
 
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]

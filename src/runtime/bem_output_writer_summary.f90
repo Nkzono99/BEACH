@@ -85,7 +85,7 @@ contains
   write (u, '(a,i0)') 'adaptive_substeps=', stats%adaptive_substeps
   write (u, '(a,i0)') 'adaptive_substep_depth_limited_steps=', stats%adaptive_substep_depth_limited_steps
   write (u, '(a,i0)') 'adaptive_grown_steps=', stats%adaptive_grown_steps
-  write (u, '(a,i0)') 'adaptive_step_growth_max=', merge(cfg%sim%step_growth_max, 0_i32, cfg%sim%step_growth)
+  write (u, '(a,i0)') 'adaptive_step_growth_max=', merge(cfg%sim%substep%growth_max, 0_i32, cfg%sim%substep%growth)
   write (u, '(a,a)') 'particle_distribution=', trim(cfg%sim%particle_distribution)
   write (u, '(a,i0)') 'particle_pool_claims=', stats%particle_pool_claims
   write (u, '(a,es24.16)') 'particle_pool_claim_seconds=', stats%particle_pool_claim_seconds
@@ -126,7 +126,7 @@ contains
   write (u, '(a)') 'field_reconstruction_schema_version=2'
   write (u, '(a,a)') 'field_reconstruction_resolved_field_solver=', trim(resolved_field_solver)
   write (u, '(a,i0)') 'field_reconstruction_fmm_expansion_order=', field_solver_fmm_expansion_order
-  write (u, '(a,a)') 'field_near_field_precision=', trim(cfg%sim%near_field_precision)
+  write (u, '(a,a)') 'field_near_field_precision=', trim(cfg%sim%solver%near_field_precision)
   write (u, '(a,a)') 'field_reconstruction_field_bc_mode=', trim(cfg%sim%field_bc_mode)
   write (u, '(a,es24.16)') 'field_reconstruction_tree_theta=', resolved_tree_theta
   write (u, '(a,i0)') 'field_reconstruction_tree_leaf_max=', resolved_tree_leaf_max
@@ -136,9 +136,9 @@ contains
   write (u, '(a,3(1x,es24.16))') 'field_reconstruction_box_max_m=', cfg%sim%box_max
   write (u, '(a,3(1x,i0))') 'field_reconstruction_boundary_low=', cfg%sim%bc_low
   write (u, '(a,3(1x,i0))') 'field_reconstruction_boundary_high=', cfg%sim%bc_high
-  write (u, '(a,i0)') 'field_reconstruction_periodic_image_layers=', cfg%sim%field_periodic_image_layers
+  write (u, '(a,i0)') 'field_reconstruction_periodic_image_layers=', cfg%sim%periodic%image_layers
   write (u, '(a,a)') 'field_reconstruction_periodic_far_correction=', &
-    trim(cfg%sim%field_periodic_far_correction)
+    trim(cfg%sim%periodic%far_correction)
   write (u, '(a,a)') 'field_reconstruction_periodic_nonzero_mode_backend=', &
     trim(cfg%periodic2%nonzero_mode_backend)
   write (u, '(a,a)') 'field_reconstruction_periodic_zero_mode_policy=', &
@@ -149,13 +149,13 @@ contains
     cfg%periodic2%reference_mode_layers
   write (u, '(a,i0)') 'field_reconstruction_periodic_panel_quadrature_order=', &
     cfg%periodic2%panel_quadrature_order
-  write (u, '(a,es24.16)') 'field_reconstruction_periodic_ewald_alpha=', cfg%sim%field_periodic_ewald_alpha
-  write (u, '(a,i0)') 'field_reconstruction_periodic_ewald_layers=', cfg%sim%field_periodic_ewald_layers
-  periodic_cache_dir = cfg%sim%field_periodic_cache_dir
+  write (u, '(a,es24.16)') 'field_reconstruction_periodic_ewald_alpha=', cfg%sim%periodic%ewald_alpha
+  write (u, '(a,i0)') 'field_reconstruction_periodic_ewald_layers=', cfg%sim%periodic%ewald_layers
+  periodic_cache_dir = cfg%sim%periodic%cache_dir
   if (len_trim(periodic_cache_dir) == 0) periodic_cache_dir = default_periodic_cache_directory(missing_ok=.true.)
   write (u, '(a,a)') 'field_reconstruction_periodic_cache_dir=', trim(periodic_cache_dir)
   write (u, '(a,es24.16)') 'field_reconstruction_periodic_generation_tolerance=', &
-    cfg%sim%field_periodic_generation_tolerance
+    cfg%sim%periodic%generation_tolerance
   write (u, '(a,a)') 'periodic2_nonzero_mode_backend=', trim(cfg%periodic2%nonzero_mode_backend)
   write (u, '(a,a)') 'periodic2_zero_mode_policy=', trim(cfg%periodic2%zero_mode_policy)
   write (u, '(a,a)') 'periodic2_lower_boundary_model=', trim(cell%lower_boundary_model)
@@ -163,7 +163,7 @@ contains
     cfg%periodic2%max_nonzero_mode_potential_step
   write (u, '(a,a)') 'periodic2_cache_dir=', trim(periodic_cache_dir)
   write (u, '(a,es24.16)') 'periodic2_generation_tolerance=', &
-    cfg%sim%field_periodic_generation_tolerance
+    cfg%sim%periodic%generation_tolerance
   write (u, '(a,a)') 'reservoir_inflow_map=', trim(external_inflow_map_name(cfg%boundary_contract%inflow_map))
   write (u, '(a,a)') 'surface_current_model=', trim(current_model%model)
   write (u, '(a,es24.16)') 'surface_current_model_top_field_V_m=', stats%matching_plane%top_field_v_m

@@ -22,8 +22,8 @@ program test_physics_config_types
 
   call test_begin('free_field_normalization')
   sim = sim_config()
-  sim%field_solver = 'treecode'
-  sim%field_normalization = 'mesh'
+  sim%solver%method = 'treecode'
+  sim%solver%normalization = 'mesh'
   sim%field_bc_mode = 'free'
   call normalize_legacy_physics_config(sim, periodic2)
   call derive_field_panel_config(sim, field, panel)
@@ -37,7 +37,7 @@ program test_physics_config_types
 
   call test_begin('upper_panel_fourier_retry_contract')
   call configure_xy_periodic(sim, 'fmm', 'cached_kneq0')
-  sim%multiple_box_events_retry_backend = 'upper_panel_fourier'
+  sim%box_events%retry_backend = 'upper_panel_fourier'
   call normalize_legacy_physics_config(sim, periodic2)
   call derive_field_panel_config(sim, field, panel)
   call validate_active_physics_config(sim, field, periodic2, panel, status, message)
@@ -60,11 +60,11 @@ program test_physics_config_types
   call assert_equal_i32(status, physics_config_unavailable, 'legacy periodic2 requires x/y periodic axes')
   sim%bc_low = [bc_periodic, bc_periodic, bc_open]
   sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-  sim%field_periodic_far_correction = 'auto'
+  sim%periodic%far_correction = 'auto'
   call normalize_legacy_physics_config(sim, periodic2)
   call derive_field_panel_config(sim, field, panel)
   call assert_true(trim(periodic2%nonzero_mode_backend) == 'legacy_finite_images', 'auto must select finite images')
-  sim%field_periodic_far_correction = 'unknown'
+  sim%periodic%far_correction = 'unknown'
   call normalize_legacy_physics_config(sim, periodic2)
   call derive_field_panel_config(sim, field, panel)
   call validate_active_physics_config(sim, field, periodic2, panel, status, message)
@@ -204,9 +204,9 @@ contains
     character(len=*), intent(in) :: solver, far_correction
 
     config = sim_config()
-    config%field_solver = solver
+    config%solver%method = solver
     config%field_bc_mode = 'periodic2'
-    config%field_periodic_far_correction = far_correction
+    config%periodic%far_correction = far_correction
     config%use_box = .true.
     config%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     config%box_max = [1.0_dp, 1.0_dp, 1.0_dp]

@@ -220,7 +220,7 @@ contains
     type(periodic2_physics_config) :: periodic_config
 
     sim = sim_config()
-    sim%field_solver = 'direct'
+    sim%solver%method = 'direct'
     sim%e0 = external_e
     periodic_config = periodic2_physics_config()
     call snapshot%init(mesh, sim, periodic_config)

@@ -154,7 +154,7 @@ program test_simulator_loop
   call init_mesh(mesh_tree, v0, v1, v2)
   mesh_tree%elem_vacuum_sign = 1_i32
   cfg_tree = cfg
-  cfg_tree%sim%field_solver = 'treecode'
+  cfg_tree%sim%solver%method = 'treecode'
   call normalize_legacy_physics_config(cfg_tree%sim, cfg_tree%periodic2)
   call seed_particles_from_config(cfg_tree)
   call run_absorption_insulator(mesh_tree, cfg_tree, stats_tree)
@@ -172,7 +172,7 @@ program test_simulator_loop
   call init_mesh(mesh_potential_history, v0, v1, v2)
   mesh_potential_history%elem_vacuum_sign = 1_i32
   cfg_potential_history = cfg
-  cfg_potential_history%sim%field_solver = 'fmm'
+  cfg_potential_history%sim%solver%method = 'fmm'
   cfg_potential_history%sim%batch_duration = 1.0_dp
   call normalize_legacy_physics_config(cfg_potential_history%sim, cfg_potential_history%periodic2)
   call seed_particles_from_config(cfg_potential_history)

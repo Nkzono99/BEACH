@@ -477,11 +477,11 @@ contains
     soft_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     soft_cfg%sim%bc_low(1) = bc_reflect
     soft_cfg%sim%bc_high(1) = bc_reflect
-    soft_cfg%sim%multiple_box_events_policy = 'soft_discard'
-    soft_cfg%sim%multiple_box_events_retry_backend = 'upper_panel_fourier'
-    soft_cfg%sim%multiple_box_events_soft_discard_count_grace = 100000_i32
-    soft_cfg%sim%multiple_box_events_soft_discard_fraction_limit = 1.0_dp
-    soft_cfg%sim%multiple_box_events_soft_discard_abs_charge_limit = 1.0e9_dp
+    soft_cfg%sim%box_events%policy = 'soft_discard'
+    soft_cfg%sim%box_events%retry_backend = 'upper_panel_fourier'
+    soft_cfg%sim%box_events%soft_discard_count_grace = 100000_i32
+    soft_cfg%sim%box_events%soft_discard_fraction_limit = 1.0_dp
+    soft_cfg%sim%box_events%soft_discard_abs_charge_limit = 1.0e9_dp
     soft_cfg%n_particle_species = 1_i32
     soft_cfg%particle_species(1) = species_from_defaults()
     soft_cfg%particle_species(1)%source_mode = 'volume_seed'
@@ -902,7 +902,7 @@ contains
     cfg%sim%dt = 0.1_dp
     cfg%sim%max_step = 20_i32
     cfg%sim%q_floor = 1.0e-30_dp
-    cfg%sim%field_solver = 'direct'
+    cfg%sim%solver%method = 'direct'
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -985,7 +985,7 @@ contains
     cfg%sim%dt = 0.6_dp
     cfg%sim%max_step = 1_i32
     cfg%sim%q_floor = 1.0e-30_dp
-    cfg%sim%field_solver = 'direct'
+    cfg%sim%solver%method = 'direct'
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]

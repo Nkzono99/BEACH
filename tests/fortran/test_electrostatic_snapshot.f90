@@ -28,7 +28,7 @@ program test_electrostatic_snapshot
   call init_mesh(mesh, v0(:, :1), v1(:, :1), v2(:, :1), q0=[0.0_dp])
   mesh%elem_vacuum_sign = 1_i32
   sim = sim_config()
-  sim%field_solver = 'direct'
+  sim%solver%method = 'direct'
   sim%e0 = [2.0_dp, -3.0_dp, 4.0_dp]
   periodic_config = periodic2_physics_config()
   call snapshot%init(mesh, sim, periodic_config)
@@ -53,7 +53,7 @@ program test_electrostatic_snapshot
   call init_mesh(mesh, v0(:, :1), v1(:, :1), v2(:, :1), q0=[2.0e-12_dp])
   mesh%elem_vacuum_sign = 1
   sim = sim_config()
-  sim%field_solver = 'direct'
+  sim%solver%method = 'direct'
   sim%field_bc_mode = 'periodic2'
   sim%use_box = .true.
   sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
@@ -111,7 +111,7 @@ program test_electrostatic_snapshot
   call init_mesh(mesh, v0, v1, v2, q0=[2.0e-12_dp, -0.5e-12_dp])
   mesh%elem_vacuum_sign = 1_i32
   sim = sim_config()
-  sim%field_solver = 'direct'
+  sim%solver%method = 'direct'
   sim%e0 = [1.0_dp, -2.0_dp, 3.0_dp]
   periodic_config = periodic2_physics_config()
   call snapshot%init(mesh, sim, periodic_config)
