@@ -1,6 +1,6 @@
 !> lint 済みの設定から電場・流束・粒子重みを導出し、計算結果を検査する。
 submodule(bem_app_config_parser) bem_app_config_parser_validate
-  use bem_config_helpers, only: resolve_inward_normal, species_number_density_m3, species_temperature_k, &
+  use bem_config_helpers, only: resolve_inward_normal, &
                                 boundary_face_name, boundary_inflow_face_enabled
   implicit none
 contains
@@ -63,7 +63,7 @@ contains
     call resolve_inward_normal(face_name, inward_normal)
     area = compute_face_area_from_bounds(face_name, cfg%sim%box_min, cfg%sim%box_max)
     gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
-               species_number_density_m3(spec), species_temperature_k(spec), spec%m_particle, &
+               spec%number_density_m3, spec%temperature_k, spec%m_particle, &
                spec%drift_velocity, inward_normal &
                )
     physical_rate = physical_rate + gamma_in*area
@@ -104,7 +104,7 @@ contains
   if (.not. cfg%sim%use_box) error stop "photo_raycast requires a finite [domain]"
   if (cfg%sim%batch_duration <= 0.0_dp) error stop "photo_raycast requires run.batch.duration_s > 0"
   if (spec%m_particle <= 0.0_dp) error stop "particle mass [kg] must be > 0"
-  if (species_temperature_k(spec) < 0.0_dp) error stop "temperature [K] must be >= 0"
+  if (spec%temperature_k < 0.0_dp) error stop "temperature [K] must be >= 0"
 
   cfg%particle_species(species_idx) = spec
   end procedure resolve_photo_raycast_direction
@@ -129,11 +129,7 @@ contains
       end if
     end if
 
-    if (spec%has_number_density_cm3 .and. spec%has_number_density_m3) then
-      error stop 'Specify either '//species_config_path(species_idx)//'.distribution.number_density_cm3 or '// &
-        species_config_path(species_idx)//'.distribution.number_density_m3, not both.'
-    end if
-    if (.not. ieee_is_finite(species_number_density_m3(spec)) .or. species_number_density_m3(spec) <= 0.0_dp) then
+    if (.not. ieee_is_finite(spec%number_density_m3) .or. spec%number_density_m3 <= 0.0_dp) then
       error stop species_config_path(species_idx)// &
         '.distribution must resolve to a finite number density > 0.'
     end if

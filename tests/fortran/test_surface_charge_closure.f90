@@ -1,6 +1,7 @@
 !> 粒子の表面電荷 closure（neutral_return、fixed_current とその外部根・相手種・反射電子の扱い）を検証する。
 program test_surface_charge_closure
   use bem_kinds, only: dp, i32, i64
+  use bem_constants, only: kelvin_per_ev
   use bem_mesh, only: init_mesh
   use bem_simulator, only: run_absorption_insulator, apply_fixed_surface_current_closure
   use bem_surface_closure_contract, only: surface_closure_contract_type
@@ -459,8 +460,7 @@ contains
     zhao_cfg%particle_species(1)%q_particle = -1.0_dp
     zhao_cfg%particle_species(1)%m_particle = electron_mass
     zhao_cfg%particle_species(1)%w_particle = 1.0_dp
-    zhao_cfg%particle_species(1)%temperature_ev = 12.0_dp
-    zhao_cfg%particle_species(1)%has_temperature_ev = .true.
+    zhao_cfg%particle_species(1)%temperature_k = 12.0_dp*kelvin_per_ev
     zhao_cfg%particle_species(1)%drift_velocity = 0.0_dp
     zhao_cfg%particle_species(1)%pos_low = [5.0e6_dp, 5.0e6_dp, 9.0e5_dp]
     zhao_cfg%particle_species(1)%pos_high = zhao_cfg%particle_species(1)%pos_low
@@ -474,8 +474,7 @@ contains
     zhao_cfg%particle_species(2)%m_particle = proton_mass
     zhao_cfg%particle_species(2)%w_particle = 1.0_dp
     zhao_cfg%particle_species(2)%number_density_m3 = 8.7e6_dp
-    zhao_cfg%particle_species(2)%temperature_ev = 0.1_dp
-    zhao_cfg%particle_species(2)%has_temperature_ev = .true.
+    zhao_cfg%particle_species(2)%temperature_k = 0.1_dp*kelvin_per_ev
     zhao_cfg%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -inward_speed]
     zhao_cfg%particle_species(2)%pos_low = [5.0e6_dp, 5.0e6_dp, 9.0e5_dp]
     zhao_cfg%particle_species(2)%pos_high = zhao_cfg%particle_species(2)%pos_low
@@ -492,8 +491,7 @@ contains
     zhao_cfg%particle_species(photo_idx)%surface_charge_closure = 'fixed_current'
     zhao_cfg%particle_species(photo_idx)%q_particle = -1.0_dp
     zhao_cfg%particle_species(photo_idx)%m_particle = electron_mass
-    zhao_cfg%particle_species(photo_idx)%temperature_ev = 2.2_dp
-    zhao_cfg%particle_species(photo_idx)%has_temperature_ev = .true.
+    zhao_cfg%particle_species(photo_idx)%temperature_k = 2.2_dp*kelvin_per_ev
     zhao_cfg%particle_species(photo_idx)%normal_drift_speed = 1.0e6_dp
     zhao_cfg%particle_species(photo_idx)%inject_face = 'z_high'
     zhao_cfg%particle_species(photo_idx)%pos_low = [0.0_dp, 0.0_dp, 1.0e6_dp]

@@ -17,6 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- 粒子種の密度と温度は読み込み時に内部単位（m^-3、K）へ換算し、`particle_species_spec` は
+  `number_density_m3` と `temperature_k` だけを持つ（`number_density_cm3`・`temperature_ev` と指定フラグ、
+  換算関数 `species_number_density_m3`・`species_temperature_k` を削除）。文書どおり単位違いの同時指定は排他にし、
+  `distribution.temperature_ev` と `distribution.temperature_k` の両方を書くと設定エラーになる（従来は eV を
+  黙って優先していた）。密度の排他も境界流入の種だけでなく全種で検査する。schema も温度の排他を表す。計算結果はビット一致。
 - 公式チュートリアルと `beachx config init` が生成する設定を、プラズマ中の浮遊金属板の帯電に替えた
   （`examples/tutorial_floating_plate.toml`）。密度 1 cm⁻³、温度 1 eV の電子と陽子を z-high 面から境界 reservoir
   （`source_vdf`）で流入させ、x/y 周期（`periodic2`、`cached_kneq0`）の浮遊導体平面が、電子と陽子の電流が釣り合う

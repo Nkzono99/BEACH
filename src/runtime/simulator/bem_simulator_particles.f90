@@ -2,7 +2,6 @@
 submodule(bem_simulator) bem_simulator_particles
   use bem_constants, only: qe, k_boltzmann
   use bem_secondary_emission
-  use bem_config_helpers, only: species_temperature_k
   use bem_photoelectron_injection, only: sample_photo_emission_velocity, build_tangent_basis, &
                                          canonicalize_periodic_emission_position
   use bem_particles, only: allocate_particles, extend_particles, reserve_particles, particle_capacity
@@ -491,7 +490,7 @@ contains
     workspace%secondary_values_thread(1, incident, thread) = &
       workspace%secondary_values_thread(1, incident, thread) + real(count, dp)*charge
     call build_tangent_basis(normal, tangent1, tangent2)
-    sigma = sqrt(k_boltzmann*species_temperature_k(app%particle_species(target))/app%particle_species(target)%m_particle)
+    sigma = sqrt(k_boltzmann*app%particle_species(target)%temperature_k/app%particle_species(target)%m_particle)
     child%x = position + 1.0e-12_dp*normal
     call canonicalize_periodic_emission_position(app%sim, child%x)
     child%w = pcls_batch%w(parent)

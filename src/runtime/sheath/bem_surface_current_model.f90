@@ -7,7 +7,6 @@ module bem_surface_current_model
   use bem_irradiation_cell_contract, only: &
     irradiation_cell_contract_type, resolve_irradiation_cell_contract, irradiation_cell_ok
   use bem_surface_closure_contract, only: surface_closure_contract_type
-  use bem_config_helpers, only: species_number_density_m3, species_temperature_k
   use sheath_model, only: plasma_input, sheath_solver, sheath_matching_conditions, sheath_matching_iteration, &
                           emission_source, maxwellian_emission, observed_outflow_source, emitted_fluxes, SHEATH_OK
   use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
@@ -277,10 +276,10 @@ contains
     electron_idx = species_index(app, app%surface_current%electron_species)
     density_m3 = 0.0_dp
     ! PEなしでは源密度0のMaxwell源を渡す。温度は解に寄与しない。
-    temperature_ev = species_temperature_k(app%particle_species(electron_idx))*k_boltzmann/qe
+    temperature_ev = app%particle_species(electron_idx)%temperature_k*k_boltzmann/qe
     if (app%surface_current%photoelectron_source_scale <= 0.0_dp) return
     photo_idx = species_index(app, app%surface_current%photoelectron_species)
-    temperature_ev = species_temperature_k(app%particle_species(photo_idx))*k_boltzmann/qe
+    temperature_ev = app%particle_species(photo_idx)%temperature_k*k_boltzmann/qe
     density_m3 = app%surface_current%photoelectron_source_scale*app%surface_current%photoelectron_ref_density_m3* &
                  sin(app%surface_current%solar_elevation_deg*pi/180.0_dp)
   end subroutine surface_photoelectron_source
@@ -342,9 +341,9 @@ contains
 
     electron_idx = species_index(app, app%surface_current%electron_species)
     ion_idx = species_index(app, app%surface_current%ion_species)
-    plasma%ion_density_m3 = species_number_density_m3(app%particle_species(ion_idx))
-    plasma%electron_temperature_ev = species_temperature_k(app%particle_species(electron_idx))*k_boltzmann/qe
-    plasma%ion_temperature_ev = species_temperature_k(app%particle_species(ion_idx))*k_boltzmann/qe
+    plasma%ion_density_m3 = app%particle_species(ion_idx)%number_density_m3
+    plasma%electron_temperature_ev = app%particle_species(electron_idx)%temperature_k*k_boltzmann/qe
+    plasma%ion_temperature_ev = app%particle_species(ion_idx)%temperature_k*k_boltzmann/qe
     plasma%ion_pressure_factor = app%surface_current%zhao_ion_pressure_factor
     plasma%electron_drift_mps = -cell%outward_normal_velocity(app%particle_species(electron_idx)%drift_velocity)
     plasma%ion_entry_speed_mps = -cell%outward_normal_velocity(app%particle_species(ion_idx)%drift_velocity)

@@ -143,7 +143,7 @@ def generate_schema(schema):
         'items':{'$ref':'#/$defs/groupedSpecies'}})
     distribution=species['properties']['distribution']
     distribution['allOf']=[{'not':{'required':list(pair)}} for pair in
-                          [('number_density_cm3','number_density_m3')]]
+                          [('number_density_cm3','number_density_m3'),('temperature_ev','temperature_k')]]
     descriptions={
         'run':'Batch clock, stopping target, random seed, and restart.',
         'domain':'Finite box geometry and periodic topology.',

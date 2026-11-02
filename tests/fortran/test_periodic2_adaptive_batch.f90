@@ -2,7 +2,7 @@
 program test_periodic2_adaptive_batch
 !$ use omp_lib
   use bem_kinds, only: dp, i32, i64
-  use bem_constants, only: eps0, qe
+  use bem_constants, only: eps0, qe, kelvin_per_ev
   use bem_types, only: mesh_type, sim_config, sim_stats
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
@@ -84,8 +84,7 @@ contains
     adaptive_cfg%particle_species(1)%inject_face = 'z_high'
     adaptive_cfg%particle_species(1)%q_particle = -qe
     adaptive_cfg%particle_species(1)%m_particle = electron_mass
-    adaptive_cfg%particle_species(1)%temperature_ev = 0.0_dp
-    adaptive_cfg%particle_species(1)%has_temperature_ev = .true.
+    adaptive_cfg%particle_species(1)%temperature_k = 0.0_dp
     adaptive_cfg%particle_species(1)%normal_drift_speed = 1.0_dp
     adaptive_cfg%particle_species(1)%emit_current_density_a_m2 = emit_current_density
     adaptive_cfg%particle_species(1)%rays_per_batch = 1_i32

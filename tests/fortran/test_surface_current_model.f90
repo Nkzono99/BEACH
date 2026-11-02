@@ -2,7 +2,7 @@
 program test_surface_current_model
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
-  use bem_constants, only: qe
+  use bem_constants, only: qe, kelvin_per_ev
   use bem_types, only: bc_open, bc_periodic
   use bem_app_config, only: app_config, default_app_config
   use bem_app_config_types, only: particle_species_spec
@@ -97,7 +97,7 @@ program test_surface_current_model
   call configure_zhao_fixture(cfg)
   call evaluate_surface_current_model(cfg, result)
   cold_phi_m = result%phi_m_v
-  cfg%particle_species(2)%temperature_ev = 10.0_dp
+  cfg%particle_species(2)%temperature_k = 10.0_dp*kelvin_per_ev
   cfg%surface_current%zhao_ion_pressure_factor = 3.0_dp
   call evaluate_surface_current_model(cfg, result)
   call assert_true(result%active .and. result%zhao_branch == 'A', 'warm-ion Zhao root must stay Type A')
@@ -335,7 +335,7 @@ program test_surface_current_model
   ! 三層レゴリスの流出に似た、2.2 eV の本体（85%）と加速された 40 eV の裾（15%）。平均 7.87 eV は裾で決まり、
   ! 同じ平均の半Maxwellへ縮約すると障壁を越える電子を過大に数えて A の根を失う。スペクトルのままなら A の根がある。
   call configure_zhao_fixture(cfg)
-  cfg%particle_species(1)%temperature_ev = 10.0_dp
+  cfg%particle_species(1)%temperature_k = 10.0_dp*kelvin_per_ev
   cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -4.0e5_dp]
   cfg%particle_species(2)%number_density_m3 = 5.0e6_dp
   cfg%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -4.0e5_dp]
@@ -608,8 +608,7 @@ contains
     app%particle_species(1)%species_key = 'electron'
     app%particle_species(1)%q_particle = -1.602176634e-19_dp
     app%particle_species(1)%m_particle = 9.1093837015e-31_dp
-    app%particle_species(1)%temperature_ev = 12.0_dp
-    app%particle_species(1)%has_temperature_ev = .true.
+    app%particle_species(1)%temperature_k = 12.0_dp*kelvin_per_ev
     app%particle_species(1)%drift_velocity = 0.0_dp
     app%particle_species(2)%species_key = 'ion'
     app%particle_species(2)%q_particle = 1.602176634e-19_dp
@@ -617,13 +616,11 @@ contains
     app%particle_species(2)%number_density_m3 = 8.7e6_dp
     app%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -inward_speed]
     ! 既知の根は冷たいイオンで解いたもの。温かいイオンは別のテストで調べる。
-    app%particle_species(2)%temperature_ev = 0.0_dp
-    app%particle_species(2)%has_temperature_ev = .true.
+    app%particle_species(2)%temperature_k = 0.0_dp
     app%particle_species(3)%species_key = 'photoelectron'
     app%particle_species(3)%q_particle = -1.602176634e-19_dp
     app%particle_species(3)%m_particle = 9.1093837015e-31_dp
-    app%particle_species(3)%temperature_ev = 2.2_dp
-    app%particle_species(3)%has_temperature_ev = .true.
+    app%particle_species(3)%temperature_k = 2.2_dp*kelvin_per_ev
     app%surface_current%model = 'zhao_stationary'
     app%surface_current%zhao_branch = 'auto'
     app%surface_current%electron_species = 'electron'

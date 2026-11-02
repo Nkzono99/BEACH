@@ -1,7 +1,7 @@
 !> Flat periodic plateでzhao_stationaryの外部障壁ゲージと観測PE流出による弱連成を検証する。
 program test_zhao_outflow_refresh
   use bem_kinds, only: dp, i32
-  use bem_constants, only: qe
+  use bem_constants, only: qe, kelvin_per_ev
   use bem_types, only: mesh_type, sim_stats, injection_state, bc_open, bc_periodic
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
@@ -476,8 +476,7 @@ contains
     fixture_cfg%particle_species(3)%surface_charge_closure = 'fixed_current'
     fixture_cfg%particle_species(3)%q_particle = -qe
     fixture_cfg%particle_species(3)%m_particle = 9.1093837015e-31_dp
-    fixture_cfg%particle_species(3)%temperature_ev = 2.2_dp
-    fixture_cfg%particle_species(3)%has_temperature_ev = .true.
+    fixture_cfg%particle_species(3)%temperature_k = 2.2_dp*kelvin_per_ev
     fixture_cfg%particle_species(3)%normal_drift_speed = 0.0_dp
     fixture_cfg%particle_species(3)%inject_face = 'z_high'
     fixture_cfg%particle_species(3)%pos_low = [0.0_dp, 0.0_dp, box_height]
@@ -509,8 +508,7 @@ contains
     fixture_cfg%particle_species(species_idx)%m_particle = mass
     fixture_cfg%particle_species(species_idx)%w_particle = weight
     fixture_cfg%particle_species(species_idx)%number_density_m3 = 8.7e6_dp
-    fixture_cfg%particle_species(species_idx)%temperature_ev = temperature_ev
-    fixture_cfg%particle_species(species_idx)%has_temperature_ev = .true.
+    fixture_cfg%particle_species(species_idx)%temperature_k = temperature_ev*kelvin_per_ev
   end subroutine configure_ambient_species
 
 end program test_zhao_outflow_refresh

@@ -15,7 +15,7 @@ module bem_app_config_particle_runtime
   use bem_app_config_potential_runtime, only: &
     compute_face_average_potential, warn_face_average_potential_variation, resolve_face_sampling_geometry
   use bem_string_utils, only: lower_ascii
-  use bem_config_helpers, only: resolve_inward_normal, species_number_density_m3, species_temperature_k, &
+  use bem_config_helpers, only: resolve_inward_normal, &
                                 boundary_face_name, boundary_inflow_face_enabled
   use, intrinsic :: iso_fortran_env, only: error_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
@@ -329,10 +329,10 @@ contains
     real(dp) :: number_density_m3, effective_batch_duration, w_particle, temperature_k_local
     real(dp) :: drift_velocity_local(3)
 
-    number_density_m3 = species_number_density_m3(spec)
+    number_density_m3 = spec%number_density_m3
     if (present(number_density_override)) number_density_m3 = number_density_override
     w_particle = spec%w_particle
-    temperature_k_local = species_temperature_k(spec)
+    temperature_k_local = spec%temperature_k
     drift_velocity_local = spec%drift_velocity
     effective_batch_duration = sim%batch_duration
     if (present(vmin_normal)) then

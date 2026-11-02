@@ -2,7 +2,7 @@
 submodule(bem_app_config_parser) bem_app_config_parser_preflight_surface
   use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_constants, only: qe, k_boltzmann, pi
-  use bem_config_helpers, only: resolve_particle_boundaries, species_number_density_m3, species_temperature_k
+  use bem_config_helpers, only: resolve_particle_boundaries
   use bem_app_config_types, only: particle_inflow_reservoir
   use bem_external_boundary_contract, only: external_inflow_none
   implicit none
@@ -249,23 +249,23 @@ contains
         -cfg%particle_species(ion_idx)%drift_velocity(3) <= 0.0_dp) then
       error stop 'Zhao ambient species require nonnegative electron and positive ion inward drift at z-high.'
     end if
-    if (species_number_density_m3(cfg%particle_species(ion_idx)) <= 0.0_dp) then
+    if (cfg%particle_species(ion_idx)%number_density_m3 <= 0.0_dp) then
       error stop 'Zhao ion species requires a positive number density.'
     end if
     ! 電子とイオンのnumber densityは同じ無限遠の太陽風密度を表す。注入する電子の密度は外部根が決める。
-    if (abs(species_number_density_m3(cfg%particle_species(electron_idx)) - &
-            species_number_density_m3(cfg%particle_species(ion_idx))) > &
-        1.0e-9_dp*species_number_density_m3(cfg%particle_species(ion_idx))) then
+    if (abs(cfg%particle_species(electron_idx)%number_density_m3 - &
+            cfg%particle_species(ion_idx)%number_density_m3) > &
+        1.0e-9_dp*cfg%particle_species(ion_idx)%number_density_m3) then
       error stop 'Zhao ambient electron and ion species must share the solar-wind number density; '// &
         'the injected electron reservoir density is derived from the Zhao root.'
     end if
-    electron_temperature = species_temperature_k(cfg%particle_species(electron_idx))
-    ion_temperature = species_temperature_k(cfg%particle_species(ion_idx))
+    electron_temperature = cfg%particle_species(electron_idx)%temperature_k
+    ion_temperature = cfg%particle_species(ion_idx)%temperature_k
     if (electron_temperature <= 0.0_dp) then
       error stop 'Zhao electron temperature must be positive.'
     end if
     if (photoelectron_active) then
-      if (species_temperature_k(cfg%particle_species(photo_idx)) <= 0.0_dp) then
+      if (cfg%particle_species(photo_idx)%temperature_k <= 0.0_dp) then
         error stop 'Zhao photoelectron temperature must be positive.'
       end if
     end if
@@ -299,7 +299,7 @@ contains
       ray_sin = abs(ray(3))/ray_norm
     end if
     ray_elevation_deg = asin(min(1.0_dp, ray_sin))*180.0_dp/pi
-    thermal_speed = sqrt(2.0_dp*k_boltzmann*species_temperature_k(cfg%particle_species(photo_idx))/ &
+    thermal_speed = sqrt(2.0_dp*k_boltzmann*cfg%particle_species(photo_idx)%temperature_k/ &
                          cfg%particle_species(photo_idx)%m_particle)
     outer_current = qe*cfg%surface_current%photoelectron_source_scale*cfg%surface_current%photoelectron_ref_density_m3* &
                     sin(cfg%surface_current%solar_elevation_deg*pi/180.0_dp)*thermal_speed/(2.0_dp*sqrt(pi))

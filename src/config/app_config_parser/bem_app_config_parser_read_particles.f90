@@ -1,5 +1,6 @@
 !> 領域別の TOML 読み取り。意味検証と派生値の確定は preflight が担当する。
 submodule(bem_app_config_parser) bem_app_config_parser_read_particles
+  use bem_constants, only: kelvin_per_ev
   implicit none
 contains
 
@@ -75,6 +76,13 @@ contains
   type(config_toml_table), pointer :: child
   integer :: ikey, stat
   character(len=:), allocatable :: k
+  real(dp) :: number_density_cm3, temperature_ev
+  logical :: has_number_density_cm3, has_number_density_m3, has_temperature_k, has_temperature_ev
+
+  has_number_density_cm3 = .false.
+  has_number_density_m3 = .false.
+  has_temperature_k = .false.
+  has_temperature_ev = .false.
 
   call table%get_keys(keys)
   do ikey = 1, size(keys)
@@ -114,11 +122,11 @@ contains
       call get_toml_string(table, keys(ikey), spec%source_mode, species_path//'.source.mode')
       spec%source_mode = lower_ascii(trim(spec%source_mode))
     case ('number_density_cm3')
-      call get_toml_real(table, keys(ikey), spec%number_density_cm3, species_path//'.distribution.number_density_cm3')
-      spec%has_number_density_cm3 = .true.
+      call get_toml_real(table, keys(ikey), number_density_cm3, species_path//'.distribution.number_density_cm3')
+      has_number_density_cm3 = .true.
     case ('number_density_m3')
       call get_toml_real(table, keys(ikey), spec%number_density_m3, species_path//'.distribution.number_density_m3')
-      spec%has_number_density_m3 = .true.
+      has_number_density_m3 = .true.
     case ('q_particle')
       call get_toml_real(table, keys(ikey), spec%q_particle, species_path//'.charge_c')
     case ('m_particle')
@@ -142,9 +150,10 @@ contains
       call get_toml_real_array(table, keys(ikey), spec%drift_velocity, species_path//'.distribution.drift_velocity_m_s')
     case ('temperature_k')
       call get_toml_real(table, keys(ikey), spec%temperature_k, species_path//'.distribution.temperature_k')
+      has_temperature_k = .true.
     case ('temperature_ev')
-      call get_toml_real(table, keys(ikey), spec%temperature_ev, species_path//'.distribution.temperature_ev')
-      spec%has_temperature_ev = .true.
+      call get_toml_real(table, keys(ikey), temperature_ev, species_path//'.distribution.temperature_ev')
+      has_temperature_ev = .true.
     case ('emit_current_density_a_m2')
       call get_toml_real(table, keys(ikey), spec%emit_current_density_a_m2, species_path//'.source.emit_current_density_a_m2')
     case ('rays_per_batch')
@@ -204,6 +213,18 @@ contains
       error stop 'Unknown key in '//species_path//': '//trim(keys(ikey)%key)
     end select
   end do
+
+  ! 密度と温度は内部単位 [m^-3]・[K] で持つ。単位違いの指定は排他。
+  if (has_number_density_cm3 .and. has_number_density_m3) then
+    error stop 'Specify either '//species_path//'.distribution.number_density_cm3 or '// &
+      species_path//'.distribution.number_density_m3, not both.'
+  end if
+  if (has_temperature_ev .and. has_temperature_k) then
+    error stop 'Specify either '//species_path//'.distribution.temperature_ev or '// &
+      species_path//'.distribution.temperature_k, not both.'
+  end if
+  if (has_number_density_cm3) spec%number_density_m3 = number_density_cm3*1.0d6
+  if (has_temperature_ev) spec%temperature_k = temperature_ev*kelvin_per_ev
   end procedure apply_particles_species_toml_table
 
   module procedure apply_species_boundary_toml_table

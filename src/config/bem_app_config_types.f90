@@ -57,10 +57,7 @@ module bem_app_config_types
     real(dp) :: secondary_emission_energy_max_ev = 500.0_dp
     real(dp) :: secondary_emission_const_yield = 0.0_dp
     integer(i32) :: secondary_emission_target_idx = 0_i32
-    real(dp) :: number_density_cm3 = 0.0d0
     real(dp) :: number_density_m3 = 0.0d0
-    logical :: has_number_density_cm3 = .false.
-    logical :: has_number_density_m3 = .false.
     real(dp) :: q_particle = -1.602176634d-19
     real(dp) :: m_particle = 9.10938356d-31
     real(dp) :: w_particle = 1.0d0
@@ -71,8 +68,6 @@ module bem_app_config_types
     real(dp) :: pos_high(3) = [0.4d0, 0.4d0, 0.5d0]
     real(dp) :: drift_velocity(3) = [0.0d0, 0.0d0, -8.0d5]
     real(dp) :: temperature_k = 2.0d4
-    real(dp) :: temperature_ev = -1.0d0
-    logical :: has_temperature_ev = .false.
     real(dp) :: emit_current_density_a_m2 = 0.0d0
     integer(i32) :: rays_per_batch = 0_i32
     logical :: deposit_opposite_charge_on_emit = .false.

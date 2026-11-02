@@ -3164,6 +3164,14 @@
                   "number_density_m3"
                 ]
               }
+            },
+            {
+              "not": {
+                "required": [
+                  "temperature_ev",
+                  "temperature_k"
+                ]
+              }
             }
           ]
         },

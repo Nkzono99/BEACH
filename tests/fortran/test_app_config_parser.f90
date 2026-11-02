@@ -1,6 +1,7 @@
 !> 現行の局所 reservoir / closed PE 設定をFortran parserで検証する。
 program test_app_config_parser
   use bem_kinds, only: dp, i32
+  use bem_constants, only: kelvin_per_ev
   use bem_types, only: bc_open, bc_reflect, bc_redistributed_reflect
   use bem_app_config_types, only: particle_inflow_reservoir
   use bem_app_config, only: app_config, default_app_config, load_app_config, &
@@ -17,7 +18,7 @@ program test_app_config_parser
   integer :: i
   integer :: probe_exit
   integer(i32) :: batch_n
-  real(dp) :: electron_temperature_ev
+  real(dp) :: electron_temperature_k
   character(len=64) :: run_mode
   character(len=512) :: probe_config_path
   character(len=*), parameter :: zhao_magnetized_path = 'test_zhao_magnetized_tmp.toml'
@@ -45,7 +46,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(52)
+  call test_init(53)
 
   call test_begin('volume_batch_count_integer_boundary')
   call default_app_config(cfg)
@@ -83,6 +84,24 @@ program test_app_config_parser
   call assert_true(cfg%resume_output, 'restart table presence enables resume')
   call write_grouped_config(input_contract_path, '[run.restart]')
   call assert_config_rejected(input_contract_path, 'run.restart requires output.enabled=true')
+  call test_end()
+
+  call test_begin('species_distribution_units_resolve_at_load')
+  ! Density and temperature are stored only in m^-3 and K; the alternative units convert at load and are exclusive.
+  call write_input_contract_config(input_contract_path, '2.0e6', '', 'outputs/test')
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_close_dp(cfg%particle_species(1)%number_density_m3, 2.0e6_dp, 0.0_dp, 'm^-3 density must be kept')
+  call assert_close_dp(cfg%particle_species(1)%temperature_k, kelvin_per_ev, 0.0_dp, 'eV temperature must convert to K')
+  call write_input_contract_config(input_contract_path, '2.0e6', &
+                                   '[particles.species.distribution]'//new_line('a')//'number_density_cm3 = 2.0', &
+                                   'outputs/test')
+  call assert_config_rejected(input_contract_path, 'number_density_m3, not both')
+  call write_input_contract_config(input_contract_path, '2.0e6', &
+                                   '[particles.species.distribution]'//new_line('a')//'temperature_k = 300.0', &
+                                   'outputs/test')
+  call assert_config_rejected(input_contract_path, 'temperature_k, not both')
+  call delete_file_if_exists(input_contract_path)
   call test_end()
 
   call test_begin('preflight_rejects_zero_max_steps_per_particle')
@@ -643,13 +662,14 @@ program test_app_config_parser
     'photoelectron closure mismatch' &
     )
   ! The photoelectron distribution table belongs to the third species only.
-  electron_temperature_ev = cfg%particle_species(1)%temperature_ev
+  electron_temperature_k = cfg%particle_species(1)%temperature_k
   call write_without_line_variant(input_contract_path, 'examples/closed_photoelectron.toml', 'temperature_ev = 1.5', &
                                   'temperature_ev = 1.75')
   call default_app_config(cfg)
   call load_app_config(input_contract_path, cfg)
-  call assert_close_dp(cfg%particle_species(3)%temperature_ev, 1.75_dp, 0.0_dp, 'photoelectron temperature mismatch')
-  call assert_close_dp(cfg%particle_species(1)%temperature_ev, electron_temperature_ev, 0.0_dp, &
+  call assert_close_dp(cfg%particle_species(3)%temperature_k, 1.75_dp*kelvin_per_ev, 0.0_dp, &
+                       'photoelectron temperature mismatch')
+  call assert_close_dp(cfg%particle_species(1)%temperature_k, electron_temperature_k, 0.0_dp, &
                        'the photoelectron table must not change the electron temperature')
   call delete_file_if_exists(input_contract_path)
   call test_end()

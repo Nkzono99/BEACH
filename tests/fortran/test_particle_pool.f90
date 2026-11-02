@@ -365,7 +365,7 @@ contains
     cfg%particle_species(2) = species_from_defaults()
     cfg%particle_species(2)%source_mode = 'volume_seed'
     cfg%particle_species(2)%npcls_per_step = 0_i32
-    cfg%particle_species(2)%number_density_cm3 = 0.0d0
+    cfg%particle_species(2)%number_density_m3 = 0.0d0
     cfg%particle_species(2)%temperature_k = 0.0d0
     cfg%particle_species(2)%q_particle = 1.0d0
     cfg%particle_species(2)%m_particle = 1.0d0

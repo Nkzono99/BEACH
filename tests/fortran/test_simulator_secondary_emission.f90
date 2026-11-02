@@ -2,7 +2,7 @@
 program test_simulator_secondary_emission
 !$ use omp_lib
   use bem_kinds, only: dp, i32, i64
-  use bem_constants, only: qe
+  use bem_constants, only: qe, kelvin_per_ev
   use bem_types, only: mesh_type, sim_stats
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
   use bem_mesh, only: init_mesh
@@ -130,7 +130,6 @@ contains
     app%particle_species(2) = species_from_defaults()
     app%particle_species(2)%species_key = 'secondary'
     app%particle_species(2)%source_mode = 'secondary_emission'
-    app%particle_species(2)%temperature_ev = 2.0_dp
-    app%particle_species(2)%has_temperature_ev = .true.
+    app%particle_species(2)%temperature_k = 2.0_dp*kelvin_per_ev
   end subroutine fixture
 end program test_simulator_secondary_emission
