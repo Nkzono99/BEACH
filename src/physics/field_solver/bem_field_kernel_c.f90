@@ -190,10 +190,10 @@ contains
     call c_f_pointer(path_length_ptr, path_length)
     cached_plan = trim(kernel%plan%options%periodic_far_correction) == 'cached_kneq0'
     if (cached_plan) then
-      required_fingerprint_length = len_trim(kernel%plan%periodic_cache_fingerprint)
-      required_path_length = len_trim(kernel%plan%periodic_cache_path)
-      hit = merge(1_c_int, 0_c_int, kernel%plan%periodic_cache_hit)
-      build_count = int(kernel%plan%periodic_operator_build_count, c_int)
+      required_fingerprint_length = len_trim(kernel%plan%periodic_operator%cache_fingerprint)
+      required_path_length = len_trim(kernel%plan%periodic_operator%cache_path)
+      hit = merge(1_c_int, 0_c_int, kernel%plan%periodic_operator%cache_hit)
+      build_count = int(kernel%plan%periodic_operator%build_count, c_int)
     else
       required_fingerprint_length = 0
       required_path_length = 0
@@ -212,9 +212,9 @@ contains
 
     if (cached_plan) then
       call copy_text_to_c_buffer( &
-        kernel%plan%periodic_cache_fingerprint, required_fingerprint_length, fingerprint_ptr, fingerprint_capacity &
+        kernel%plan%periodic_operator%cache_fingerprint, required_fingerprint_length, fingerprint_ptr, fingerprint_capacity &
         )
-      call copy_text_to_c_buffer(kernel%plan%periodic_cache_path, required_path_length, path_ptr, path_capacity)
+      call copy_text_to_c_buffer(kernel%plan%periodic_operator%cache_path, required_path_length, path_ptr, path_capacity)
     else
       call copy_text_to_c_buffer('', 0, fingerprint_ptr, fingerprint_capacity)
       call copy_text_to_c_buffer('', 0, path_ptr, path_capacity)

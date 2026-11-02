@@ -354,12 +354,12 @@ contains
     self%periodic_origin = sim%box_min(1:2)
     self%diagnostics%split_periodic_active = .true.
     self%diagnostics%status = 'cached_kneq0'
-    self%diagnostics%periodic_cache_hit = self%nonzero_solver%fmm_core_plan%periodic_cache_hit
+    self%diagnostics%periodic_cache_hit = self%nonzero_solver%fmm_core_plan%periodic_operator%cache_hit
     self%diagnostics%periodic_operator_build_count = &
-      self%nonzero_solver%fmm_core_plan%periodic_operator_build_count
+      self%nonzero_solver%fmm_core_plan%periodic_operator%build_count
     self%diagnostics%periodic_cache_fingerprint = &
-      self%nonzero_solver%fmm_core_plan%periodic_cache_fingerprint
-    self%diagnostics%periodic_cache_path = self%nonzero_solver%fmm_core_plan%periodic_cache_path
+      self%nonzero_solver%fmm_core_plan%periodic_operator%cache_fingerprint
+    self%diagnostics%periodic_cache_path = self%nonzero_solver%fmm_core_plan%periodic_operator%cache_path
     if (periodic_config%upper_fourier_switch /= 'off') then
       call init_snapshot_upper_fourier_switch(self, mesh, sim)
     else if (trim(lower_ascii(sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier') then

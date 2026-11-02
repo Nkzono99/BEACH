@@ -84,15 +84,15 @@ program test_panel_geometry_near
   options%leaf_max = 1_i32
   options%order = 2_i32
   call build_panel_plan(plan, v0, v1, v2, options)
-  call assert_true(all(minval(vertices, dim=2) >= plan%node_center(:, 1) - plan%node_half_size(:, 1)), &
+  call assert_true(all(minval(vertices, dim=2) >= plan%source_tree%node_center(:, 1) - plan%source_tree%node_half_size(:, 1)), &
                    'root lower bbox must contain every panel vertex')
-  call assert_true(all(maxval(vertices, dim=2) <= plan%node_center(:, 1) + plan%node_half_size(:, 1)), &
+  call assert_true(all(maxval(vertices, dim=2) <= plan%source_tree%node_center(:, 1) + plan%source_tree%node_half_size(:, 1)), &
                    'root upper bbox must contain every panel vertex')
   max_vertex_radius = maxval(sqrt(sum( &
-                                  (vertices - spread(plan%node_center(:, 1), 2, size(vertices, 2)))**2, dim=1 &
+                                  (vertices - spread(plan%source_tree%node_center(:, 1), 2, size(vertices, 2)))**2, dim=1 &
                                   )))
   call assert_true( &
-    plan%node_radius(1) + 1.0e-14_dp*max(1.0_dp, max_vertex_radius) >= max_vertex_radius, &
+    plan%source_tree%node_radius(1) + 1.0e-14_dp*max(1.0_dp, max_vertex_radius) >= max_vertex_radius, &
     'root radius must contain every panel vertex' &
     )
   call destroy_plan(plan)
@@ -106,7 +106,7 @@ program test_panel_geometry_near
   options%leaf_max = 8_i32
   options%order = 2_i32
   call build_panel_plan(plan, v0(:, :1), v1(:, :1), v2(:, :1), options)
-  center = plan%node_center(:, 1)
+  center = plan%source_tree%node_center(:, 1)
   alpha_zero = plan%alpha_map(0, 0, 0)
   alpha_x = plan%alpha_map(1, 0, 0)
   alpha_xx = plan%alpha_map(2, 0, 0)

@@ -48,17 +48,17 @@ contains
     logical, intent(in), optional :: reuse_translations
     logical :: reuse
 
-    if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
-    if (allocated(plan%periodic_operator_cell_slot)) deallocate (plan%periodic_operator_cell_slot)
-    if (allocated(plan%periodic_operator_cells)) deallocate (plan%periodic_operator_cells)
-    plan%periodic_operator_built_count = 0_i32
-    plan%periodic_operator_new_cell_count = 0_i32
-    plan%periodic_root_operator_ready = .false.
-    plan%periodic_root_target_count = 0_i32
+    if (allocated(plan%periodic_operator%root_operator)) deallocate (plan%periodic_operator%root_operator)
+    if (allocated(plan%periodic_operator%cell_slot)) deallocate (plan%periodic_operator%cell_slot)
+    if (allocated(plan%periodic_operator%cells)) deallocate (plan%periodic_operator%cells)
+    plan%periodic_operator%built_count = 0_i32
+    plan%periodic_operator%new_cell_count = 0_i32
+    plan%periodic_operator%ready = .false.
+    plan%periodic_operator%root_target_count = 0_i32
 
-    plan%periodic_cache_hit = .false.
-    plan%periodic_cache_fingerprint = ''
-    plan%periodic_cache_path = ''
+    plan%periodic_operator%cache_hit = .false.
+    plan%periodic_operator%cache_fingerprint = ''
+    plan%periodic_operator%cache_path = ''
     if (use_periodic2_cached_kneq0(plan)) then
       reuse = .true.
       if (present(reuse_translations)) reuse = reuse_translations
@@ -84,15 +84,15 @@ contains
 
     if (.not. plan%periodic_ewald%ready) return
     if (plan%ncoef <= 1_i32) return
-    if (plan%periodic_operator_anchor_count <= 0_i32) return
+    if (plan%periodic_operator%anchor_count <= 0_i32) return
 
-    target_count = plan%periodic_operator_anchor_count
-    ncell = plan%periodic_root_source_count
+    target_count = plan%periodic_operator%anchor_count
+    ncell = plan%periodic_operator%root_source_count
     ! The operator is mesh-independent per cell, but only cells that hold sources are needed now.
     allocate (required(ncell), have(ncell), missing_flag(ncell))
     required = .false.
     do k = 1_i32, plan%nsrc
-      required(plan%periodic_source_cell(k)) = .true.
+      required(plan%periodic_operator%source_cell(k)) = .true.
     end do
     nreq = count(required)
     req_cells = pack([(k, k=1_i32, ncell)], required)
@@ -106,18 +106,18 @@ contains
     if (reuse_translations) call mpi_bcast_i32_array(mpi, missing_flag, 0_i32)
     nmiss = count(missing_flag == 1_i32)
     miss_cells = pack([(k, k=1_i32, ncell)], missing_flag == 1_i32)
-    plan%periodic_operator_new_cell_count = nmiss
+    plan%periodic_operator%new_cell_count = nmiss
     if (nmiss > 0_i32) call build_missing_cell_operators(plan, mpi, reuse_translations, miss_cells, new_blocks)
 
     ! Compact operator for the cells this mesh uses: pair (slot-1)*anchors + anchor.
-    allocate (plan%periodic_operator_cell_slot(ncell))
-    plan%periodic_operator_cell_slot = 0_i32
-    plan%periodic_operator_cell_slot(req_cells) = [(slot, slot=1_i32, nreq)]
-    plan%periodic_operator_built_count = nreq
-    plan%periodic_operator_cells = req_cells
-    plan%periodic_root_target_count = target_count*nreq
-    allocate (plan%periodic_root_operator(plan%ncoef, plan%ncoef, target_count*nreq))
-    plan%periodic_root_operator = 0.0_dp
+    allocate (plan%periodic_operator%cell_slot(ncell))
+    plan%periodic_operator%cell_slot = 0_i32
+    plan%periodic_operator%cell_slot(req_cells) = [(slot, slot=1_i32, nreq)]
+    plan%periodic_operator%built_count = nreq
+    plan%periodic_operator%cells = req_cells
+    plan%periodic_operator%root_target_count = target_count*nreq
+    allocate (plan%periodic_operator%root_operator(plan%ncoef, plan%ncoef, target_count*nreq))
+    plan%periodic_operator%root_operator = 0.0_dp
     allocate (miss_slot(ncell), cached_slot(ncell))
     miss_slot = 0_i32
     if (nmiss > 0_i32) miss_slot(miss_cells) = [(m, m=1_i32, nmiss)]
@@ -130,12 +130,12 @@ contains
         cell = req_cells(slot)
         if (miss_slot(cell) > 0_i32) then
           m = miss_slot(cell)
-          plan%periodic_root_operator(:, :, (slot - 1_i32)*target_count + 1_i32:slot*target_count) = &
+          plan%periodic_operator%root_operator(:, :, (slot - 1_i32)*target_count + 1_i32:slot*target_count) = &
             new_blocks(:, :, (m - 1_i32)*target_count + 1_i32:m*target_count)
         else
           m = cached_slot(cell)
           if (m <= 0_i32) error stop 'periodic operator cell is neither cached nor built.'
-          plan%periodic_root_operator(:, :, (slot - 1_i32)*target_count + 1_i32:slot*target_count) = &
+          plan%periodic_operator%root_operator(:, :, (slot - 1_i32)*target_count + 1_i32:slot*target_count) = &
             cached_blocks(:, :, (m - 1_i32)*target_count + 1_i32:m*target_count)
         end if
       end do
@@ -148,15 +148,15 @@ contains
       ! Cached cells live only on the root; share the assembled compact operator. The collective
       ! is a no-op on one rank, so skip the flattened copy there.
       if (mpi%enabled) then
-        allocate (flat_operator(size(plan%periodic_root_operator)))
-        if (mpi_is_root(mpi)) flat_operator = reshape(plan%periodic_root_operator, [size(flat_operator)])
+        allocate (flat_operator(size(plan%periodic_operator%root_operator)))
+        if (mpi_is_root(mpi)) flat_operator = reshape(plan%periodic_operator%root_operator, [size(flat_operator)])
         call mpi_bcast_real_dp_array(mpi, flat_operator, 0_i32)
-        plan%periodic_root_operator = reshape(flat_operator, shape(plan%periodic_root_operator))
+        plan%periodic_operator%root_operator = reshape(flat_operator, shape(plan%periodic_operator%root_operator))
         deallocate (flat_operator)
       end if
     end if
-    plan%periodic_cache_hit = reuse_translations .and. nmiss == 0_i32
-    plan%periodic_root_operator_ready = .true.
+    plan%periodic_operator%cache_hit = reuse_translations .and. nmiss == 0_i32
+    plan%periodic_operator%ready = .true.
   end subroutine precompute_periodic_cached_operator_collective
 
   !> cache に無いセル miss_cells の root operator ブロックを作る。proxy と check 点の fit を pair の translation class
@@ -194,13 +194,13 @@ contains
     ncheck_bulk = max(8_i32*plan%ncoef, int(periodic_operator_check_multiplier*real(plan%ncoef, dp), i32))
     ncheck_face = 4_i32*((max(8_i32, plan%ncoef) + 3_i32)/4_i32)
     ncheck_max = ncheck_bulk + 4_i32*ncheck_face
-    target_count = plan%periodic_operator_anchor_count
+    target_count = plan%periodic_operator%anchor_count
     cells = plan%options%periodic_operator_source_cells
     nmiss = int(size(miss_cells), i32)
     pair_count = target_count*nmiss
 
-    source_half = plan%periodic_source_half
-    target_half = plan%periodic_anchor_half
+    source_half = plan%periodic_operator%source_half
+    target_half = plan%periodic_operator%anchor_half
     allocate (proxy_points(3, nproxy), check_points(3, ncheck_max))
     proxy_basis%options%order = proxy_order
     call initialize_basis_tables(proxy_basis, proxy_order)
@@ -235,9 +235,9 @@ contains
     used_kind = .false.
     class_count = 0_i32
     ! Anchor spacings are power-of-two multiples of the source spacing, so offsets are multiples of unit.
-    unit = plan%periodic_source_half
+    unit = plan%periodic_operator%source_half
     do target_idx = 1_i32, target_count
-      target_center = plan%periodic_anchor_center(:, target_idx)
+      target_center = plan%periodic_operator%anchor_center(:, target_idx)
       mask = 0_i32
       do face = 0_i32, 3_i32
         axis = plan%options%periodic_axes(face/2_i32 + 1_i32)
@@ -257,7 +257,7 @@ contains
       do m = 1_i32, nmiss
         source_idx = miss_cells(m)
         pair = (m - 1_i32)*target_count + target_idx
-        delta = target_center - plan%periodic_source_center(:, source_idx)
+        delta = target_center - plan%periodic_operator%source_center(:, source_idx)
         key = nint(delta/unit, kind=i32)
         pair_reflection(pair) = 0_i32
         if (reuse_translations) then
@@ -283,7 +283,7 @@ contains
         pair_class(pair) = class_idx
       end do
     end do
-    plan%periodic_operator_class_count = class_count
+    plan%periodic_operator%class_count = class_count
     ! QR is translation invariant; prepare it once per seam mask on each MPI rank.
     do kind = 0_i32, 15_i32
       if (.not. used_kind(kind)) cycle
@@ -325,13 +325,13 @@ contains
         end do
       end do
 !$omp end parallel do
-      plan%periodic_operator_ewald_evaluation_count = plan%periodic_operator_ewald_evaluation_count + &
+      plan%periodic_operator%ewald_evaluation_count = plan%periodic_operator%ewald_evaluation_count + &
                                                       int(nproxy, i64)*int(ncheck_max, i64)
       do pair = 1_i32, pair_count
         if (pair_class(pair) /= class_idx) cycle
         target_idx = mod(pair - 1_i32, target_count) + 1_i32
         source_idx = miss_cells((pair - 1_i32)/target_count + 1_i32)
-        cell_index = nint((plan%periodic_source_center(:, source_idx) - plan%options%target_box_min)/ &
+        cell_index = nint((plan%periodic_operator%source_center(:, source_idx) - plan%options%target_box_min)/ &
                           (plan%options%target_box_max - plan%options%target_box_min)*real(cells, dp) - 0.5_dp, kind=i32)
         shell_column = 1_i32 + cell_index(plan%options%periodic_axes(1)) + &
                        cells(plan%options%periodic_axes(1))*cell_index(plan%options%periodic_axes(2))
@@ -341,16 +341,16 @@ contains
         end do
         kind = target_kind(target_idx)
         ncheck = size(fit(kind)%index)
-        target_center = plan%periodic_anchor_center(:, target_idx)
+        target_center = plan%periodic_operator%anchor_center(:, target_idx)
         proxy_to_local = 0.0_dp
-        plan%periodic_operator_local_target_count = plan%periodic_operator_local_target_count + 1_i32
+        plan%periodic_operator%local_target_count = plan%periodic_operator%local_target_count + 1_i32
 !$omp parallel default(shared) private(j, i, check_idx, proxy_idx, reflected_check, field_rhs) &
 !$omp private(potential_rhs, coeff, e_res, phi_res, shell_excess, shell_excess_slope, point, target_z)
         allocate (field_rhs(3_i32*ncheck), potential_rhs(ncheck), coeff(plan%ncoef - 1_i32))
 !$omp do schedule(static)
         do j = 1_i32, nproxy
           proxy_idx = 8_i32*((j - 1_i32)/8_i32) + ieor(mod(j - 1_i32, 8_i32), reflection) + 1_i32
-          point = plan%periodic_source_center(:, source_idx) + proxy_points(:, j)
+          point = plan%periodic_operator%source_center(:, source_idx) + proxy_points(:, j)
           do i = 1_i32, ncheck
             check_idx = fit(kind)%index(i)
             reflected_check = reflected_check_index(check_idx, ncheck_bulk, ncheck_face, reflection, &
@@ -389,7 +389,7 @@ contains
       new_blocks = reshape(flat_operator, shape(new_blocks))
       deallocate (flat_operator)
     end if
-    if (mpi_is_root(mpi)) plan%periodic_operator_build_count = plan%periodic_operator_build_count + 1_i32
+    if (mpi_is_root(mpi)) plan%periodic_operator%build_count = plan%periodic_operator%build_count + 1_i32
   end subroutine build_missing_cell_operators
 
   !> Only the source x/y and the height difference enter s. Reuse a table across all source/target z cells.
@@ -474,9 +474,9 @@ contains
       tag = trim(tag)//'kernel=point_softened|'
     end if
     tag = trim(tag)//'zero=state_subtracted|normalization=core'
-    plan%periodic_cache_fingerprint = periodic_cache_fingerprint(tag, integer_values, real_values)
-    plan%periodic_cache_path = trim(plan%options%periodic_cache_dir)//'/operator-'// &
-                               trim(plan%periodic_cache_fingerprint)//'.bin'
+    plan%periodic_operator%cache_fingerprint = periodic_cache_fingerprint(tag, integer_values, real_values)
+    plan%periodic_operator%cache_path = trim(plan%options%periodic_cache_dir)//'/operator-'// &
+                                        trim(plan%periodic_operator%cache_fingerprint)//'.bin'
   end subroutine set_cache_identity
 
   !> Complete reflection orbits make the sampled least-squares problem reflection invariant.

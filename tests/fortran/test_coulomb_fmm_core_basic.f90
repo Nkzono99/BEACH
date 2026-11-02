@@ -51,7 +51,7 @@ contains
     call update_state(plan, state, q)
 
     center = 0.5d0*(minval(src_pos, dim=2) + maxval(src_pos, dim=2))
-    call assert_true(plan%node_max_depth > 0_i32, 'root moment fixture must exercise M2M')
+    call assert_true(plan%source_tree%max_depth > 0_i32, 'root moment fixture must exercise M2M')
     call assert_root_moment(plan, state, src_pos, q, center, [0_i32, 0_i32, 0_i32], 'monopole')
     call assert_root_moment(plan, state, src_pos, q, center, [1_i32, 0_i32, 0_i32], 'x dipole')
     call assert_root_moment(plan, state, src_pos, q, center, [0_i32, 1_i32, 1_i32], 'yz quadrupole')

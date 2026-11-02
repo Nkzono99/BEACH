@@ -95,6 +95,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   field solver は FMM options へ渡す periodic 設定の写しを持たない。静電 snapshot と FMM plan は options の
   `reference_mode_layers`・`panel_quadrature_order`・operator セル数を写さない。Zhao 外部根の更新は参照面積を
   外部根の結果から読む。surface closure の流入写像から常に 0 V だった貯留部電位を除いた。
+- FMM plan（`fmm_plan_type`）の成分を内部の型にまとめた（計算結果はビット一致）。source 木と target 木は同じ
+  `fmm_tree_type` の `source_tree`/`target_tree` になり、どちらの木を使うかを選ぶ `active_tree_*` 関数の代わりに
+  評価用の木を引数で渡す。親ノード表は木が持つ（`parent_of`・`source_parent_of` を廃止）。近接 panel の成分表は
+  `near_panels`（単精度は `near_panels_sp`）に、`cached_kneq0` の遠方補正の格子・operator・cache 識別子・計数は
+  `periodic_operator` にまとめた。plan の直下の成分は 133 から 64 に減った。
 
 ### Removed
 
