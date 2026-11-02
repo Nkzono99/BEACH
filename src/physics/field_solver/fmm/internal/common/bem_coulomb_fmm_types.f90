@@ -159,14 +159,12 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: shift_axis1(:), shift_axis2(:)
     type(periodic2_ewald_data_type) :: periodic_ewald
     logical :: periodic_root_operator_ready = .false.
-    !> 遠方補正の (target anchor, source cell) 組の数。anchor は box を各軸 periodic_operator_anchor_cells に分けた
+    !> 遠方補正の (target anchor, source cell) 組の数。anchor は box を各軸 options%periodic_operator_anchor_cells に分けた
     !! 格子で、適応木とは独立に点評価で参照する。operator は panel を含む source cell だけを持ち、
     !! 組 k = (slot-1)*anchor_count + anchor で並ぶ。slot は periodic_operator_cell_slot(cell)、
     !! 0 のセルは operator を持たない（線源を置けない）。
     integer(i32) :: periodic_root_target_count = 0_i32
     integer(i32) :: periodic_operator_anchor_count = 0_i32
-    integer(i32) :: periodic_operator_anchor_cells(3) = 0_i32
-    integer(i32) :: periodic_operator_source_cells(3) = 0_i32
     real(dp) :: periodic_anchor_half(3) = 0.0_dp
     real(dp) :: periodic_source_half(3) = 0.0_dp
     real(dp), allocatable :: periodic_anchor_center(:, :)

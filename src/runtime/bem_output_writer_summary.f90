@@ -209,8 +209,6 @@ contains
     else
       write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', 0.0_dp
     end if
-    write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_reservoir_potential_V=', &
-      current_model%inflow_reservoir_potential_v(current_model%electron_species_idx)
     write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_access_potential_V=', &
       current_model%inflow_access_potential_v(current_model%electron_species_idx)
     write (u, '(a,i0)') 'surface_current_model_electron_inflow_face=', &

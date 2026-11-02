@@ -8,8 +8,10 @@ contains
 
   !> 設定値から direct/treecode/fmm の実行モードを確定し、必要なら木構造を初期化する。
   module procedure init_field_solver
-  character(len=16) :: requested_mode, field_bc_mode
+  character(len=16) :: requested_mode, field_bc_mode, field_normalization, far_correction
   logical :: use_periodic2
+  integer(i32) :: periodic_axes(2)
+  real(dp) :: field_length_scale, periodic_len(2), target_box_min(3), target_box_max(3)
   integer(i32) :: panel_status
   character(len=256) :: panel_message
 
@@ -18,24 +20,19 @@ contains
   self%fmm_core_ready = .false.
   call reset_tree_storage(self)
 
-  self%field_normalization = lower_ascii(trim(sim%field_normalization))
-  self%field_length_scale = resolve_field_length_scale(mesh, sim)
-  self%field_origin = resolve_field_origin(mesh, sim, self%field_normalization)
-  self%field_inv_length_scale = 1.0d0/self%field_length_scale
+  field_normalization = lower_ascii(trim(sim%field_normalization))
+  field_length_scale = resolve_field_length_scale(mesh, sim)
+  self%field_origin = resolve_field_origin(mesh, sim, field_normalization)
+  self%field_inv_length_scale = 1.0d0/field_length_scale
   self%field_output_scale = k_coulomb*self%field_inv_length_scale*self%field_inv_length_scale
   self%potential_output_scale = k_coulomb*self%field_inv_length_scale
   self%nelem = mesh%nelem
-  self%use_periodic2 = .false.
-  self%periodic_axes = 0_i32
-  self%periodic_len = 0.0d0
-  self%periodic_image_layers = max(0_i32, sim%field_periodic_image_layers)
-  self%periodic_far_correction = lower_ascii(trim(sim%field_periodic_far_correction))
-  self%periodic_ewald_alpha = sim%field_periodic_ewald_alpha
-  self%periodic_ewald_layers = max(0_i32, sim%field_periodic_ewald_layers)
-  self%periodic_cache_dir = trim(sim%field_periodic_cache_dir)
-  self%periodic_generation_tolerance = sim%field_periodic_generation_tolerance
-  self%target_box_min = 0.0d0
-  self%target_box_max = 0.0d0
+  use_periodic2 = .false.
+  periodic_axes = 0_i32
+  periodic_len = 0.0d0
+  far_correction = lower_ascii(trim(sim%field_periodic_far_correction))
+  target_box_min = 0.0d0
+  target_box_max = 0.0d0
 
   requested_mode = lower_ascii(trim(sim%field_solver))
   field_bc_mode = lower_ascii(trim(sim%field_bc_mode))
@@ -46,7 +43,7 @@ contains
   end if
   if (present(field_config)) then
     if (trim(lower_ascii(field_config%backend)) /= trim(requested_mode) .or. &
-        trim(lower_ascii(field_config%normalization)) /= trim(self%field_normalization)) then
+        trim(lower_ascii(field_config%normalization)) /= trim(field_normalization)) then
       error stop 'typed field config does not match sim field config.'
     end if
   end if
@@ -60,18 +57,17 @@ contains
   end if
   select case (trim(field_bc_mode))
   case ('free')
-    self%periodic_far_correction = 'none'
-    continue
+    far_correction = 'none'
   case ('periodic2')
     if (trim(requested_mode) /= 'fmm') then
       error stop 'fields.boundary must be "free" unless fields.solver.method="fmm".'
     end if
-    call resolve_periodic2_axes(sim, use_periodic2, self%periodic_axes, self%periodic_len)
-    self%target_box_min = sim%box_min
-    self%target_box_max = sim%box_max
-    select case (trim(self%periodic_far_correction))
+    call resolve_periodic2_axes(sim, use_periodic2, periodic_axes, periodic_len)
+    target_box_min = sim%box_min
+    target_box_max = sim%box_max
+    select case (trim(far_correction))
     case ('auto')
-      self%periodic_far_correction = 'none'
+      far_correction = 'none'
     case ('none')
       continue
     case ('m2l_root_oracle')
@@ -81,7 +77,7 @@ contains
     case default
       error stop 'periodic2 far correction supports "auto", "none", or "cached_kneq0" only.'
     end select
-    self%use_periodic2 = .true.
+    use_periodic2 = .true.
   case default
     error stop 'Unknown fields.boundary in field solver init.'
   end select
@@ -93,8 +89,8 @@ contains
     if (any(sim%box_max <= sim%box_min)) then
       error stop 'A finite [domain] requires positive box extents for fmm dual-target.'
     end if
-    self%target_box_min = sim%box_min
-    self%target_box_max = sim%box_max
+    target_box_min = sim%box_min
+    target_box_max = sim%box_max
   end if
 
   call resolve_field_solver_tree_params(mesh%nelem, sim, self%theta, self%leaf_max)
@@ -105,26 +101,20 @@ contains
   self%fmm_core_options%order = field_solver_fmm_expansion_order
   self%fmm_core_options%near_field_single = trim(sim%near_field_precision) == 'single'
   self%fmm_core_options%softening = 0.0_dp
-  self%fmm_core_options%use_periodic2 = self%use_periodic2
-  self%fmm_core_options%periodic_far_correction = self%periodic_far_correction
-  self%fmm_core_options%periodic_axes = self%periodic_axes
-  self%fmm_core_options%periodic_len = self%periodic_len*self%field_inv_length_scale
-  self%fmm_core_options%periodic_image_layers = self%periodic_image_layers
-  self%fmm_core_options%periodic_ewald_alpha = self%periodic_ewald_alpha*self%field_length_scale
-  self%fmm_core_options%periodic_ewald_layers = self%periodic_ewald_layers
-  self%fmm_core_options%periodic_cache_dir = self%periodic_cache_dir
-  self%fmm_core_options%periodic_generation_tolerance = self%periodic_generation_tolerance
-  self%fmm_core_options%target_box_min = (self%target_box_min - self%field_origin)*self%field_inv_length_scale
-  self%fmm_core_options%target_box_max = (self%target_box_max - self%field_origin)*self%field_inv_length_scale
+  self%fmm_core_options%use_periodic2 = use_periodic2
+  self%fmm_core_options%periodic_far_correction = far_correction
+  self%fmm_core_options%periodic_axes = periodic_axes
+  self%fmm_core_options%periodic_len = periodic_len*self%field_inv_length_scale
+  self%fmm_core_options%periodic_image_layers = max(0_i32, sim%field_periodic_image_layers)
+  self%fmm_core_options%periodic_ewald_alpha = sim%field_periodic_ewald_alpha*field_length_scale
+  self%fmm_core_options%periodic_ewald_layers = max(0_i32, sim%field_periodic_ewald_layers)
+  self%fmm_core_options%periodic_cache_dir = trim(sim%field_periodic_cache_dir)
+  self%fmm_core_options%periodic_generation_tolerance = sim%field_periodic_generation_tolerance
+  self%fmm_core_options%target_box_min = (target_box_min - self%field_origin)*self%field_inv_length_scale
+  self%fmm_core_options%target_box_max = (target_box_max - self%field_origin)*self%field_inv_length_scale
   if (present(mpi)) self%fmm_core_options%mpi = mpi
 
   if (self%mode_id == field_solver_mode_fmm) then
-    select case (trim(self%periodic_far_correction))
-    case ('auto', 'none', 'cached_kneq0')
-      continue
-    case default
-      error stop 'FMM core received an unsupported periodic far correction.'
-    end select
     call refresh_fmm_solver(self, mesh)
     return
   end if

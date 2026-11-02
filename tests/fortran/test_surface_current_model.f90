@@ -681,10 +681,6 @@ contains
       trim(label)//' ambient inflow map routing mismatch' &
       )
     call assert_true( &
-      all(current%inflow_reservoir_potential_v(1:2) == 0.0_dp), &
-      trim(label)//' ambient reservoir gauge mismatch' &
-      )
-    call assert_true( &
       all(current%inflow_kinetic_face(1:2) == 6_i32), &
       trim(label)//' inflow map face must be z-high' &
       )

@@ -458,8 +458,6 @@ contains
     end if
     plan%options%periodic_operator_anchor_cells = nanchor
     plan%options%periodic_operator_source_cells = ncell
-    plan%periodic_operator_anchor_cells = nanchor
-    plan%periodic_operator_source_cells = ncell
     half = 0.5_dp*span/real(ncell, dp)
     plan%periodic_source_half = half
     plan%periodic_anchor_half = 0.5_dp*span/real(nanchor, dp)

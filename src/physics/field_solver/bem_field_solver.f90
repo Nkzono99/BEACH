@@ -20,25 +20,12 @@ module bem_field_solver
     character(len=16) :: mode = 'direct'
     !> mode を init で解決した値。評価のたびに文字列を比べない。
     integer(i32) :: mode_id = field_solver_mode_direct
-    character(len=16) :: field_normalization = 'si'
-    real(dp) :: field_length_scale = 1.0d0
     real(dp) :: field_origin(3) = 0.0d0
     real(dp) :: field_inv_length_scale = 1.0d0
     real(dp) :: field_output_scale = k_coulomb
     real(dp) :: potential_output_scale = k_coulomb
     real(dp) :: theta = 0.5d0
     integer(i32) :: leaf_max = 16_i32
-    logical :: use_periodic2 = .false.
-    integer(i32) :: periodic_axes(2) = 0_i32
-    real(dp) :: periodic_len(2) = 0.0d0
-    integer(i32) :: periodic_image_layers = 1_i32
-    character(len=16) :: periodic_far_correction = 'none'
-    real(dp) :: periodic_ewald_alpha = 0.0d0
-    integer(i32) :: periodic_ewald_layers = 4_i32
-    character(len=256) :: periodic_cache_dir = ''
-    real(dp) :: periodic_generation_tolerance = 1.0d-8
-    real(dp) :: target_box_min(3) = 0.0d0
-    real(dp) :: target_box_max(3) = 0.0d0
     logical :: tree_ready = .false.
     integer(i32) :: nelem = 0_i32
     integer(i32) :: max_node = 0_i32

@@ -195,7 +195,7 @@ contains
     ncheck_face = 4_i32*((max(8_i32, plan%ncoef) + 3_i32)/4_i32)
     ncheck_max = ncheck_bulk + 4_i32*ncheck_face
     target_count = plan%periodic_operator_anchor_count
-    cells = plan%periodic_operator_source_cells
+    cells = plan%options%periodic_operator_source_cells
     nmiss = int(size(miss_cells), i32)
     pair_count = target_count*nmiss
 
@@ -404,7 +404,7 @@ contains
     axes = plan%options%periodic_axes
     free_axis = plan%periodic_shell_mean%free_axis
     span = plan%options%target_box_max - plan%options%target_box_min
-    cells = plan%periodic_operator_source_cells
+    cells = plan%options%periodic_operator_source_cells
     extent = span(free_axis) + maxval(abs(proxy_points(free_axis, :)))
     nz = ceiling(2.0_dp*extent/(periodic_operator_shell_spacing*minval(plan%options%periodic_len)), kind=i32) + 1_i32
     table%h0 = -extent
@@ -460,7 +460,7 @@ contains
 
     integer_values = [plan%options%order, plan%ncoef, plan%options%periodic_axes, &
                       plan%options%periodic_image_layers, plan%options%periodic_ewald_layers, &
-                      plan%periodic_operator_source_cells, plan%periodic_operator_anchor_cells, &
+                      plan%options%periodic_operator_source_cells, plan%options%periodic_operator_anchor_cells, &
                       periodic_operator_proxy_null_degrees]
     real_values = [plan%options%target_box_min, plan%options%target_box_max, plan%options%periodic_len, &
                    plan%options%softening, plan%periodic_ewald%alpha, plan%options%periodic_generation_tolerance, &

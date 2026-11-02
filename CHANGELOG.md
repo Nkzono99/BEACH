@@ -89,6 +89,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   FMM plan の M2L・QR・thread の計数、`template_spec%epsilon_r`（設定経路がなかった）、
   静電 snapshot の `gauss_residual`（常に 0）と `prescribed_phi_origin`（常に原点）。
   `sim_config` の型の既定値を `default_app_config` と揃えた（`dt=1e-9`、`max_step=400`）。
+- 層の間で値を写すだけだった成分を整理した（計算結果はビット一致）。粒子源 plan と batch 注入 layout は
+  species 設定（重み、温度、drift、光電子の放出電流と法線 drift、密度）の写しを持たず設定から直接読む。
+  batch workspace は neutral_return の電荷列と未帰還率の写しを、batch ledger は累積時に計算し直す比の写しを持たない。
+  field solver は FMM options へ渡す periodic 設定の写しを持たない。静電 snapshot と FMM plan は options の
+  `reference_mode_layers`・`panel_quadrature_order`・operator セル数を写さない。Zhao 外部根の更新は参照面積を
+  外部根の結果から読む。surface closure の流入写像から常に 0 V だった貯留部電位を除いた。
 
 ### Removed
 
@@ -96,7 +102,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `surface_current_model_pe_budget_residual_current_density_A_m2`（定義上 0）、
   `surface_current_model_surface_budget_residual_current_density_A_m2`（`surface_current_model_net_current_density_A_m2`
   と同じ式。外部根の残差の検査は後者で行う）、`gauss_residual_C`、
-  `charge_ledger_local_flight_charge_{before,after}_C`、`charge_ledger_unresolved_stock_{before,after}_C`。
+  `charge_ledger_local_flight_charge_{before,after}_C`、`charge_ledger_unresolved_stock_{before,after}_C`、
+  `surface_current_model_electron_inflow_reservoir_potential_V`（常に 0）。
   再開時は旧 checkpoint にあるこれらの key を読み飛ばす。
 
 ### Fixed

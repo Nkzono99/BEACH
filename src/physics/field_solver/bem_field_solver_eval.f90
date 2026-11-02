@@ -219,7 +219,7 @@ contains
     error stop 'cached kneq0 potential step requires finite charges.'
   end if
   if (self%mode_id /= field_solver_mode_fmm .or. &
-      .not. self%use_periodic2 .or. trim(self%periodic_far_correction) /= 'cached_kneq0') then
+      .not. self%fmm_core_options%use_periodic2 .or. trim(self%fmm_core_options%periodic_far_correction) /= 'cached_kneq0') then
     error stop 'kneq0 potential-step measurement requires the cached_kneq0 FMM backend.'
   end if
   if (.not. self%fmm_core_ready .or. .not. self%fmm_core_plan%built .or. &

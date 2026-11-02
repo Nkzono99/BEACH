@@ -309,7 +309,6 @@ contains
       call build_particle_source_plan( &
         trial_app, source_plan, mpi=mpi_ctx, &
         kinetic_inflow_active=surface_closure%has_inflow_kinetic_map, &
-        kinetic_reservoir_potential_v=surface_closure%inflow_reservoir_potential_v, &
         kinetic_access_potential_v=surface_closure%inflow_access_potential_v, &
         kinetic_inflow_face=surface_closure%inflow_kinetic_face, &
         kinetic_reservoir_density_m3=surface_closure%inflow_reservoir_density_m3 &
@@ -651,8 +650,6 @@ contains
     type(charge_ledger_type), intent(inout) :: ledger
 
     ledger%neutral_return_correction = workspace%neutral_return_correction
-    ledger%neutral_return_weight_scale = workspace%neutral_return_weight_scale
-    ledger%neutral_return_unresolved_fraction = workspace%neutral_return_unresolved_fraction
     ledger%fixed_absorbed_target_charge = workspace%fixed_absorbed_target_charge
     ledger%fixed_absorbed_weight_scale = workspace%fixed_absorbed_weight_scale
     ledger%fixed_emission_target_charge = workspace%fixed_emission_target_charge

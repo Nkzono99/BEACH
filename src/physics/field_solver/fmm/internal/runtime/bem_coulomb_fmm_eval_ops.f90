@@ -374,7 +374,7 @@ contains
     integer(i32) :: cells(3), index3(3)
     real(dp) :: span(3)
 
-    cells = plan%periodic_operator_anchor_cells
+    cells = plan%options%periodic_operator_anchor_cells
     span = plan%options%target_box_max - plan%options%target_box_min
     index3 = min(cells - 1_i32, max(0_i32, floor((rt - plan%options%target_box_min)/span*real(cells, dp), kind=i32)))
     anchor = 1_i32 + index3(1) + cells(1)*(index3(2) + cells(2)*index3(3))

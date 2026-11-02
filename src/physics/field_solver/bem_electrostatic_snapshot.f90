@@ -56,8 +56,6 @@ module bem_electrostatic_snapshot
     logical :: use_upper_panel_fourier_retry = .false.
     real(dp) :: periodic_length(2) = [0.0_dp, 0.0_dp]
     real(dp) :: periodic_origin(2) = [0.0_dp, 0.0_dp]
-    integer(i32) :: reference_mode_layers = 0_i32
-    integer(i32) :: panel_quadrature_order = 0_i32
     type(periodic_zero_mode_plan_type) :: zero_plan
     type(periodic_zero_mode_state_type) :: zero_state
     type(periodic_nonzero_upper_vacuum_plan_type) :: upper_fourier_plan
@@ -310,8 +308,6 @@ contains
       self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
       self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
       )
-    self%reference_mode_layers = periodic_config%reference_mode_layers
-    self%panel_quadrature_order = periodic_config%panel_quadrature_order
     self%use_panel_spectral_reference = .true.
     self%use_zero_mode = .true.
     self%diagnostics%split_periodic_active = .true.
@@ -356,8 +352,6 @@ contains
     self%use_zero_mode = .true.
     self%periodic_length = sim%box_max(1:2) - sim%box_min(1:2)
     self%periodic_origin = sim%box_min(1:2)
-    self%reference_mode_layers = periodic_config%reference_mode_layers
-    self%panel_quadrature_order = periodic_config%panel_quadrature_order
     self%diagnostics%split_periodic_active = .true.
     self%diagnostics%status = 'cached_kneq0'
     self%diagnostics%periodic_cache_hit = self%nonzero_solver%fmm_core_plan%periodic_cache_hit
@@ -370,7 +364,7 @@ contains
       call init_snapshot_upper_fourier_switch(self, mesh, sim)
     else if (trim(lower_ascii(sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier') then
       call self%upper_fourier_plan%build( &
-        mesh, self%periodic_length(1), self%periodic_length(2), self%reference_mode_layers &
+        mesh, self%periodic_length(1), self%periodic_length(2), self%periodic_options%reference_mode_layers &
         )
       call self%upper_fourier_plan%refresh(mesh%q_elem)
     end if

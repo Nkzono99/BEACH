@@ -107,7 +107,6 @@ contains
       result%absorbed_current_a(app%n_particle_species), &
       result%emission_current_a(app%n_particle_species), &
       result%escaped_particle_current_a(app%n_particle_species), &
-      result%inflow_reservoir_potential_v(app%n_particle_species), &
       result%inflow_access_potential_v(app%n_particle_species), &
       result%inflow_reservoir_density_m3(app%n_particle_species), &
       result%inflow_kinetic_face(app%n_particle_species), &
@@ -126,7 +125,6 @@ contains
     result%absorbed_current_a = 0.0_dp
     result%emission_current_a = 0.0_dp
     result%escaped_particle_current_a = 0.0_dp
-    result%inflow_reservoir_potential_v = 0.0_dp
     result%inflow_access_potential_v = 0.0_dp
     result%inflow_reservoir_density_m3 = 0.0_dp
     result%inflow_kinetic_face = 0_i32
@@ -637,10 +635,9 @@ contains
     !> Zhao の外部シースを z-high 面の kinetic boundary map（流入写像・外部障壁）と面の gauge へ縮約する。
     subroutine assign_kinetic_map()
       ! Zhao の1-D外部シースを、z-high interfaceに対するkinetic boundary mapへ縮約する。
-      ! 経路の電位は面の電位とは別に越える電位で、Type Aの電子はphi_m、それ以外は上流の0 V。
+      ! 経路の電位は面の電位とは別に越える電位で、Type Aの電子はphi_m、それ以外は上流の0 V。流入写像の貯留部は上流の0 V。
       result%kinetic_contract = 'zhao_barrier_v1'
       result%has_inflow_kinetic_map([electron_idx, ion_idx]) = .true.
-      result%inflow_reservoir_potential_v([electron_idx, ion_idx]) = 0.0_dp
       ! 上流電子のMaxwellian密度は、壁で吸われて戻らない高速電子を見込んで無限遠の準中性から決まる。
       ! 設定の太陽風密度をそのまま電子源に使うと流入fluxが根の電子電流からずれる。
       result%inflow_reservoir_density_m3(electron_idx) = plane%electron_reservoir_density_m3

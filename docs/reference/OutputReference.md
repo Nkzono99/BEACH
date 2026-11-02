@@ -207,7 +207,7 @@ periodic field の key は次のとおりです。物理的な意味と solver �
 | `surface_current_model_pe_emission_current_density_A_m2`, `surface_current_model_pe_escape_current_density_A_m2`, `surface_current_model_pe_return_current_density_A_m2` | signed PE 電流密度。emission と escape は正、return は負 |
 | `surface_current_model_pe_escape_particle_current_A` | 外向き PE 粒子が運ぶ signed 電流なので負 |
 | `surface_current_model_net_current_density_A_m2` | 全 channel の表面正味電流密度。外部根の定常条件の残差で、0 に近い |
-| `surface_current_model_electron_inflow_reservoir_potential_V`, `surface_current_model_electron_inflow_access_potential_V`, `surface_current_model_electron_inflow_face` | electron inflow の reservoir、access potential、face |
+| `surface_current_model_electron_inflow_access_potential_V`, `surface_current_model_electron_inflow_face` | electron inflow の access potential と face。reservoir は上流の 0 V |
 | `surface_current_model_pe_outflow_barrier_potential_V`, `surface_current_model_pe_outflow_barrier_face` | PE outflow barrier の電位と face。PE inactive では 0 |
 
 face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。

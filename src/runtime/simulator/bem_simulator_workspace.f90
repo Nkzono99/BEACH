@@ -42,12 +42,8 @@ module bem_simulator_workspace
     logical :: charge_candidate_ready = .false.
     !> neutral_return が rank 合計する電荷（species, neutral_charge_*）。
     real(dp), allocatable :: neutral_return_charge_values(:, :)
-    real(dp), allocatable :: neutral_return_emitted_charge(:)
-    real(dp), allocatable :: neutral_return_absorbed_charge(:)
-    real(dp), allocatable :: neutral_return_unresolved_charge(:)
     real(dp), allocatable :: neutral_return_weight_scale(:)
     real(dp), allocatable :: neutral_return_correction(:)
-    real(dp), allocatable :: neutral_return_unresolved_fraction(:)
     !> 固定電流 closure が rank 合計する raw 電荷（species, fixed_charge_*）。吸収、放出反作用、脱出、
     !! 外部障壁で戻った電荷（H 外向き通過のうち戻った分、帯電符号）。
     real(dp), allocatable :: fixed_current_charge_values(:, :)
@@ -111,11 +107,7 @@ contains
     end if
     allocate (self%neutral_return_charge_values(nspecies, neutral_charge_channels))
     allocate (self%neutral_return_terminal_counts(nspecies, neutral_count_kinds))
-    allocate ( &
-      self%neutral_return_emitted_charge(nspecies), self%neutral_return_absorbed_charge(nspecies), &
-      self%neutral_return_unresolved_charge(nspecies), self%neutral_return_weight_scale(nspecies), &
-      self%neutral_return_correction(nspecies), self%neutral_return_unresolved_fraction(nspecies) &
-      )
+    allocate (self%neutral_return_weight_scale(nspecies), self%neutral_return_correction(nspecies))
     allocate (self%fixed_current_charge_values(nspecies, fixed_charge_channels))
     allocate ( &
       self%fixed_absorbed_target_charge(nspecies), self%fixed_absorbed_weight_scale(nspecies), &
@@ -150,12 +142,8 @@ contains
     self%charge_candidate_ready = .false.
     self%neutral_return_charge_values = 0.0_dp
     self%neutral_return_terminal_counts = 0_i64
-    self%neutral_return_emitted_charge = 0.0_dp
-    self%neutral_return_absorbed_charge = 0.0_dp
-    self%neutral_return_unresolved_charge = 0.0_dp
     self%neutral_return_weight_scale = 1.0_dp
     self%neutral_return_correction = 0.0_dp
-    self%neutral_return_unresolved_fraction = 0.0_dp
     self%fixed_current_charge_values = 0.0_dp
     self%fixed_absorbed_target_charge = 0.0_dp
     self%fixed_absorbed_weight_scale = 1.0_dp

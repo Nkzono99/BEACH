@@ -18,7 +18,8 @@ contains
   else if (self%use_panel_spectral_reference) then
     call eval_periodic_nonzero_panel_reference( &
       mesh, position, self%periodic_length(1), self%periodic_length(2), &
-      self%reference_mode_layers, self%panel_quadrature_order, zero_potential, electric_field &
+      self%periodic_options%reference_mode_layers, self%periodic_options%panel_quadrature_order, &
+      zero_potential, electric_field &
       )
   else
     call self%nonzero_solver%eval_e(mesh, position, electric_field)
@@ -94,7 +95,8 @@ contains
   else if (self%use_panel_spectral_reference) then
     call eval_periodic_nonzero_panel_reference( &
       mesh, position, self%periodic_length(1), self%periodic_length(2), &
-      self%reference_mode_layers, self%panel_quadrature_order, potential, electric_field_dummy &
+      self%periodic_options%reference_mode_layers, self%periodic_options%panel_quadrature_order, &
+      potential, electric_field_dummy &
       )
   else
     call self%nonzero_solver%eval_potential(mesh, sim, position, potential)

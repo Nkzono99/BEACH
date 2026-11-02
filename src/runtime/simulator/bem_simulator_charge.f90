@@ -201,15 +201,12 @@ contains
 
   call allreduce_sum_real_matrix(mpi, workspace%neutral_return_charge_values)
   call allreduce_sum_i64_matrix(mpi, workspace%neutral_return_terminal_counts)
-  workspace%neutral_return_emitted_charge = workspace%neutral_return_charge_values(:, neutral_charge_emitted)
-  workspace%neutral_return_absorbed_charge = workspace%neutral_return_charge_values(:, neutral_charge_absorbed)
-  workspace%neutral_return_unresolved_charge = workspace%neutral_return_charge_values(:, neutral_charge_unresolved)
 
   do species_idx = 1_i32, n
     if (.not. neutral_return_species(species_idx)) cycle
-    emitted_charge = workspace%neutral_return_emitted_charge(species_idx)
-    absorbed_charge = workspace%neutral_return_absorbed_charge(species_idx)
-    unresolved_charge = workspace%neutral_return_unresolved_charge(species_idx)
+    emitted_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_emitted)
+    absorbed_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_absorbed)
+    unresolved_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_unresolved)
     escaped_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_escaped)
     soft_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_soft)
     invalid_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_invalid)
@@ -238,7 +235,6 @@ contains
     end if
     workspace%neutral_return_weight_scale(species_idx) = max(1.0_dp, weight_scale)
     workspace%neutral_return_correction(species_idx) = correction_charge
-    workspace%neutral_return_unresolved_fraction(species_idx) = max(0.0_dp, unresolved_fraction)
   end do
 
   do i = 1_i32, fresh_particle_count

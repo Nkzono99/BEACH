@@ -63,7 +63,7 @@ contains
   if (.not. present(snapshot)) then
     error stop 'external kinetic inflow map requires a refreshed electrostatic snapshot.'
   end if
-  if (.not. all(ieee_is_finite([reservoir_potential_v, access_potential_v]))) then
+  if (.not. ieee_is_finite(access_potential_v)) then
     error stop 'external kinetic inflow map potentials must be finite.'
   end if
   call face_potential_statistics( &
@@ -75,9 +75,9 @@ contains
     call warn_face_average_potential_variation(cfg%sim, spec, phi_face, phi_std, phi_min, phi_max)
   end if
 
-  barrier_normal = 2.0_dp*spec%q_particle*(phi_face - reservoir_potential_v)/spec%m_particle
-  access_barrier_normal = &
-    2.0_dp*spec%q_particle*(access_potential_v - reservoir_potential_v)/spec%m_particle
+  ! 電位は貯留部（上流の 0 V）から測る。
+  barrier_normal = 2.0_dp*spec%q_particle*phi_face/spec%m_particle
+  access_barrier_normal = 2.0_dp*spec%q_particle*access_potential_v/spec%m_particle
   if (.not. all(ieee_is_finite([barrier_normal, access_barrier_normal]))) then
     error stop 'external kinetic inflow map produced a non-finite velocity barrier.'
   end if

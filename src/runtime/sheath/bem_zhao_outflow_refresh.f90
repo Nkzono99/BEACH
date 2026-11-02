@@ -38,7 +38,6 @@ module bem_zhao_outflow_refresh
     real(dp) :: reflected_flux_m2_s = 0.0_dp
     real(dp) :: window_duration = 0.0_dp
     integer(i32) :: accepted_solves = 0_i32
-    real(dp) :: area = 0.0_dp
     real(dp) :: photo_abs_charge = 0.0_dp
     real(dp) :: last_change = 0.0_dp
     !> 窓内の H 外向き通過数、その法線運動エネルギー和 [J]、表面放出数。raw weight 単位。
@@ -85,8 +84,6 @@ contains
       if (status /= irradiation_cell_ok) error stop trim(message)
     end if
     self%refresh_batches = app%surface_current%outflow_refresh_batches
-    self%area = self%cell%wall_area(app%sim%box_min, app%sim%box_max)
-    if (app%surface_current%has_reference_area_m2) self%area = app%surface_current%reference_area_m2
 
     if (receipt%state_valid) then
       if (receipt%feedback(1) == 0.0_dp) then
@@ -126,7 +123,7 @@ contains
     if (self%photo_idx > 0_i32) self%photo_abs_charge = abs(app%particle_species(self%photo_idx)%q_particle)
     surface_closure = self%state%surface_closure_contract_type
     call stage_state( &
-      self, receipt, finite_charge_sum(mesh%q_elem, 'zhao outflow refresh initial charge')/self%area &
+      self, receipt, finite_charge_sum(mesh%q_elem, 'zhao outflow refresh initial charge')/self%state%reference_area_m2 &
       )
   end subroutine initialize
 
@@ -157,7 +154,7 @@ contains
     type(surface_current_model_result_type) :: trial
     real(dp) :: batch_moments(3, 3), transmission, outer_flux, outer_energy_ev, displacement
     real(dp) :: photo_flux, secondary_flux, reflected_flux, attributed_secondary_current, total_escape_current
-    real(dp) :: packed_values(3*(2 + outflow_spectrum_bins)), denominator
+    real(dp) :: packed_values(3*(2 + outflow_spectrum_bins)), denominator, area
     integer :: group, idx
     real(dp) :: batch_values(2 + outflow_spectrum_bins, 3), outer_spectrum(outflow_spectrum_bins)
     character(len=256) :: message
@@ -165,6 +162,7 @@ contains
 
     refreshed = .false.
     if (.not. self%active) return
+    area = self%state%reference_area_m2
     batch_values = 0.0_dp
     batch_moments = 0.0_dp
     do group = 1, 3
@@ -193,9 +191,9 @@ contains
     self%window_duration = self%window_duration + app%sim%batch_duration
     if (self%window_batches >= self%refresh_batches) then
       photo_flux = 0.0_dp
-      secondary_flux = self%window_moments(1, 2)/(self%area*self%window_duration)
+      secondary_flux = self%window_moments(1, 2)/(area*self%window_duration)
       ! セル内で反射して H を抜けた上流電子。外部モデルから見れば由来に関わらず境界からの放出電子である。
-      reflected_flux = self%window_moments(1, 3)/(self%area*self%window_duration)
+      reflected_flux = self%window_moments(1, 3)/(area*self%window_duration)
       transmission = 0.0_dp
       if (self%window_moments(3, 1) > 0.0_dp) then
         transmission = self%window_moments(1, 1)/self%window_moments(3, 1)
@@ -275,14 +273,14 @@ contains
       if (self%photo_idx > 0) then
         if (species_closure_mode(self%state, self%photo_idx, .false.) == closure_mode_escape_partner) then
           ! PE の脱出・帰還目標が差し引いた SEE 脱出。根の脱出束を超えた分は差し引けず、収支に残る。
-          attributed_secondary_current = fixed_escape_closed_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
+          attributed_secondary_current = fixed_escape_closed_charge(self%photo_idx)/(area*app%sim%batch_duration)
           receipt%secondary_budget_residual_a_m2 = &
-            fixed_escape_unclosed_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
+            fixed_escape_unclosed_charge(self%photo_idx)/(area*app%sim%batch_duration)
         else
           ! Type C では SEE を根へ固定する。根の脱出束のうち SEE の脱出目標に載せた分が SEE の取り分。
-          attributed_secondary_current = fixed_escape_closed_charge(self%secondary_idx)/(self%area*app%sim%batch_duration)
+          attributed_secondary_current = fixed_escape_closed_charge(self%secondary_idx)/(area*app%sim%batch_duration)
           receipt%secondary_budget_residual_a_m2 = &
-            fixed_escape_unclosed_charge(self%secondary_idx)/(self%area*app%sim%batch_duration)
+            fixed_escape_unclosed_charge(self%secondary_idx)/(area*app%sim%batch_duration)
         end if
         if (total_escape_current > 0.0_dp) then
           receipt%secondary_share = min(1.0_dp, attributed_secondary_current/total_escape_current)
@@ -291,10 +289,10 @@ contains
         ! PE がなければ根の脱出束は全て SEE のもの。SEE の放出がなく目標を載せられなかった分だけが収支に残る。
         receipt%secondary_share = 1.0_dp
         receipt%secondary_budget_residual_a_m2 = &
-          fixed_escape_unclosed_charge(self%secondary_idx)/(self%area*app%sim%batch_duration)
+          fixed_escape_unclosed_charge(self%secondary_idx)/(area*app%sim%batch_duration)
       end if
     end if
-    displacement = finite_charge_sum(mesh%q_elem, 'zhao outflow refresh committed charge')/self%area
+    displacement = finite_charge_sum(mesh%q_elem, 'zhao outflow refresh committed charge')/area
     call stage_state(self, receipt, displacement)
   end subroutine commit_batch
 
