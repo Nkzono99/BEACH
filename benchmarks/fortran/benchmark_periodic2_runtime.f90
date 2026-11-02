@@ -38,7 +38,7 @@ program benchmark_periodic2_runtime
   options%target_box_min = [0.0_dp, 0.0_dp, -0.5_dp]
   options%target_box_max = [1.0_dp, 1.0_dp, 0.5_dp]
   call build_plan(cached_plan, src_pos, options)
-  cache_path = cached_plan%periodic_cache_path
+  cache_path = cached_plan%periodic_operator%cache_path
   call update_state(cached_plan, cached_state, q)
 
   options%periodic_far_correction = 'none'

@@ -108,6 +108,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   流入写像と外部障壁）の配列にまとめた（計算結果はビット一致、`summary.txt` は不変）。流入写像と外部障壁の面は
   常に照射セルの壁面なので契約に 1 つだけ持ち、流入写像の access 電位と外部障壁の電位は同じ外部シース経路の
   極値電位なので species ごとに 1 つにした。粒子源 plan は流入写像を 4 本の配列へ写さず、契約をそのまま受け取る。
+- FMM plan（`fmm_plan_type`）の成分を内部の型にまとめた（計算結果はビット一致）。source 木と target 木は同じ
+  `fmm_tree_type` の `source_tree`/`target_tree` になり、どちらの木を使うかを選ぶ `active_tree_*` 関数の代わりに
+  評価用の木を引数で渡す。親ノード表は木が持つ（`parent_of`・`source_parent_of` を廃止）。近接 panel の成分表は
+  `near_panels`（単精度は `near_panels_sp`）に、`cached_kneq0` の遠方補正の格子・operator・cache 識別子・計数は
+  `periodic_operator` にまとめた。plan の直下の成分は 133 から 64 に減った。
 
 ### Removed
 

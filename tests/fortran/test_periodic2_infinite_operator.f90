@@ -42,11 +42,11 @@ program test_periodic2_infinite_operator
   options%periodic_image_layers = 1_i32
   call build_plan(plan0, src_pos, options)
   call update_state(plan0, state0, q)
-  cache_path0 = plan0%periodic_cache_path
+  cache_path0 = plan0%periodic_operator%cache_path
   options%periodic_image_layers = 2_i32
   call build_plan(plan1, src_pos, options)
   call update_state(plan1, state1, q)
-  cache_path1 = plan1%periodic_cache_path
+  cache_path1 = plan1%periodic_operator%cache_path
   max_field_error = 0.0_dp
   max_potential_error = 0.0_dp
   layer_field_delta = 0.0_dp
@@ -170,12 +170,12 @@ program test_periodic2_infinite_operator
   options%periodic_image_layers = 1_i32
   options%target_box_max = [1.0_dp, 1.0_dp, 5.5_dp]
   call build_plan(plan_tall, src_pos, options)
-  cache_path_tall = plan_tall%periodic_cache_path
+  cache_path_tall = plan_tall%periodic_operator%cache_path
   call assert_true(all(plan_tall%options%periodic_operator_anchor_cells == [2_i32, 2_i32, 9_i32]), &
                    'tall box must stack anchors along its long axis only')
   call assert_true(all(plan_tall%options%periodic_operator_source_cells == [2_i32, 2_i32, 18_i32]), &
                    'tall box source cells must refine the anchor lattice by powers of two')
-  call assert_equal_i32(plan_tall%periodic_operator_anchor_count, 36_i32, 'tall box anchor count must equal the lattice size')
+  call assert_equal_i32(plan_tall%periodic_operator%anchor_count, 36_i32, 'tall box anchor count must equal the lattice size')
   call update_state(plan_tall, state_tall, q)
   tall_targets(:, 1) = targets(:, 2)
   tall_targets(:, 2) = [0.35_dp, 0.62_dp, 1.4_dp]

@@ -37,14 +37,14 @@ program test_periodic2_operator_cache
 
   call test_begin('cold_build_and_warm_hit')
   call build_plan(cold_plan, src_pos, options)
-  cache_path = cold_plan%periodic_cache_path
-  call assert_true(.not. cold_plan%periodic_cache_hit, 'cold operator must report a cache miss')
-  call assert_equal_i32(cold_plan%periodic_operator_build_count, 1_i32, 'cold operator build count')
+  cache_path = cold_plan%periodic_operator%cache_path
+  call assert_true(.not. cold_plan%periodic_operator%cache_hit, 'cold operator must report a cache miss')
+  call assert_equal_i32(cold_plan%periodic_operator%build_count, 1_i32, 'cold operator build count')
   call build_plan(warm_plan, src_pos, options)
-  call assert_true(warm_plan%periodic_cache_hit, 'second identical plan must hit the cache')
-  call assert_equal_i32(warm_plan%periodic_operator_build_count, 0_i32, 'warm operator build count')
+  call assert_true(warm_plan%periodic_operator%cache_hit, 'second identical plan must hit the cache')
+  call assert_equal_i32(warm_plan%periodic_operator%build_count, 0_i32, 'warm operator build count')
   call assert_true( &
-    trim(warm_plan%periodic_cache_fingerprint) == trim(cold_plan%periodic_cache_fingerprint), &
+    trim(warm_plan%periodic_operator%cache_fingerprint) == trim(cold_plan%periodic_operator%cache_fingerprint), &
     'warm fingerprint mismatch' &
     )
   call test_end()
@@ -56,11 +56,11 @@ program test_periodic2_operator_cache
   close (unit)
   call assert_equal_i32(int(ios, i32), 0_i32, 'corrupt operator cache write')
   call build_plan(rebuilt_plan, src_pos, options)
-  call assert_true(.not. rebuilt_plan%periodic_cache_hit, 'corrupt cache must not be reported as a hit')
-  call assert_equal_i32(rebuilt_plan%periodic_operator_build_count, 1_i32, 'corrupt cache rebuild count')
+  call assert_true(.not. rebuilt_plan%periodic_operator%cache_hit, 'corrupt cache must not be reported as a hit')
+  call assert_equal_i32(rebuilt_plan%periodic_operator%build_count, 1_i32, 'corrupt cache rebuild count')
   call build_plan(recovered_plan, src_pos, options)
-  call assert_true(recovered_plan%periodic_cache_hit, 'rebuilt cache must be reusable')
-  call assert_equal_i32(recovered_plan%periodic_operator_build_count, 0_i32, 'recovered warm build count')
+  call assert_true(recovered_plan%periodic_operator%cache_hit, 'rebuilt cache must be reusable')
+  call assert_equal_i32(recovered_plan%periodic_operator%build_count, 0_i32, 'recovered warm build count')
   call test_end()
 
   call destroy_plan(cold_plan)
@@ -94,50 +94,50 @@ contains
     end do
     call test_begin('box_operator_reused_by_different_panel_mesh')
     call build_panel_plan(first, a(:, 1:2), b(:, 1:2), c(:, 1:2), config)
-    path = first%periodic_cache_path
-    call assert_equal_i32(first%periodic_operator_new_cell_count, first%periodic_operator_built_count, &
+    path = first%periodic_operator%cache_path
+    call assert_equal_i32(first%periodic_operator%new_cell_count, first%periodic_operator%built_count, &
                           'cold plan builds exactly its occupied cells')
     config%leaf_max = 1_i32
     call build_panel_plan(second, a, b, c, config)
-    call assert_true(first%periodic_cache_fingerprint == second%periodic_cache_fingerprint, &
+    call assert_true(first%periodic_operator%cache_fingerprint == second%periodic_operator%cache_fingerprint, &
                      'mesh and adaptive topology must not affect the fingerprint')
-    call assert_equal_i32(second%periodic_root_source_count, 8_i32, 'every box cell must stay addressable')
-    call assert_true(.not. second%periodic_cache_hit, 'a newly occupied cell is a partial cache miss')
-    call assert_equal_i32(second%periodic_operator_new_cell_count, &
-                          second%periodic_operator_built_count - first%periodic_operator_built_count, &
+    call assert_equal_i32(second%periodic_operator%root_source_count, 8_i32, 'every box cell must stay addressable')
+    call assert_true(.not. second%periodic_operator%cache_hit, 'a newly occupied cell is a partial cache miss')
+    call assert_equal_i32(second%periodic_operator%new_cell_count, &
+                          second%periodic_operator%built_count - first%periodic_operator%built_count, &
                           'only cells missing from the cache must be built')
-    call assert_true(second%periodic_operator_new_cell_count > 0_i32, 'the third panel must occupy a new cell')
-    nanchor = first%periodic_operator_anchor_count
-    do slot = 1_i32, first%periodic_operator_built_count
-      cell = first%periodic_operator_cells(slot)
-      slot2 = second%periodic_operator_cell_slot(cell)
+    call assert_true(second%periodic_operator%new_cell_count > 0_i32, 'the third panel must occupy a new cell')
+    nanchor = first%periodic_operator%anchor_count
+    do slot = 1_i32, first%periodic_operator%built_count
+      cell = first%periodic_operator%cells(slot)
+      slot2 = second%periodic_operator%cell_slot(cell)
       call assert_true(slot2 > 0_i32, 'cells of the first mesh must stay available')
-      call assert_true(maxval(abs(first%periodic_root_operator(:, :, (slot - 1)*nanchor + 1:slot*nanchor) - &
-                                  second%periodic_root_operator(:, :, (slot2 - 1)*nanchor + 1:slot2*nanchor))) == 0.0_dp, &
+      call assert_true(maxval(abs(first%periodic_operator%root_operator(:, :, (slot - 1)*nanchor + 1:slot*nanchor) - &
+                                  second%periodic_operator%root_operator(:, :, (slot2 - 1)*nanchor + 1:slot2*nanchor))) == 0.0_dp, &
                        'cached cell blocks must be reused verbatim')
     end do
-    call assert_equal_i32(second%periodic_operator_anchor_count, 8_i32, 'box anchors form the requested lattice')
-    call assert_true(all(second%periodic_anchor_center == first%periodic_anchor_center), &
+    call assert_equal_i32(second%periodic_operator%anchor_count, 8_i32, 'box anchors form the requested lattice')
+    call assert_true(all(second%periodic_operator%anchor_center == first%periodic_operator%anchor_center), &
                      'box anchors must not depend on the mesh or the adaptive tree')
     call build_panel_plan(third, a, b, c, config)
-    call assert_true(third%periodic_cache_hit, 'merged cache must cover the second mesh')
-    call assert_equal_i32(third%periodic_operator_build_count, 0_i32, 'merged cache must not rebuild')
+    call assert_true(third%periodic_operator%cache_hit, 'merged cache must cover the second mesh')
+    call assert_equal_i32(third%periodic_operator%build_count, 0_i32, 'merged cache must not rebuild')
     call destroy_plan(third)
     config%leaf_max = options%leaf_max
     call build_panel_plan(third, a(:, 1:2), b(:, 1:2), c(:, 1:2), config)
-    call assert_true(third%periodic_cache_hit, 'merging must keep the cells of the first mesh')
+    call assert_true(third%periodic_operator%cache_hit, 'merging must keep the cells of the first mesh')
     call destroy_plan(third)
     call test_end()
 
     call test_begin('shared_translations_and_reflections_match_every_pair')
-    shared = first%periodic_root_operator
-    shared_count = first%periodic_operator_class_count
+    shared = first%periodic_operator%root_operator
+    shared_count = first%periodic_operator%class_count
     call precompute_periodic_root_operator(first, reuse_translations=.false.)
-    call assert_true(shared_count < first%periodic_operator_class_count, 'shared path must reduce Ewald classes')
-    call assert_true(maxval(abs(shared - first%periodic_root_operator)) < &
+    call assert_true(shared_count < first%periodic_operator%class_count, 'shared path must reduce Ewald classes')
+    call assert_true(maxval(abs(shared - first%periodic_operator%root_operator)) < &
                      5.0e-12_dp*max(1.0_dp, maxval(abs(shared))), 'class sharing must agree within rounding error')
     write (*, '(a,es12.5)') 'shared/direct operator max difference=', &
-      maxval(abs(shared - first%periodic_root_operator))
+      maxval(abs(shared - first%periodic_operator%root_operator))
     call test_end()
     call destroy_plan(first)
     call destroy_plan(second)
@@ -166,7 +166,7 @@ contains
     call assert_true(sum(charge) == 0.0_dp .and. all(matmul(positions, charge) == 0.0_dp), &
                      'checkerboard fixture must have zero global monopole and dipole')
     call build_plan(neutral, positions, config)
-    path = neutral%periodic_cache_path
+    path = neutral%periodic_operator%cache_path
     call update_state(neutral, state, charge)
     config%periodic_far_correction = 'none'
     call build_plan(uncorrected, positions, config)
