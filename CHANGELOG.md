@@ -134,6 +134,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- 初回 batch の生成粒子数が 0 のとき（photo_raycast の ray がすべて mesh を外れるなど）に、粒子フラグ配列が未割当のまま
+  代入されて SIGSEGV で停止していたのを直した。容量の確保は、未割当なら要求 0 でも配列を割り当てる（#109）。
 - `beach --check-config`（Fortran preflight）が、JSON schema だけが拒否していた
   `particles.tracking.max_steps_per_particle = 0`、`output.enabled = false` での `[run.restart]`、`inflow` を持たない
   `volume_seed` 種の `sampling.target_macro_particles_per_batch` を受理していた。

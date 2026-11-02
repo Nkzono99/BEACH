@@ -204,7 +204,8 @@ contains
 
     current = 0_i32
     if (allocated(values)) current = int(size(values), i32)
-    if (current >= required_size) return
+    ! 要求 0 でも未割当なら割り当てる。空の batch でも後段は配列の区間代入と引数渡しをする。
+    if (allocated(values) .and. current >= required_size) return
     allocate (grown(grown_capacity(current, required_size)))
     if (allocated(values)) grown(:size(values)) = values
     call move_alloc(grown, values)
@@ -218,7 +219,8 @@ contains
 
     current = 0_i32
     if (allocated(values)) current = int(size(values), i32)
-    if (current >= required_size) return
+    ! 要求 0 でも未割当なら割り当てる。空の batch でも後段は配列の区間代入と引数渡しをする。
+    if (allocated(values) .and. current >= required_size) return
     allocate (grown(grown_capacity(current, required_size)))
     if (allocated(values)) grown(:size(values)) = values
     call move_alloc(grown, values)
@@ -232,7 +234,8 @@ contains
 
     current = 0_i32
     if (allocated(values)) current = int(size(values), i32)
-    if (current >= required_size) return
+    ! 要求 0 でも未割当なら割り当てる。空の batch でも後段は配列の区間代入と引数渡しをする。
+    if (allocated(values) .and. current >= required_size) return
     allocate (grown(grown_capacity(current, required_size)))
     if (allocated(values)) grown(:size(values)) = values
     call move_alloc(grown, values)

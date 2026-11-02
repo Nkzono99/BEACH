@@ -96,7 +96,7 @@ program test_simulator_loop
 
   call seed_particles_from_config(cfg)
 
-  call test_init(9)
+  call test_init(10)
 
   call test_begin('basic_simulation')
   call delete_file_if_exists(history_path)
@@ -268,6 +268,10 @@ program test_simulator_loop
   call test_large_finite_charge_norm_stays_finite()
   call test_end()
 
+  call test_begin('empty_first_batch_allocates_particle_flags')
+  call test_empty_first_batch_allocates_particle_flags()
+  call test_end()
+
   call test_begin('batch_workspace_reset_clears_previous_batch')
   call test_batch_workspace_reset_clears_previous_batch()
   call test_end()
@@ -275,6 +279,24 @@ program test_simulator_loop
   call test_summary()
 
 contains
+
+  !> A first batch with no particles (e.g. every photo ray misses the mesh) must leave usable, empty flag
+  !! arrays, and the next non-empty batch must grow them (#109).
+  subroutine test_empty_first_batch_allocates_particle_flags()
+    type(simulator_batch_workspace_type) :: workspace
+
+    call workspace%init(2_i32, 3_i32, 2_i32)
+    call workspace%prepare_particle_flags(0_i32)
+    call assert_true( &
+      allocated(workspace%escaped_boundary_flag) .and. allocated(workspace%absorbed_flag) .and. &
+      allocated(workspace%absorbed_element) .and. allocated(workspace%soft_discarded_boundary_flag) .and. &
+      allocated(workspace%rng_id), &
+      'an empty batch must allocate the particle flag arrays' &
+      )
+    call workspace%prepare_particle_flags(3_i32)
+    call assert_true(size(workspace%absorbed_flag) >= 3, 'the next batch must grow the flag arrays')
+    call assert_true(all(workspace%absorbed_element(:3) == -1_i32), 'grown flags must be reset')
+  end subroutine test_empty_first_batch_allocates_particle_flags
 
   !> The batch workspace is reused across batches. Whatever a finished batch left in its charge tallies,
   !! closure accumulators and particle terminal flags must not leak into the next batch.
