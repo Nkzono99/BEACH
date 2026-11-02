@@ -42,6 +42,6 @@ Operational notes:
 
 - `run.batch_count` is the number of batches to run now.
 - `particles.tracking.max_steps_per_particle` is the per-particle step limit.
-- `output.diagnostics.charge_rel_change_threshold` is a monitoring metric, not an early-stop condition.
+- `output.diagnostics.charge_rel_change_threshold` is off by default (0); a positive value is an early-stop condition on `rel_change`.
 - `[run.restart]` reads `summary.txt`, `charges.csv`, and `rng_state.txt` from the same `output.dir`. MPI resume requires the same world size.
 - `fields.boundary = "periodic2"` handles two periodic axes and requires care with FMM and box boundary settings.

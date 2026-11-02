@@ -42,6 +42,6 @@ BEACH は BEM による表面帯電とテスト粒子追跡を組み合わせた
 
 - `run.batch_count` は今回実行する batch 数。
 - `particles.tracking.max_steps_per_particle` は粒子ごとの上限 step。
-- `output.diagnostics.charge_rel_change_threshold` は監視値であり停止条件ではない。
+- `output.diagnostics.charge_rel_change_threshold` は既定 0 で無効。正の値は `rel_change` に対する早期終了条件。
 - `[run.restart]` では同じ `output.dir` の `summary.txt`, `charges.csv`, `rng_state.txt` を使う。MPI では前回と同じ world size が必要。
 - `fields.boundary = "periodic2"` は 2 軸周期境界を扱い、FMM と box boundary 設定の組み合わせに注意する。

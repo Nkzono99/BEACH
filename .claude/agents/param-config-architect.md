@@ -104,7 +104,7 @@ BEACH (BEM + Accumulated CHarge) プロジェクト:
 - Surface model: insulator accumulation only
 - Batch実行: `sim.batch_count` で設定
 - Per-particle advance limit: `sim.max_step`
-- `tol_rel` は監視/出力メトリクスであり、早期停止条件ではない
+- `tol_rel`（`output.diagnostics.charge_rel_change_threshold`）は既定 0 で無効、正なら `rel_change` に対する早期終了条件
 
 これらの制約に関するパラメータは、将来の拡張に備えつつ、現時点では不要な選択肢をユーザーに見せないよう設計する。
 

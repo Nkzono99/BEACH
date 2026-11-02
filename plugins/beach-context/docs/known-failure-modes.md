@@ -18,7 +18,7 @@
 
 ## runtime/output
 
-- No early stop occurs from `output.diagnostics.charge_rel_change_threshold`; it is only reported.
+- 正の `output.diagnostics.charge_rel_change_threshold` は `run.batch_count` 前に run を終える。短い run を失敗と判断する前に `charge_rel_change_threshold_reached` を確認する。
 - High `output.history.stride_batches` frequency, `output.history.potential`, large mesh, and many batches can create large CSV outputs.
 - `[run.restart]` needs compatible `summary.txt`, `charges.csv`, and RNG state files in the same output directory.
 - MPI resume requires the same world size as the previous run.

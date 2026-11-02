@@ -77,7 +77,7 @@ flowchart LR
 ## 出力を読む
 
 `charges.csv` の `charge_C` は各三角形の総電荷 [C] です。表面電荷密度が必要なら要素面積で割ります。
-`output.diagnostics.charge_rel_change_threshold` は batch 前後の変化を監視する出力であり、現行実装の自動停止条件ではありません。
+batch 前後の相対変化は `rel_change` として出力し、正の `output.diagnostics.charge_rel_change_threshold` を下回ると run を終えます（既定 0 は無効）。
 
 species ごとの吸収・放出・escape を含む保存則は[出力ファイルを調べる](../guide/OutputGuide.md)、式と実装上の
 更新順は[表面電荷更新の数値仕様](../developer/SurfaceChargeNumerics.md)で確認できます。

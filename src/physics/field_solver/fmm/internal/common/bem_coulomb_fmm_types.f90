@@ -19,6 +19,7 @@ module bem_coulomb_fmm_types
   public :: periodic_source_proxy_half_size
   public :: periodic2_ewald_data_type
   public :: fmm_options_type
+  public :: fmm_tree_type
   public :: fmm_plan_type
   public :: fmm_state_type
   public :: reset_periodic2_ewald_data
@@ -76,6 +77,77 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: k1(:), k2(:), kmag(:), karg0(:), kpref1(:), kpref2(:), kprefz(:)
   end type periodic2_ewald_data_type
 
+  !> FMM の八分木。source 木と target 木で同じ型を使う。
+  !! ノード番号 1 が根で、子は child_idx(1:child_count(node), node)。level_start/level_nodes は深さ順のノード表で、
+  !! 深さ d のノードは level_nodes(level_start(d + 1):level_start(d + 2) - 1)。
+  type :: fmm_tree_type
+    integer(i32) :: max_node = 0_i32
+    integer(i32) :: nnode = 0_i32
+    integer(i32) :: max_depth = 0_i32
+    !> source 木だけ: 線源の並べ替え順と、各ノードの線源区間 elem_order(node_start:node_start + node_count - 1)。
+    integer(i32), allocatable :: elem_order(:)
+    integer(i32), allocatable :: node_start(:), node_count(:)
+    integer(i32), allocatable :: child_count(:), child_idx(:, :), child_octant(:, :)
+    integer(i32), allocatable :: node_depth(:)
+    integer(i32), allocatable :: level_start(:), level_nodes(:)
+    !> 親ノード番号（根は 0）。
+    integer(i32), allocatable :: parent(:)
+    real(dp), allocatable :: node_center(:, :)
+    real(dp), allocatable :: node_half_size(:, :)
+    real(dp), allocatable :: node_radius(:)
+  end type fmm_tree_type
+
+  !> Panel sources only: the near-field panels in `near_source_idx` order as translated component arrays
+  !! (vertex x/y/z per vertex, normal, edge lengths, outward edge normals per component, area), so a
+  !! point evaluation reads its leaf's panels without gathering them from `panel_geometry`.
+  type :: fmm_near_panel_table_type
+    real(dp), allocatable :: vx(:, :), vy(:, :), vz(:, :)
+    real(dp), allocatable :: nx(:), ny(:), nz(:)
+    real(dp), allocatable :: edge(:, :), ox(:, :), oy(:, :), oz(:, :)
+    real(dp), allocatable :: area(:)
+  end type fmm_near_panel_table_type
+
+  !> Single-precision counterpart used when options%near_field_single: vertices relative to the leaf center,
+  !! which is kept in double per target leaf slot.
+  type :: fmm_near_panel_table_sp_type
+    real(sp), allocatable :: vx(:, :), vy(:, :), vz(:, :)
+    real(sp), allocatable :: nx(:), ny(:), nz(:)
+    real(sp), allocatable :: edge(:, :), ox(:, :), oy(:, :), oz(:, :)
+    real(sp), allocatable :: area(:)
+    real(dp), allocatable :: leaf_center(:, :)
+  end type fmm_near_panel_table_sp_type
+
+  !> cached_kneq0 の遠方補正（非零モード）の box 格子、operator、cache 識別子と作成の計数。
+  !! cached_kneq0 以外では既定値のまま使わない。
+  type :: fmm_periodic_operator_type
+    logical :: ready = .false.
+    !> 遠方補正の (target anchor, source cell) 組の数。anchor は box を各軸 options%periodic_operator_anchor_cells に分けた
+    !! 格子で、適応木とは独立に点評価で参照する。operator は panel を含む source cell だけを持ち、
+    !! 組 k = (slot-1)*anchor_count + anchor で並ぶ。slot は cell_slot(cell)、
+    !! 0 のセルは operator を持たない（線源を置けない）。
+    integer(i32) :: root_target_count = 0_i32
+    integer(i32) :: anchor_count = 0_i32
+    real(dp) :: anchor_half(3) = 0.0_dp
+    real(dp) :: source_half(3) = 0.0_dp
+    real(dp), allocatable :: anchor_center(:, :)
+    integer(i32) :: built_count = 0_i32
+    integer(i32), allocatable :: cell_slot(:)
+    integer(i32), allocatable :: cells(:)
+    !> 今回の初期化で新たに作った source cell の数（cache にあったセルは数えない）。
+    integer(i32) :: new_cell_count = 0_i32
+    integer(i32) :: root_source_count = 0_i32
+    integer(i32), allocatable :: source_cell(:)
+    real(dp), allocatable :: source_center(:, :), source_p2m_basis(:, :)
+    real(dp), allocatable :: root_operator(:, :, :)
+    logical :: cache_hit = .false.
+    integer(i32) :: build_count = 0_i32
+    integer(i32) :: local_target_count = 0_i32
+    integer(i32) :: class_count = 0_i32
+    integer(i64) :: ewald_evaluation_count = 0_i64
+    character(len=16) :: cache_fingerprint = ''
+    character(len=512) :: cache_path = ''
+  end type fmm_periodic_operator_type
+
   type :: fmm_plan_type
     type(fmm_options_type) :: options = fmm_options_type()
     !> Options, `src_pos` and `panel_geometry` are set; enough for exact-direct evaluation.
@@ -92,7 +164,6 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: alpha_map(:, :, :)
     integer(i32), allocatable :: alpha_plus_axis(:, :)
     integer(i32), allocatable :: deriv_alpha(:, :)
-    integer(i32), allocatable :: deriv_degree(:)
     real(dp), allocatable :: deriv_factorial(:)
     integer(i32), allocatable :: deriv_map(:, :, :)
     integer(i32), allocatable :: alpha_beta_deriv_idx(:, :)
@@ -103,56 +174,27 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: src_pos(:, :)
     logical :: panel_source = .false.
     type(panel_geometry_type), allocatable :: panel_geometry(:)
-    integer(i32) :: max_node = 0_i32
-    integer(i32) :: nnode = 0_i32
-    integer(i32) :: node_max_depth = 0_i32
-    integer(i32), allocatable :: elem_order(:)
-    integer(i32), allocatable :: node_start(:), node_count(:)
-    integer(i32), allocatable :: child_count(:), child_idx(:, :), child_octant(:, :)
-    integer(i32), allocatable :: node_depth(:)
-    integer(i32), allocatable :: node_level_start(:), node_level_nodes(:)
-    real(dp), allocatable :: node_center(:, :)
-    real(dp), allocatable :: node_half_size(:, :)
-    real(dp), allocatable :: node_radius(:)
+    type(fmm_tree_type) :: source_tree
+    !> target_box があるときだけ作る、box 全体を覆う評価用の木。無ければ source_tree が評価用の木を兼ねる
+    !! （target ノード番号は source_tree のノード番号）。
     logical :: target_tree_ready = .false.
-    integer(i32) :: target_max_node = 0_i32
-    integer(i32) :: target_nnode = 0_i32
-    integer(i32) :: target_node_max_depth = 0_i32
-    integer(i32), allocatable :: target_child_count(:), target_child_idx(:, :), target_child_octant(:, :)
-    integer(i32), allocatable :: target_node_depth(:)
-    integer(i32), allocatable :: target_level_start(:), target_level_nodes(:)
-    real(dp), allocatable :: target_node_center(:, :)
-    real(dp), allocatable :: target_node_half_size(:, :)
-    real(dp), allocatable :: target_node_radius(:)
+    type(fmm_tree_type) :: target_tree
     integer(i32) :: nsource_leaf = 0_i32
     integer(i32), allocatable :: source_leaf_nodes(:)
+    !> 評価用の木（target_tree_ready なら target_tree、そうでなければ source_tree）の葉と、ノードから葉 slot への表。
     integer(i32) :: nleaf = 0_i32
     integer(i32), allocatable :: leaf_nodes(:)
     integer(i32), allocatable :: leaf_slot_of_node(:)
     integer(i32), allocatable :: near_start(:), near_nodes(:)
     integer(i32), allocatable :: near_source_start(:), near_source_idx(:)
     real(dp), allocatable :: near_source_shift1(:), near_source_shift2(:)
-    !> Panel sources only: the near-field panels in `near_source_idx` order as translated component arrays
-    !! (vertex x/y/z per vertex, normal, edge lengths, outward edge normals per component, area), so a
-    !! point evaluation reads its leaf's panels without gathering them from `panel_geometry`.
-    real(dp), allocatable :: near_vx(:, :), near_vy(:, :), near_vz(:, :)
-    real(dp), allocatable :: near_nx(:), near_ny(:), near_nz(:)
-    real(dp), allocatable :: near_edge(:, :), near_ox(:, :), near_oy(:, :), near_oz(:, :)
-    real(dp), allocatable :: near_area(:)
-    !> Single-precision counterparts used when options%near_field_single: vertices relative to the leaf center.
-    real(sp), allocatable :: near_sp_vx(:, :), near_sp_vy(:, :), near_sp_vz(:, :)
-    real(sp), allocatable :: near_sp_nx(:), near_sp_ny(:), near_sp_nz(:)
-    real(sp), allocatable :: near_sp_edge(:, :), near_sp_ox(:, :), near_sp_oy(:, :), near_sp_oz(:, :)
-    real(sp), allocatable :: near_sp_area(:)
-    real(dp), allocatable :: near_leaf_center(:, :)
+    !> 近接 panel の成分表。options%near_field_single で near_panels_sp、それ以外で near_panels だけを作る。
+    type(fmm_near_panel_table_type) :: near_panels
+    type(fmm_near_panel_table_sp_type) :: near_panels_sp
     integer(i32) :: m2l_pair_count = 0_i32
-    integer(i32) :: m2l_build_count = 0_i32
-    integer(i32) :: m2l_visit_count = 0_i32
     integer(i32), allocatable :: m2l_target_nodes(:), m2l_source_nodes(:)
     integer(i32), allocatable :: m2l_shift_idx1(:), m2l_shift_idx2(:)
     integer(i32), allocatable :: m2l_target_start(:), m2l_pair_order(:)
-    integer(i32), allocatable :: source_parent_of(:)
-    integer(i32), allocatable :: parent_of(:)
     integer(i32), allocatable :: m2m_term_count(:)
     integer(i32), allocatable :: m2m_alpha_list(:, :)
     integer(i32), allocatable :: m2m_delta_list(:, :)
@@ -161,36 +203,7 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: l2l_delta_list(:, :)
     real(dp), allocatable :: shift_axis1(:), shift_axis2(:)
     type(periodic2_ewald_data_type) :: periodic_ewald
-    logical :: periodic_root_operator_ready = .false.
-    !> 遠方補正の (target anchor, source cell) 組の数。anchor は box を各軸 periodic_operator_anchor_cells に分けた
-    !! 格子で、適応木とは独立に点評価で参照する。operator は panel を含む source cell だけを持ち、
-    !! 組 k = (slot-1)*anchor_count + anchor で並ぶ。slot は periodic_operator_cell_slot(cell)、
-    !! 0 のセルは operator を持たない（線源を置けない）。
-    integer(i32) :: periodic_root_target_count = 0_i32
-    integer(i32) :: periodic_operator_anchor_count = 0_i32
-    integer(i32) :: periodic_operator_anchor_cells(3) = 0_i32
-    integer(i32) :: periodic_operator_source_cells(3) = 0_i32
-    real(dp) :: periodic_anchor_half(3) = 0.0_dp
-    real(dp) :: periodic_source_half(3) = 0.0_dp
-    real(dp), allocatable :: periodic_anchor_center(:, :)
-    integer(i32) :: periodic_operator_built_count = 0_i32
-    integer(i32), allocatable :: periodic_operator_cell_slot(:)
-    integer(i32), allocatable :: periodic_operator_cells(:)
-    !> 今回の初期化で新たに作った source cell の数（cache にあったセルは数えない）。
-    integer(i32) :: periodic_operator_new_cell_count = 0_i32
-    integer(i32) :: periodic_root_source_count = 0_i32
-    integer(i32), allocatable :: periodic_source_cell(:)
-    real(dp), allocatable :: periodic_source_center(:, :), periodic_source_p2m_basis(:, :)
-    real(dp), allocatable :: periodic_root_operator(:, :, :)
-    logical :: periodic_cache_hit = .false.
-    integer(i32) :: periodic_operator_build_count = 0_i32
-    integer(i32) :: periodic_qr_preparation_count = 0_i32
-    integer(i32) :: periodic_operator_local_target_count = 0_i32
-    integer(i32) :: periodic_operator_thread_count = 0_i32
-    integer(i32) :: periodic_operator_class_count = 0_i32
-    integer(i64) :: periodic_operator_ewald_evaluation_count = 0_i64
-    character(len=16) :: periodic_cache_fingerprint = ''
-    character(len=512) :: periodic_cache_path = ''
+    type(fmm_periodic_operator_type) :: periodic_operator
     logical :: periodic_k0_ready = .false.
     integer(i32) :: periodic_k0_free_axis = 0_i32
     type(periodic_zero_mode_plan_type) :: periodic_k0_plan

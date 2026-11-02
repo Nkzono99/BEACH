@@ -37,7 +37,7 @@ color: red
    - unknown key/section は Fortran parser の error。
    - `run.batch.duration_s` と `run.batch.duration_steps` は排他的。
    - `distribution.temperature_k` と `distribution.temperature_ev` は排他的。
-   - `output.diagnostics.charge_rel_change_threshold` は早期停止条件ではなく monitoring/output。
+   - 正の `output.diagnostics.charge_rel_change_threshold` は早期終了条件。`charge_rel_change_threshold_reached=T` なら `batches` < `run.batch_count` でも完了。
    - `output.history.stride_batches <= 0` では `charge_history.csv` は出ない。
    - periodic2 の `cached_kneq0` で最初の batch 行が出ないまま長く止まるのは、遠方演算子の生成中か
      `operator-<fingerprint>.bin.lock` の待ち。`periodic2_cache_hit` / `periodic2_operator_build_count` で確かめ、

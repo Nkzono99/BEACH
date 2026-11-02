@@ -5,11 +5,10 @@ module bem_coulomb_fmm_eval_ops
   use bem_panel_kernel, only: panel_potential_field_translated, panel_field_sum_translated, &
                               panel_potential_sum_translated, panel_field_sum_translated_sp, &
                               panel_potential_sum_translated_sp
-  use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type
+  use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, fmm_tree_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
   use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_cached_kneq0
-  use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
-                                        active_tree_child_octant, active_tree_node_center, active_tree_node_half_size
+  use bem_coulomb_fmm_tree_utils, only: octant_index
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
   use bem_periodic_shell_mean, only: eval_periodic_shell_mean
   implicit none
@@ -190,7 +189,7 @@ contains
     real(dp), intent(out) :: ex, ey, ez
     integer(i32) :: leaf_node, leaf_slot
     integer(i32) :: axes(2)
-    real(dp) :: rt(3), soft2
+    real(dp) :: rt(3), soft2, leaf_center(3)
 
     ex = 0.0d0
     ey = 0.0d0
@@ -200,7 +199,7 @@ contains
     rt = [rx, ry, rz]
     if (plan%options%use_periodic2) call wrap_periodic2_point(plan, rt)
     soft2 = plan%options%softening*plan%options%softening
-    leaf_node = locate_target_leaf(plan, rt)
+    call locate_target_leaf(plan, rt, leaf_node, leaf_center)
     leaf_slot = 0_i32
     if (leaf_node > 0_i32) leaf_slot = plan%leaf_slot_of_node(leaf_node)
     if (leaf_slot <= 0_i32) then
@@ -208,7 +207,7 @@ contains
       return
     end if
 
-    call accumulate_leaf_local_expansion(plan, state, leaf_node, rt, ex, ey, ez)
+    call accumulate_leaf_local_expansion(plan, state, leaf_node, leaf_center, rt, ex, ey, ez)
     call accumulate_anchor_local_expansion(plan, state, rt, ex, ey, ez)
     axes = active_periodic_axes(plan)
     call accumulate_near_direct_field(plan, state, leaf_slot, rt, soft2, axes, ex, ey, ez)
@@ -223,7 +222,7 @@ contains
     real(dp), intent(out) :: phi
     integer(i32) :: leaf_node, leaf_slot
     integer(i32) :: axes(2)
-    real(dp) :: rt(3), soft2
+    real(dp) :: rt(3), soft2, leaf_center(3)
 
     phi = 0.0d0
     if (.not. plan%built .or. .not. state%ready) return
@@ -231,7 +230,7 @@ contains
     rt = [rx, ry, rz]
     if (plan%options%use_periodic2) call wrap_periodic2_point(plan, rt)
     soft2 = plan%options%softening*plan%options%softening
-    leaf_node = locate_target_leaf(plan, rt)
+    call locate_target_leaf(plan, rt, leaf_node, leaf_center)
     leaf_slot = 0_i32
     if (leaf_node > 0_i32) leaf_slot = plan%leaf_slot_of_node(leaf_node)
     if (leaf_slot <= 0_i32) then
@@ -239,7 +238,7 @@ contains
       return
     end if
 
-    call accumulate_leaf_local_potential_expansion(plan, state, leaf_node, rt, phi)
+    call accumulate_leaf_local_potential_expansion(plan, state, leaf_node, leaf_center, rt, phi)
     call accumulate_anchor_local_potential_expansion(plan, state, rt, phi)
     axes = active_periodic_axes(plan)
     call accumulate_near_direct_potential(plan, state, leaf_slot, rt, soft2, axes, phi)
@@ -315,11 +314,11 @@ contains
     call eval_direct_all_sources_potential_scalar(plan, state%src_q, rt(1), rt(2), rt(3), soft2, phi)
   end subroutine apply_direct_fallback_potential
 
-  subroutine accumulate_leaf_local_expansion(plan, state, leaf_node, rt, ex, ey, ez)
+  subroutine accumulate_leaf_local_expansion(plan, state, leaf_node, leaf_center, rt, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
     integer(i32), intent(in) :: leaf_node
-    real(dp), intent(in) :: rt(3)
+    real(dp), intent(in) :: leaf_center(3), rt(3)
     real(dp), intent(inout) :: ex, ey, ez
     integer(i32) :: order, term_idx
     real(dp) :: dr(3), monomial
@@ -331,7 +330,7 @@ contains
     if (state%local_active(leaf_node) == 0_i32) return
     if (plan%eval_term_count <= 0_i32) return
 
-    dr = rt - active_tree_node_center(plan, plan%target_tree_ready, leaf_node)
+    dr = rt - leaf_center
     call build_axis_powers(dr, order, xpow, ypow, zpow)
     do term_idx = 1_i32, plan%eval_term_count
       monomial = xpow(plan%eval_exp(1, term_idx))*ypow(plan%eval_exp(2, term_idx)) &
@@ -342,11 +341,11 @@ contains
     end do
   end subroutine accumulate_leaf_local_expansion
 
-  subroutine accumulate_leaf_local_potential_expansion(plan, state, leaf_node, rt, phi)
+  subroutine accumulate_leaf_local_potential_expansion(plan, state, leaf_node, leaf_center, rt, phi)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
     integer(i32), intent(in) :: leaf_node
-    real(dp), intent(in) :: rt(3)
+    real(dp), intent(in) :: leaf_center(3), rt(3)
     real(dp), intent(inout) :: phi
     integer(i32) :: order, alpha_idx
     real(dp) :: dr(3), monomial
@@ -356,7 +355,7 @@ contains
     order = active_local_expansion_order(plan)
     if (state%local_active(leaf_node) == 0_i32) return
 
-    dr = rt - active_tree_node_center(plan, plan%target_tree_ready, leaf_node)
+    dr = rt - leaf_center
     call build_axis_powers(dr, order, xpow, ypow, zpow)
     do alpha_idx = 1_i32, plan%ncoef
       monomial = xpow(plan%alpha(1, alpha_idx))*ypow(plan%alpha(2, alpha_idx)) &
@@ -374,11 +373,11 @@ contains
     integer(i32) :: cells(3), index3(3)
     real(dp) :: span(3)
 
-    cells = plan%periodic_operator_anchor_cells
+    cells = plan%options%periodic_operator_anchor_cells
     span = plan%options%target_box_max - plan%options%target_box_min
     index3 = min(cells - 1_i32, max(0_i32, floor((rt - plan%options%target_box_min)/span*real(cells, dp), kind=i32)))
     anchor = 1_i32 + index3(1) + cells(1)*(index3(2) + cells(2)*index3(3))
-    center = plan%options%target_box_min + (real(index3, dp) + 0.5_dp)*2.0_dp*plan%periodic_anchor_half
+    center = plan%options%target_box_min + (real(index3, dp) + 0.5_dp)*2.0_dp*plan%periodic_operator%anchor_half
   end subroutine locate_periodic_anchor
 
   !> 遠方補正の anchor 局所展開の電場を加える。
@@ -392,7 +391,7 @@ contains
     real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
     real(dp) :: zpow(0:max(0_i32, plan%options%order))
 
-    if (.not. plan%periodic_root_operator_ready) return
+    if (.not. plan%periodic_operator%ready) return
     if (.not. allocated(state%anchor_local)) return
     order = active_local_expansion_order(plan)
     if (order <= 0_i32 .or. plan%eval_term_count <= 0_i32) return
@@ -421,7 +420,7 @@ contains
     real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
     real(dp) :: zpow(0:max(0_i32, plan%options%order))
 
-    if (.not. plan%periodic_root_operator_ready) return
+    if (.not. plan%periodic_operator%ready) return
     if (.not. allocated(state%anchor_local)) return
     order = active_local_expansion_order(plan)
     call locate_periodic_anchor(plan, rt, anchor, center)
@@ -471,23 +470,27 @@ contains
     if (plan%panel_source .and. plan%options%near_field_single) then
       call panel_field_sum_translated_sp( &
         near_source_end - near_source_begin + 1_i32, &
-        plan%near_sp_vx(1, near_source_begin), plan%near_sp_vy(1, near_source_begin), &
-        plan%near_sp_vz(1, near_source_begin), plan%near_sp_nx(near_source_begin), plan%near_sp_ny(near_source_begin), &
-        plan%near_sp_nz(near_source_begin), plan%near_sp_edge(1, near_source_begin), plan%near_sp_ox(1, near_source_begin), &
-        plan%near_sp_oy(1, near_source_begin), plan%near_sp_oz(1, near_source_begin), plan%near_sp_area(near_source_begin), &
+        plan%near_panels_sp%vx(1, near_source_begin), plan%near_panels_sp%vy(1, near_source_begin), &
+        plan%near_panels_sp%vz(1, near_source_begin), plan%near_panels_sp%nx(near_source_begin), &
+        plan%near_panels_sp%ny(near_source_begin), plan%near_panels_sp%nz(near_source_begin), &
+        plan%near_panels_sp%edge(1, near_source_begin), plan%near_panels_sp%ox(1, near_source_begin), &
+        plan%near_panels_sp%oy(1, near_source_begin), plan%near_panels_sp%oz(1, near_source_begin), &
+        plan%near_panels_sp%area(near_source_begin), &
         plan%near_source_idx(near_source_begin), state%src_q, plan%panel_geometry, axes, &
         plan%near_source_shift1(near_source_begin), plan%near_source_shift2(near_source_begin), &
-        rt - plan%near_leaf_center(:, leaf_slot), rt, ex, ey, ez &
+        rt - plan%near_panels_sp%leaf_center(:, leaf_slot), rt, ex, ey, ez &
         )
       return
     end if
     if (plan%panel_source) then
       call panel_field_sum_translated( &
         near_source_end - near_source_begin + 1_i32, &
-        plan%near_vx(1, near_source_begin), plan%near_vy(1, near_source_begin), plan%near_vz(1, near_source_begin), &
-        plan%near_nx(near_source_begin), plan%near_ny(near_source_begin), plan%near_nz(near_source_begin), &
-        plan%near_edge(1, near_source_begin), plan%near_ox(1, near_source_begin), plan%near_oy(1, near_source_begin), &
-        plan%near_oz(1, near_source_begin), plan%near_area(near_source_begin), &
+        plan%near_panels%vx(1, near_source_begin), plan%near_panels%vy(1, near_source_begin), &
+        plan%near_panels%vz(1, near_source_begin), plan%near_panels%nx(near_source_begin), &
+        plan%near_panels%ny(near_source_begin), plan%near_panels%nz(near_source_begin), &
+        plan%near_panels%edge(1, near_source_begin), plan%near_panels%ox(1, near_source_begin), &
+        plan%near_panels%oy(1, near_source_begin), plan%near_panels%oz(1, near_source_begin), &
+        plan%near_panels%area(near_source_begin), &
         plan%near_source_idx(near_source_begin), state%src_q, plan%panel_geometry, rt, ex, ey, ez &
         )
       return
@@ -536,23 +539,27 @@ contains
     if (plan%panel_source .and. plan%options%near_field_single) then
       call panel_potential_sum_translated_sp( &
         near_source_end - near_source_begin + 1_i32, &
-        plan%near_sp_vx(1, near_source_begin), plan%near_sp_vy(1, near_source_begin), &
-        plan%near_sp_vz(1, near_source_begin), plan%near_sp_nx(near_source_begin), plan%near_sp_ny(near_source_begin), &
-        plan%near_sp_nz(near_source_begin), plan%near_sp_edge(1, near_source_begin), plan%near_sp_ox(1, near_source_begin), &
-        plan%near_sp_oy(1, near_source_begin), plan%near_sp_oz(1, near_source_begin), plan%near_sp_area(near_source_begin), &
+        plan%near_panels_sp%vx(1, near_source_begin), plan%near_panels_sp%vy(1, near_source_begin), &
+        plan%near_panels_sp%vz(1, near_source_begin), plan%near_panels_sp%nx(near_source_begin), &
+        plan%near_panels_sp%ny(near_source_begin), plan%near_panels_sp%nz(near_source_begin), &
+        plan%near_panels_sp%edge(1, near_source_begin), plan%near_panels_sp%ox(1, near_source_begin), &
+        plan%near_panels_sp%oy(1, near_source_begin), plan%near_panels_sp%oz(1, near_source_begin), &
+        plan%near_panels_sp%area(near_source_begin), &
         plan%near_source_idx(near_source_begin), state%src_q, plan%panel_geometry, axes, &
         plan%near_source_shift1(near_source_begin), plan%near_source_shift2(near_source_begin), &
-        rt - plan%near_leaf_center(:, leaf_slot), rt, phi &
+        rt - plan%near_panels_sp%leaf_center(:, leaf_slot), rt, phi &
         )
       return
     end if
     if (plan%panel_source) then
       call panel_potential_sum_translated( &
         near_source_end - near_source_begin + 1_i32, &
-        plan%near_vx(1, near_source_begin), plan%near_vy(1, near_source_begin), plan%near_vz(1, near_source_begin), &
-        plan%near_nx(near_source_begin), plan%near_ny(near_source_begin), plan%near_nz(near_source_begin), &
-        plan%near_edge(1, near_source_begin), plan%near_ox(1, near_source_begin), plan%near_oy(1, near_source_begin), &
-        plan%near_oz(1, near_source_begin), plan%near_area(near_source_begin), &
+        plan%near_panels%vx(1, near_source_begin), plan%near_panels%vy(1, near_source_begin), &
+        plan%near_panels%vz(1, near_source_begin), plan%near_panels%nx(near_source_begin), &
+        plan%near_panels%ny(near_source_begin), plan%near_panels%nz(near_source_begin), &
+        plan%near_panels%edge(1, near_source_begin), plan%near_panels%ox(1, near_source_begin), &
+        plan%near_panels%oy(1, near_source_begin), plan%near_panels%oz(1, near_source_begin), &
+        plan%near_panels%area(near_source_begin), &
         plan%near_source_idx(near_source_begin), state%src_q, plan%panel_geometry, rt, phi &
         )
       return
@@ -873,50 +880,66 @@ contains
     call accumulate_point_charge_potential(q, sx_img, sy_img, sz_img, tx, ty, tz, soft2, phi)
   end subroutine accumulate_point_charge_shifted_potential
 
-  !> 評価点を含む target leaf を返す。periodic2 の点は呼び出し側が wrap_periodic2_point で正準化済みで、
-  !! 展開と near 項も同じ座標を使うので、ここでは折り返さない。
-  integer(i32) function locate_target_leaf(plan, r_eval)
+  !> 評価点を含む target leaf とその中心を返す。葉が無ければ leaf_node = 0。periodic2 の点は呼び出し側が
+  !! wrap_periodic2_point で正準化済みで、展開と near 項も同じ座標を使うので、ここでは折り返さない。
+  subroutine locate_target_leaf(plan, r_eval, leaf_node, leaf_center)
     type(fmm_plan_type), intent(in) :: plan
     real(dp), intent(in) :: r_eval(3)
+    integer(i32), intent(out) :: leaf_node
+    real(dp), intent(out) :: leaf_center(3)
+
+    if (plan%target_tree_ready) then
+      call descend_to_leaf( &
+        plan%target_tree, check_root_extent=.true., r_eval=r_eval, leaf_node=leaf_node, leaf_center=leaf_center &
+        )
+    else
+      call descend_to_leaf( &
+        plan%source_tree, check_root_extent=.not. plan%options%use_periodic2, r_eval=r_eval, leaf_node=leaf_node, &
+        leaf_center=leaf_center &
+        )
+    end if
+  end subroutine locate_target_leaf
+
+  !> 木を根から評価点の八分木へ下りて葉を返す。check_root_extent なら根の箱の外の点で leaf_node = 0。
+  !! 点の八分木に子が無ければ、中心が最も近い子へ進む。
+  subroutine descend_to_leaf(tree, check_root_extent, r_eval, leaf_node, leaf_center)
+    type(fmm_tree_type), intent(in) :: tree
+    logical, intent(in) :: check_root_extent
+    real(dp), intent(in) :: r_eval(3)
+    integer(i32), intent(out) :: leaf_node
+    real(dp), intent(out) :: leaf_center(3)
     integer(i32) :: oct, child_k, child, cand, axis
-    logical :: use_target_tree
     real(dp) :: best_dist2, dist2, dx, dy, dz, extent_eps
-    real(dp) :: root_center(3), root_half(3), node_center_curr(3), cand_center(3)
 
-    locate_target_leaf = 0_i32
-    if (plan%nnode <= 0_i32) return
-    use_target_tree = plan%target_tree_ready
-    if (active_tree_nnode(plan, use_target_tree) <= 0_i32) return
+    leaf_node = 0_i32
+    leaf_center = 0.0_dp
+    if (tree%nnode <= 0_i32) return
 
-    if (use_target_tree .or. .not. plan%options%use_periodic2) then
-      root_center = active_tree_node_center(plan, use_target_tree, 1_i32)
-      root_half = active_tree_node_half_size(plan, use_target_tree, 1_i32)
-      extent_eps = 1.0d-12*max(1.0d0, maxval(abs(root_center)))
+    if (check_root_extent) then
+      extent_eps = 1.0d-12*max(1.0d0, maxval(abs(tree%node_center(:, 1_i32))))
       do axis = 1_i32, 3_i32
-        if (abs(r_eval(axis) - root_center(axis)) > root_half(axis) + extent_eps) return
+        if (abs(r_eval(axis) - tree%node_center(axis, 1_i32)) > tree%node_half_size(axis, 1_i32) + extent_eps) return
       end do
     end if
 
-    locate_target_leaf = 1_i32
-    do while (active_tree_child_count(plan, use_target_tree, locate_target_leaf) > 0_i32)
-      node_center_curr = active_tree_node_center(plan, use_target_tree, locate_target_leaf)
-      oct = octant_index(r_eval(1), r_eval(2), r_eval(3), node_center_curr)
+    leaf_node = 1_i32
+    do while (tree%child_count(leaf_node) > 0_i32)
+      oct = octant_index(r_eval(1), r_eval(2), r_eval(3), tree%node_center(:, leaf_node))
       child = 0_i32
-      do child_k = 1_i32, active_tree_child_count(plan, use_target_tree, locate_target_leaf)
-        if (active_tree_child_octant(plan, use_target_tree, child_k, locate_target_leaf) == oct) then
-          child = active_tree_child_idx(plan, use_target_tree, child_k, locate_target_leaf)
+      do child_k = 1_i32, tree%child_count(leaf_node)
+        if (tree%child_octant(child_k, leaf_node) == oct) then
+          child = tree%child_idx(child_k, leaf_node)
           exit
         end if
       end do
       if (child <= 0_i32) then
-        child = active_tree_child_idx(plan, use_target_tree, 1_i32, locate_target_leaf)
+        child = tree%child_idx(1_i32, leaf_node)
         best_dist2 = huge(1.0d0)
-        do child_k = 1_i32, active_tree_child_count(plan, use_target_tree, locate_target_leaf)
-          cand = active_tree_child_idx(plan, use_target_tree, child_k, locate_target_leaf)
-          cand_center = active_tree_node_center(plan, use_target_tree, cand)
-          dx = r_eval(1) - cand_center(1)
-          dy = r_eval(2) - cand_center(2)
-          dz = r_eval(3) - cand_center(3)
+        do child_k = 1_i32, tree%child_count(leaf_node)
+          cand = tree%child_idx(child_k, leaf_node)
+          dx = r_eval(1) - tree%node_center(1, cand)
+          dy = r_eval(2) - tree%node_center(2, cand)
+          dz = r_eval(3) - tree%node_center(3, cand)
           dist2 = dx*dx + dy*dy + dz*dz
           if (dist2 < best_dist2) then
             best_dist2 = dist2
@@ -924,8 +947,9 @@ contains
           end if
         end do
       end if
-      locate_target_leaf = child
+      leaf_node = child
     end do
-  end function locate_target_leaf
+    leaf_center = tree%node_center(:, leaf_node)
+  end subroutine descend_to_leaf
 
 end module bem_coulomb_fmm_eval_ops

@@ -81,7 +81,7 @@ contains
     layers = self%periodic_options%upper_fourier_mode_layers
     if (layers /= 0_i32) return
     gap = height - maxval(mesh%bb_max(3, :))
-    layers = self%reference_mode_layers
+    layers = self%periodic_options%reference_mode_layers
     do while (layers < 32_i32)
       if (exp(-2.0_dp*pi*real(layers + 1, dp)*gap/maxval(self%periodic_length)) <= 1.0e-6_dp) exit
       layers = layers + 1_i32

@@ -1,29 +1,23 @@
 !> 設定の正規化と領域別 preflight の実行順を管理する。
 submodule(bem_app_config_parser) bem_app_config_parser_finalize
-  use bem_external_boundary_contract, only: resolve_external_boundary_contract, external_boundary_ok
   implicit none
 contains
 
   module procedure finalize_loaded_config
-  integer(i32) :: boundary_status
-  character(len=256) :: boundary_message
-
   call lower_boundary_authoring(cfg, authoring)
   call validate_mesh_part_keys(cfg, authoring)
   call normalize_high_level_config(cfg, authoring)
-  call normalize_legacy_physics_config(cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
+  call normalize_legacy_physics_config(cfg%sim, cfg%periodic2)
   call apply_physics_authoring(cfg, authoring)
-  cfg%sim%field_solver = lower_ascii(trim(cfg%sim%field_solver))
-  cfg%sim%field_normalization = lower_ascii(trim(cfg%sim%field_normalization))
+  cfg%sim%solver%method = lower_ascii(trim(cfg%sim%solver%method))
+  cfg%sim%solver%normalization = lower_ascii(trim(cfg%sim%solver%normalization))
   cfg%sim%field_bc_mode = lower_ascii(trim(cfg%sim%field_bc_mode))
-  cfg%sim%field_periodic_far_correction = lower_ascii(trim(cfg%sim%field_periodic_far_correction))
+  cfg%sim%periodic%far_correction = lower_ascii(trim(cfg%sim%periodic%far_correction))
 
+  call resolve_external_e_field(cfg, authoring%sim_input)
+  call resolve_batch_duration(cfg, authoring%sim_input)
   call validate_simulation_config(cfg)
-  call resolve_external_boundary_contract( &
-    cfg%sim%reservoir_potential_model, cfg%boundary_contract, boundary_status, boundary_message &
-    )
-  if (boundary_status /= external_boundary_ok) call stop_config_error(boundary_message)
-  call validate_particle_species_config(cfg)
+  call validate_particle_species_config(cfg, authoring)
   call resolve_sheath_secondary_role(cfg)
   call validate_surface_current_model_config( &
     cfg, authoring%periodic2%present .and. &
@@ -92,35 +86,39 @@ contains
   subroutine validate_field_parameters(cfg)
     type(app_config), intent(in) :: cfg
 
-    if (trim(cfg%sim%field_solver) /= 'direct') then
-      if (.not. ieee_is_finite(cfg%sim%tree_theta) .or. cfg%sim%tree_theta <= 0.0_dp .or. cfg%sim%tree_theta > 1.0_dp) then
-        error stop 'fields.solver.tree.theta must satisfy 0 < theta <= 1 for tree-capable solvers.'
+    associate (solver => cfg%sim%solver)
+      if (trim(solver%method) /= 'direct') then
+        if (.not. ieee_is_finite(solver%tree_theta) .or. solver%tree_theta <= 0.0_dp .or. solver%tree_theta > 1.0_dp) then
+          error stop 'fields.solver.tree.theta must satisfy 0 < theta <= 1 for tree-capable solvers.'
+        end if
+        if (solver%tree_leaf_max < 1_i32) error stop 'fields.solver.tree.leaf_max must be >= 1 for tree-capable solvers.'
+        if (solver%tree_min_nelem < 1_i32) then
+          error stop 'fields.solver.auto_fmm_min_elements must be >= 1 for tree-capable solvers.'
+        end if
+        if (trim(solver%near_field_precision) /= 'double' .and. trim(solver%near_field_precision) /= 'single') then
+          error stop 'fields.solver.near_field_precision must be "double" or "single".'
+        end if
       end if
-      if (cfg%sim%tree_leaf_max < 1_i32) error stop 'fields.solver.tree.leaf_max must be >= 1 for tree-capable solvers.'
-      if (cfg%sim%tree_min_nelem < 1_i32) error stop 'fields.solver.auto_fmm_min_elements must be >= 1 for tree-capable solvers.'
-      if (trim(cfg%sim%near_field_precision) /= 'double' .and. trim(cfg%sim%near_field_precision) /= 'single') then
-        error stop 'fields.solver.near_field_precision must be "double" or "single".'
-      end if
-    end if
+    end associate
     if (trim(cfg%sim%field_bc_mode) /= 'periodic2') return
-    if (cfg%sim%field_periodic_image_layers < 0_i32) then
+    if (cfg%sim%periodic%image_layers < 0_i32) then
       error stop 'fields.periodic.image_layers must be >= 0 for periodic2.'
     end if
-    if (trim(cfg%sim%field_periodic_far_correction) /= 'cached_kneq0') return
-    if (cfg%sim%field_periodic_image_layers < 1_i32) then
+    if (trim(cfg%sim%periodic%far_correction) /= 'cached_kneq0') return
+    if (cfg%sim%periodic%image_layers < 1_i32) then
       error stop 'fields.periodic.image_layers must be >= 1 for cached_kneq0.'
     end if
-    if (cfg%sim%field_periodic_ewald_layers < 1_i32) then
+    if (cfg%sim%periodic%ewald_layers < 1_i32) then
       error stop 'fields.periodic.ewald_layers must be >= 1 for cached_kneq0.'
     end if
-    if (.not. ieee_is_finite(cfg%sim%field_periodic_ewald_alpha) .or. cfg%sim%field_periodic_ewald_alpha < 0.0_dp) then
+    if (.not. ieee_is_finite(cfg%sim%periodic%ewald_alpha) .or. cfg%sim%periodic%ewald_alpha < 0.0_dp) then
       error stop 'fields.periodic.ewald_alpha must be finite and >= 0 for cached_kneq0.'
     end if
-    if (.not. ieee_is_finite(cfg%sim%field_periodic_generation_tolerance) .or. &
-        cfg%sim%field_periodic_generation_tolerance <= 0.0_dp) then
+    if (.not. ieee_is_finite(cfg%sim%periodic%generation_tolerance) .or. &
+        cfg%sim%periodic%generation_tolerance <= 0.0_dp) then
       error stop 'fields.periodic.generation_tolerance must be finite and > 0 for cached_kneq0.'
     end if
-    if (len_trim(cfg%sim%field_periodic_cache_dir) == 0) then
+    if (len_trim(cfg%sim%periodic%cache_dir) == 0) then
       error stop 'fields.periodic.cache_dir must be a non-empty string for cached_kneq0.'
     end if
   end subroutine validate_field_parameters

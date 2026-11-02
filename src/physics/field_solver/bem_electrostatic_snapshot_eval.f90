@@ -18,7 +18,8 @@ contains
   else if (self%use_panel_spectral_reference) then
     call eval_periodic_nonzero_panel_reference( &
       mesh, position, self%periodic_length(1), self%periodic_length(2), &
-      self%reference_mode_layers, self%panel_quadrature_order, zero_potential, electric_field &
+      self%periodic_options%reference_mode_layers, self%periodic_options%panel_quadrature_order, &
+      zero_potential, electric_field &
       )
   else
     call self%nonzero_solver%eval_e(mesh, position, electric_field)
@@ -78,7 +79,7 @@ contains
       )
     potential = potential + zero_potential
   end if
-  potential = potential - dot_product(self%prescribed_e, position - self%prescribed_phi_origin)
+  potential = potential - dot_product(self%prescribed_e, position)
   end procedure eval_snapshot_upper_panel_fourier_phi
 
   module procedure eval_snapshot_local_phi
@@ -94,7 +95,8 @@ contains
   else if (self%use_panel_spectral_reference) then
     call eval_periodic_nonzero_panel_reference( &
       mesh, position, self%periodic_length(1), self%periodic_length(2), &
-      self%reference_mode_layers, self%panel_quadrature_order, potential, electric_field_dummy &
+      self%periodic_options%reference_mode_layers, self%periodic_options%panel_quadrature_order, &
+      potential, electric_field_dummy &
       )
   else
     call self%nonzero_solver%eval_potential(mesh, sim, position, potential)
@@ -105,7 +107,7 @@ contains
       )
     potential = potential + zero_potential
   end if
-  potential = potential - dot_product(self%prescribed_e, position - self%prescribed_phi_origin)
+  potential = potential - dot_product(self%prescribed_e, position)
   end procedure eval_snapshot_local_phi
 
   module procedure eval_snapshot_local_phi_without_primary_self
@@ -143,7 +145,7 @@ contains
     call self%nonzero_solver%compute_mesh_potential(mesh, sim, potential)
     do element = 1, mesh%nelem
       potential(element) = potential(element) - &
-                           dot_product(self%prescribed_e, mesh%centers(:, element) - self%prescribed_phi_origin)
+                           dot_product(self%prescribed_e, mesh%centers(:, element))
     end do
   end if
   end procedure compute_snapshot_mesh_potential

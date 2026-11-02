@@ -31,62 +31,72 @@ module bem_types
     integer(i32) :: raycast_max_bounce = 16_i32
   end type photo_raycast_config
 
-  !> 入力と run 制御の設定。physics へは必要な親 component だけを渡す。
-  type, extends(photo_raycast_config) :: sim_config
-    real(dp) :: dt = 1.0d-12
-    integer(i32) :: batch_count = 1_i32
-    logical :: has_batch_duration = .false.
-    real(dp) :: batch_duration_step = 0.0d0
-    logical :: has_batch_duration_step = .false.
-    integer(i32) :: max_step = 100
-    !> 粒子ごとの適応サブステップ。step 候補の中点電場が前回受理した中点電場からこの割合より大きく変わり、
-    !! その差が step の仕事に換算して 1e-4 eV を超えるときは step を半分にして取り直す。0 で無効。
-    real(dp) :: substep_field_change_max = 0.0d0
+  !> 粒子ごとの適応サブステップと step の伸長（`particles.tracking.*`）。
+  type :: sim_substep_config
+    !> step 候補の中点電場が前回受理した中点電場からこの割合より大きく変わり、その差が step の仕事に換算して
+    !! 1e-4 eV を超えるときは step を半分にして取り直す。0 で無効。
+    real(dp) :: field_change_max = 0.0d0
     !> 1 つの dt を半分にする回数の上限（最小 sub-step は dt/2^n）。
-    integer(i32) :: substep_max_halvings = 6_i32
-    !> 場の変化が小さい領域で step を `dt_s` の 2^n 倍まで伸ばす（opt-in）。有効時に `substep_field_change_max` が 0 なら 0.05 を使う。
-    logical :: step_growth = .false.
-    integer(i32) :: step_growth_max = 5_i32
+    integer(i32) :: max_halvings = 6_i32
+    !> 場の変化が小さい領域で step を `dt_s` の 2^n 倍まで伸ばす（opt-in）。有効時に `field_change_max` が 0 なら 0.05 を使う。
+    logical :: growth = .false.
+    integer(i32) :: growth_max = 5_i32
     !> 伸長時の仕事の床値を運動エネルギーのこの割合にする（1e-4 eV との大きい方）。
-    real(dp) :: step_growth_energy_fraction = 1.0d-2
-    real(dp) :: tol_rel = 1.0d-4
-    real(dp) :: q_floor = 1.0d-30
-    character(len=16) :: field_solver = 'auto'
-    character(len=16) :: field_normalization = 'si'
-    real(dp) :: field_length_scale = 1.0d0
-    integer(i32) :: field_periodic_image_layers = 1_i32
-    character(len=16) :: field_periodic_far_correction = 'none'
-    real(dp) :: field_periodic_ewald_alpha = 0.0d0
-    integer(i32) :: field_periodic_ewald_layers = 4_i32
-    character(len=256) :: field_periodic_cache_dir = ''
-    real(dp) :: field_periodic_generation_tolerance = 1.0d-8
+    real(dp) :: growth_energy_fraction = 1.0d-2
+  end type sim_substep_config
+
+  !> 場の solver の選択と tree/FMM パラメータ（`fields.solver.*`）。
+  type :: sim_solver_config
+    character(len=16) :: method = 'auto'
+    character(len=16) :: normalization = 'si'
+    real(dp) :: length_scale = 1.0d0
     real(dp) :: tree_theta = 0.5d0
     logical :: has_tree_theta = .false.
     integer(i32) :: tree_leaf_max = 16_i32
-    !> 'double' (default, bitwise-reproducible) or 'single' for the FMM near-field panel sums.
-    character(len=8) :: near_field_precision = 'double'
     logical :: has_tree_leaf_max = .false.
     integer(i32) :: tree_min_nelem = 256_i32
+    !> 'double' (default, bitwise-reproducible) or 'single' for the FMM near-field panel sums.
+    character(len=8) :: near_field_precision = 'double'
+  end type sim_solver_config
+
+  !> periodic2 の遠方補正と Ewald・cache 設定（`fields.periodic.*`）。
+  type :: sim_periodic_config
+    integer(i32) :: image_layers = 1_i32
+    character(len=16) :: far_correction = 'none'
+    real(dp) :: ewald_alpha = 0.0d0
+    integer(i32) :: ewald_layers = 4_i32
+    character(len=256) :: cache_dir = ''
+    real(dp) :: generation_tolerance = 1.0d-8
+  end type sim_periodic_config
+
+  !> 1 step で複数の box 面 event が起きた粒子の扱い（`particles.tracking.multiple_box_events.*`）。
+  type :: sim_box_events_config
+    character(len=32) :: policy = 'abort'
+    character(len=32) :: retry_backend = 'none'
+    integer(i32) :: soft_discard_count_grace = 1000_i32
+    real(dp) :: soft_discard_fraction_limit = 1.0d-6
+    real(dp) :: soft_discard_abs_charge_limit = 1.0d-12
+  end type sim_box_events_config
+
+  !> 入力と run 制御の設定。physics へは必要な親 component だけを渡す。
+  type, extends(photo_raycast_config) :: sim_config
+    real(dp) :: dt = 1.0d-9
+    integer(i32) :: batch_count = 1_i32
+    integer(i32) :: max_step = 400
+    type(sim_substep_config) :: substep
+    !> accepted batch の表面電荷の相対変化がこの値を下回ったら、`batch_count` 前でも run を終える。0 は無効。
+    real(dp) :: tol_rel = 0.0d0
+    real(dp) :: q_floor = 1.0d-30
+    type(sim_solver_config) :: solver
+    type(sim_periodic_config) :: periodic
     real(dp) :: e0(3) = 0.0d0
-    logical :: has_e0_vector = .false.
-    real(dp) :: e0_abs = 0.0d0
-    logical :: has_e0_abs = .false.
-    real(dp) :: e0_phi_xy_deg = 0.0d0
-    logical :: has_e0_phi_xy_deg = .false.
-    real(dp) :: e0_phi_z_deg = 0.0d0
-    logical :: has_e0_phi_z_deg = .false.
     real(dp) :: b0(3) = 0.0d0
-    character(len=32) :: reservoir_potential_model = 'none'
     real(dp) :: phi_infty = 0.0d0
     !> バッチ粒子の rank 配分。`static` は rank ごとに固定分割、`shared` は全 rank 共有の slot pool を chunk 単位で取り合う。
     character(len=8) :: particle_distribution = 'static'
     !> `shared` で 1 回の claim が取る slot 数。
     integer(i32) :: particle_pool_chunk = 64_i32
-    character(len=32) :: multiple_box_events_policy = 'abort'
-    character(len=32) :: multiple_box_events_retry_backend = 'none'
-    integer(i32) :: multiple_box_events_soft_discard_count_grace = 1000_i32
-    real(dp) :: multiple_box_events_soft_discard_fraction_limit = 1.0d-6
-    real(dp) :: multiple_box_events_soft_discard_abs_charge_limit = 1.0d-12
+    type(sim_box_events_config) :: box_events
     integer(i32) :: injection_face_phi_grid_n = 3_i32
   end type sim_config
 
@@ -106,8 +116,15 @@ module bem_types
     ! Recomputed from the restored external root and snapshot; not persisted in checkpoints.
     real(dp) :: top_field_v_m = 0.0_dp
     real(dp) :: top_cell_mean_v_m = 0.0_dp
-    real(dp) :: response(6) = 0.0_dp
-    real(dp) :: feedback(4) = 0.0_dp
+    !> 外部根の応答。壁へ向かう電子・イオンの流入束と、Type A の電子が越える経路の極小電位（それ以外は 0）。
+    !! 光電子・二次電子の外部障壁も同じ経路電位で、イオンの access 電位は常に上流の 0 V。
+    real(dp) :: electron_inward_flux_m2_s = 0.0_dp
+    real(dp) :: ion_inward_flux_m2_s = 0.0_dp
+    real(dp) :: electron_access_potential_v = 0.0_dp
+    !> 外部根へ与えた外側源。H 外向きの放出電子束と平均法線エネルギー、そのうち反射して抜けた上流電子の束。
+    real(dp) :: photoelectron_outward_flux_m2_s = 0.0_dp
+    real(dp) :: photoelectron_mean_normal_energy_ev = 0.0_dp
+    real(dp) :: electron_outward_flux_m2_s = 0.0_dp
     real(dp) :: photoelectron_return_flux_m2_s = 0.0_dp
     real(dp) :: photoelectron_escape_flux_m2_s = 0.0_dp
     !> 外部根の光電子源に使った H 外向きスペクトル [1/(m2 s)]、bin 別。全て 0 は表面放出の半 Maxwell 源。
@@ -165,26 +182,17 @@ module bem_types
     real(dp), allocatable :: v1(:, :)
     real(dp), allocatable :: v2(:, :)
     real(dp), allocatable :: centers(:, :)
-    real(dp), allocatable :: center_x(:)
-    real(dp), allocatable :: center_y(:)
-    real(dp), allocatable :: center_z(:)
     real(dp), allocatable :: normals(:, :)
     real(dp), allocatable :: bb_min(:, :)
     real(dp), allocatable :: bb_max(:, :)
-    real(dp), allocatable :: h_elem(:)
     real(dp), allocatable :: panel_area(:)
-    real(dp), allocatable :: panel_moment1(:, :)
-    real(dp), allocatable :: panel_moment2(:, :, :)
     real(dp), allocatable :: panel_edge_length(:, :)
     real(dp), allocatable :: panel_edge_outward(:, :, :)
-    real(dp), allocatable :: panel_quad_position(:, :, :)
-    real(dp), allocatable :: panel_quad_weight(:, :)
     real(dp), allocatable :: q_elem(:)
     integer(i32), allocatable :: elem_mesh_id(:)
     integer(i32), allocatable :: elem_surface_model(:)
     real(dp), allocatable :: elem_epsilon_r(:)
     integer(i32), allocatable :: elem_vacuum_sign(:)
-    real(dp), allocatable :: vacuum_normals(:, :)
     real(dp) :: grid_bb_min(3) = 0.0d0
     real(dp) :: grid_bb_max(3) = 0.0d0
     integer(i32) :: grid_ncell(3) = 1_i32
@@ -222,5 +230,15 @@ module bem_types
     integer(i32) :: image_shift(2) = 0_i32
     real(dp) :: pos_wrapped(3) = 0.0d0
   end type hit_info
+
+contains
+
+  !> 受理済み batch があり、その相対電荷変化が有効な閾値 `sim%tol_rel` を下回っていれば真。
+  pure logical function charge_rel_change_threshold_reached(sim, stats) result(reached)
+    type(sim_config), intent(in) :: sim
+    type(sim_stats), intent(in) :: stats
+
+    reached = sim%tol_rel > 0.0d0 .and. stats%batches > 0 .and. stats%last_rel_change < sim%tol_rel
+  end function charge_rel_change_threshold_reached
 
 end module bem_types

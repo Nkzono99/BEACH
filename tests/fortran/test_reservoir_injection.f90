@@ -219,7 +219,6 @@ contains
     v2(:, 1) = [0.0_dp, 1.0_dp, 0.25_dp]
     call init_mesh(stats_mesh, v0, v1, v2, q0=[0.0_dp])
     stats_mesh%elem_vacuum_sign = 1_i32
-    stats_mesh%vacuum_normals = stats_mesh%normals
 
     call default_app_config(stats_cfg)
     stats_cfg%sim%use_box = .true.
@@ -237,9 +236,7 @@ contains
     stats_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
     stats_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
 
-    call snapshot%init( &
-      stats_mesh, stats_cfg%sim, stats_cfg%field, stats_cfg%periodic2, stats_cfg%panel &
-      )
+    call snapshot%init(stats_mesh, stats_cfg%sim, stats_cfg%periodic2)
     call snapshot%refresh(stats_mesh)
     call compute_face_average_potential( &
       stats_mesh, stats_cfg%sim, stats_cfg%particle_species(1), snapshot, &
@@ -260,7 +257,6 @@ contains
     call assert_close_dp(top_phi_min, phi_min, 1.0e-14_dp, 'z-high box potential minimum mismatch')
     call assert_close_dp(top_phi_max, phi_max, 1.0e-14_dp, 'z-high box potential maximum mismatch')
 
-    stats_cfg%sim%reservoir_potential_model = 'infinity_barrier'
     stats_cfg%boundary_contract%inflow_map = external_inflow_scalar_barrier
     stats_cfg%sim%phi_infty = -1.0_dp
     call reservoir_face_velocity_correction( &
@@ -290,16 +286,13 @@ contains
     v2(:, 1) = [0.0_dp, 1.0_dp, 0.5_dp]
     call init_mesh(mesh, v0, v1, v2, q0=[0.0_dp])
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
     call default_app_config(cfg)
     cfg%sim%batch_count = 1_i32
     cfg%sim%batch_duration = 1.0_dp
-    cfg%sim%has_batch_duration = .true.
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     cfg%sim%e0 = [0.0_dp, 0.0_dp, -1.0_dp]
-    cfg%sim%reservoir_potential_model = 'infinity_barrier'
     cfg%boundary_contract%inflow_map = external_inflow_scalar_barrier
     cfg%sim%phi_infty = 0.25_dp
     cfg%sim%injection_face_phi_grid_n = 2_i32
@@ -320,7 +313,7 @@ contains
     allocate (state%macro_residual(2), state%boundary_macro_residual(6, 2))
     state%macro_residual = 0.0_dp
     state%boundary_macro_residual = 0.0_dp
-    call snapshot%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
+    call snapshot%init(mesh, cfg%sim, cfg%periodic2)
     call snapshot%refresh(mesh)
     call build_particle_source_plan(cfg, source_plan)
     call build_batch_injection_layout( &
@@ -354,18 +347,15 @@ contains
     v2(:, 1) = [0.0_dp, 1.0_dp, 0.25_dp]
     call init_mesh(barrier_mesh, v0, v1, v2, q0=[0.0_dp])
     barrier_mesh%elem_vacuum_sign = 1_i32
-    barrier_mesh%vacuum_normals = barrier_mesh%normals
 
     call default_app_config(barrier_cfg)
     barrier_cfg%sim%batch_count = 1_i32
     barrier_cfg%sim%batch_duration = 1.0_dp
-    barrier_cfg%sim%has_batch_duration = .true.
     barrier_cfg%sim%dt = 0.0_dp
     barrier_cfg%sim%use_box = .true.
     barrier_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     barrier_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     barrier_cfg%sim%e0 = [0.0_dp, 0.0_dp, -1.0_dp]
-    barrier_cfg%sim%reservoir_potential_model = 'infinity_barrier'
     barrier_cfg%boundary_contract%inflow_map = external_inflow_scalar_barrier
     barrier_cfg%sim%phi_infty = 0.0_dp
     barrier_cfg%sim%injection_face_phi_grid_n = 2_i32
@@ -385,9 +375,7 @@ contains
     state%macro_residual = 0.0_dp
     state%boundary_macro_residual = 0.0_dp
 
-    call snapshot%init( &
-      barrier_mesh, barrier_cfg%sim, barrier_cfg%field, barrier_cfg%periodic2, barrier_cfg%panel &
-      )
+    call snapshot%init(barrier_mesh, barrier_cfg%sim, barrier_cfg%periodic2)
     call snapshot%refresh(barrier_mesh)
     call build_particle_source_plan(barrier_cfg, source_plan)
     call init_particle_batch_from_config( &

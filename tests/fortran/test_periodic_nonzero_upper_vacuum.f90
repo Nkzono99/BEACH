@@ -3,6 +3,8 @@ program test_periodic_nonzero_upper_vacuum
   use bem_constants, only: eps0, pi
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
+  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry
+  use bem_triangle_quadrature, only: fill_panel_quadrature
   use bem_coulomb_fmm_periodic_nonzero_upper_vacuum, only: &
     periodic_nonzero_upper_vacuum_plan_type, upper_vacuum_eval_ok, &
     upper_vacuum_target_not_above_source
@@ -112,23 +114,27 @@ contains
     integer(i32), intent(in) :: layers
     real(dp), intent(out) :: potential, field(3)
     real(dp) :: area_xy, coefficient, decay, dz, kx, ky, phase, sample_charge, wave_number
-    integer(i32) :: element, nx, ny, point
+    real(dp) :: quad_position(3, 7), quad_weight(7)
+    type(panel_geometry_type) :: panel
+    integer(i32) :: element, nx, ny, point, status
 
     area_xy = lx*ly
     potential = 0.0_dp
     field = 0.0_dp
     do element = 1, mesh%nelem
+      call init_panel_geometry(mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), panel, status)
+      call fill_panel_quadrature(panel, quad_position, quad_weight)
       do point = 1, 7
-        sample_charge = source_charge(element)*mesh%panel_quad_weight(point, element)/mesh%panel_area(element)
+        sample_charge = source_charge(element)*quad_weight(point)/mesh%panel_area(element)
         do nx = -layers, layers
           kx = 2.0_dp*pi*real(nx, dp)/lx
           do ny = -layers, layers
             if (nx == 0_i32 .and. ny == 0_i32) cycle
             ky = 2.0_dp*pi*real(ny, dp)/ly
             wave_number = sqrt(kx*kx + ky*ky)
-            phase = kx*(target(1) - mesh%panel_quad_position(1, point, element)) + &
-                    ky*(target(2) - mesh%panel_quad_position(2, point, element))
-            dz = target(3) - mesh%panel_quad_position(3, point, element)
+            phase = kx*(target(1) - quad_position(1, point)) + &
+                    ky*(target(2) - quad_position(2, point))
+            dz = target(3) - quad_position(3, point)
             decay = exp(-wave_number*abs(dz))
             coefficient = sample_charge*decay/(2.0_dp*eps0*area_xy)
             potential = potential + coefficient*cos(phase)/wave_number

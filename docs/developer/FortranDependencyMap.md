@@ -104,7 +104,7 @@ title: Fortran 依存関係マップ
 | `bem_importers` | `module` | `src/mesh/bem_importers.f90` | `bem_kinds`, `bem_types`, `bem_mesh` | OBJメッシュを走査・解析し、内部 `mesh_type` へ変換するインポートモジュール。 |
 | `bem_mesh` | `module` | `src/mesh/bem_mesh.f90` | `bem_kinds`, `bem_types`, `bem_periodic2_axes`, `bem_panel_geometry`, `bem_triangle_quadrature` | 三角形メッシュ幾何量(重心・法線・AABB・代表長)を前計算して保持するモジュール。 |
 | `bem_templates` | `module` | `src/mesh/bem_templates.f90` | `bem_kinds`, `bem_types`, `bem_mesh` | 平面/穴あき平面/円板/リング/箱/円柱/球テンプレートから三角形メッシュを生成するユーティリティ。 |
-| `bem_panel_geometry` | `module` | `src/mesh/panel/bem_panel_geometry.f90` | `bem_kinds` | Ordered triangle geometry and exact Cartesian surface moments. |
+| `bem_panel_geometry` | `module` | `src/mesh/panel/bem_panel_geometry.f90` | `bem_kinds` | Ordered triangle geometry: vertices, centroid, normal, area, and edge data. |
 | `bem_panel_surface_sides` | `module` | `src/mesh/panel/bem_panel_surface_sides.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | Resolve physical vacuum sides without changing ordered triangle winding. |
 | `bem_triangle_quadrature` | `module` | `src/mesh/panel/bem_triangle_quadrature.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry` | Triangle cubature rules and Gauss-Duffy quadrature plans. |
 | `bem_injection` | `module` | `src/particles/bem_injection.f90` | `bem_injection_random`, `bem_injection_geometry`, `bem_injection_flux`, `bem_photoelectron_injection` | 粒子注入APIを責務別internal moduleから再公開する互換facade。 |
@@ -556,7 +556,7 @@ title: Fortran 依存関係マップ
 - group: `src/mesh/panel`
 - 内部依存: `bem_kinds`
 - external dependencies: `ieee_arithmetic`
-- 概要: Ordered triangle geometry and exact Cartesian surface moments.
+- 概要: Ordered triangle geometry: vertices, centroid, normal, area, and edge data.
 
 ### `bem_panel_surface_sides`
 

@@ -924,10 +924,10 @@ split `[fields.periodic]` では z-high 面の水平平均電位を外部シー�
 
 | キー | 型 | 既定値 | 説明・条件 |
 |---|---|---:|---|
-| `charge_rel_change_threshold` | float | `1.0e-8` | 相対変化量の監視値。有限かつ `>=0`、停止条件には未使用 |
+| `charge_rel_change_threshold` | float | `0` | 正なら、表面電荷の相対変化 `rel_change` がこの値を下回った accepted batch で run を終える。`0` は無効。有限かつ `>=0` |
 | `charge_floor_c` | float | `1.0e-30` | `rel_change` 計算時の分母下限。有限かつ `>0` |
 
-以下は電荷変化の診断用です。計算終了は `run.batch_count` で決まり、これらを変えても早期停止しません。
+`charge_rel_change_threshold` を設定しなければ、計算は `run.batch_count` 個の accepted batch まで続きます。閾値で終えたかは `summary.txt` の `charge_rel_change_threshold_reached` で確認できます。
 
 #### `[output.final]`
 

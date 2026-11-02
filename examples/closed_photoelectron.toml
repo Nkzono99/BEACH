@@ -165,9 +165,6 @@ backend = "finite_images"
 enabled = true
 dir = "outputs/periodic2_closed_photoelectron"
 
-[output.diagnostics]
-charge_rel_change_threshold = 1e-08
-
 [output.final]
 mesh_potential = true
 

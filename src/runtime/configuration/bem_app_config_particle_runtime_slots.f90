@@ -55,24 +55,15 @@ contains
   end if
 
   layout%batch_idx = batch_idx
-  layout%nspecies = cfg%n_particle_species
   allocate (layout%source_kind(cfg%n_particle_species), layout%source_global_count(cfg%n_particle_species))
   allocate (layout%boundary_global_count(6, cfg%n_particle_species))
   allocate (layout%boundary_vmin(6, cfg%n_particle_species), layout%boundary_barrier(6, cfg%n_particle_species))
-  allocate (layout%weight(cfg%n_particle_species), layout%temperature_k(cfg%n_particle_species))
-  allocate (layout%drift_velocity(3, cfg%n_particle_species))
-  allocate (layout%photo_emit_current_density(cfg%n_particle_species))
-  allocate (layout%photo_normal_drift_speed(cfg%n_particle_species), layout%photo_ray_weight(cfg%n_particle_species))
+  allocate (layout%photo_ray_weight(cfg%n_particle_species))
   layout%source_kind = source_plan%source_kind
   layout%source_global_count = 0_i32
   layout%boundary_global_count = 0_i32
   layout%boundary_vmin = 0.0_dp
   layout%boundary_barrier = 0.0_dp
-  layout%weight = source_plan%effective_weight
-  layout%temperature_k = source_plan%effective_temperature_k
-  layout%drift_velocity = source_plan%effective_drift_velocity
-  layout%photo_emit_current_density = source_plan%photo_emit_current_density
-  layout%photo_normal_drift_speed = source_plan%photo_normal_drift_speed
   layout%photo_ray_weight = 0.0_dp
   face_potential_ready = .false.
 
@@ -83,12 +74,12 @@ contains
       layout%source_global_count(s) = cfg%particle_species(s)%npcls_per_step
     case (slot_kind_photo_ray)
       ! A non-positive emission current emits nothing, so its rays are not even cast.
-      if (layout%photo_emit_current_density(s) > 0.0_dp) then
+      if (cfg%particle_species(s)%emit_current_density_a_m2 > 0.0_dp) then
         layout%source_global_count(s) = cfg%particle_species(s)%rays_per_batch
         layout%photo_ray_weight(s) = photo_ray_macro_weight( &
                                      cfg%particle_species(s)%inject_face, cfg%particle_species(s)%pos_low, &
                                      cfg%particle_species(s)%pos_high, cfg%particle_species(s)%ray_direction, &
-                                     layout%photo_emit_current_density(s), cfg%particle_species(s)%q_particle, &
+                                     cfg%particle_species(s)%emit_current_density_a_m2, cfg%particle_species(s)%q_particle, &
                                      cfg%sim%batch_duration, cfg%particle_species(s)%rays_per_batch &
                                      )
       end if
@@ -109,29 +100,24 @@ contains
           face_potential=face_potential(:, face), face_potential_ready=face_potential_ready(face) &
           )
         layout%boundary_vmin(face, s) = correction_vmin_normal
-        face_density_m3 = source_plan%effective_density_m3(s)
-        if (source_plan%kinetic_inflow_active(s) .and. face == source_plan%kinetic_inflow_face(s)) then
+        face_density_m3 = species_number_density_m3(cfg%particle_species(s))
+        if (source_plan%closure%species(s)%has_inflow_kinetic_map .and. face == source_plan%closure%kinetic_face) then
           call external_kinetic_face_velocity_correction( &
-            cfg, face_spec, source_plan%kinetic_reservoir_potential_v(s), &
-            source_plan%kinetic_access_potential_v(s), kinetic_vmin_normal, kinetic_barrier_normal, &
-            mesh, snapshot, warn_face_variation=local_rank == 0_i32 .and. &
+            cfg, face_spec, source_plan%closure%species(s)%kinetic_path_potential_v, kinetic_vmin_normal, &
+            kinetic_barrier_normal, mesh, snapshot, warn_face_variation=local_rank == 0_i32 .and. &
             (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count), &
             face_potential=face_potential(:, face), face_potential_ready=face_potential_ready(face) &
             )
           layout%boundary_vmin(face, s) = max(layout%boundary_vmin(face, s), kinetic_vmin_normal)
           layout%boundary_barrier(face, s) = kinetic_barrier_normal
-          if (source_plan%kinetic_reservoir_density_m3(s) > 0.0_dp) then
-            face_density_m3 = source_plan%kinetic_reservoir_density_m3(s)
+          if (source_plan%closure%species(s)%inflow_reservoir_density_m3 > 0.0_dp) then
+            face_density_m3 = source_plan%closure%species(s)%inflow_reservoir_density_m3
           end if
         end if
         if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
           call compute_macro_particles_for_species( &
             cfg%sim, face_spec, state%boundary_macro_residual(face, s), layout%boundary_global_count(face, s), &
-            vmin_normal=layout%boundary_vmin(face, s), number_density_override=face_density_m3, &
-            particle_flux_override=source_plan%effective_particle_flux_m2_s(s), &
-            use_particle_flux_override=source_plan%number_flux_override_active(s), &
-            temperature_k_override=layout%temperature_k(s), &
-            drift_velocity_override=layout%drift_velocity(:, s), w_particle_override=layout%weight(s) &
+            vmin_normal=layout%boundary_vmin(face, s), number_density_override=face_density_m3 &
             )
         end if
       end do
@@ -247,16 +233,16 @@ contains
       call counter_uniforms(cfg%sim%rng_seed, counter, 1_i64, position_uniform)
       x = spec%pos_low + (spec%pos_high - spec%pos_low)*position_uniform
       ! 質量 > 0 と温度 >= 0 は native preflight の validate_volume_seed_species が保証する。
-      sigma = sqrt(k_boltzmann*layout%temperature_k(s)/spec%m_particle)
+      sigma = sqrt(k_boltzmann*species_temperature_k(spec)/spec%m_particle)
       call sample_standard_normal(z, rng_seed=cfg%sim%rng_seed, rng_counter=counter)
-      v = sigma*z(:, 1) + layout%drift_velocity(:, s)
-      w = layout%weight(s)
+      v = sigma*z(:, 1) + spec%drift_velocity
+      w = spec%w_particle
       emitted = .true.
     case (slot_kind_photo_ray)
       if (.not. present(mesh)) error stop 'photo_raycast slots require mesh in generate_batch_slot.'
       call sample_photo_ray_slot( &
         mesh, cfg%sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
-        species_temperature_k(spec), layout%photo_normal_drift_speed(s), layout%photo_ray_weight(s), &
+        species_temperature_k(spec), spec%normal_drift_speed, layout%photo_ray_weight(s), &
         cfg%sim%rng_seed, [counter, 1_i64], [counter, 2_i64], x, v, w, source_element, emitted, &
         collision_status, bounce_count &
         )
@@ -264,10 +250,10 @@ contains
       call make_boundary_inflow_spec(cfg%sim, spec, face, face_spec)
       call sample_reservoir_face_particle_counter( &
         cfg%sim%box_min, cfg%sim%box_max, face_spec%inject_face, face_spec%pos_low, face_spec%pos_high, &
-        layout%drift_velocity(:, s), spec%m_particle, layout%temperature_k(s), &
+        spec%drift_velocity, spec%m_particle, species_temperature_k(spec), &
         layout%boundary_barrier(face, s), layout%boundary_vmin(face, s), cfg%sim%rng_seed, counter, x, v &
         )
-      w = layout%weight(s)
+      w = spec%w_particle
       emitted = .true.
     case default
       error stop 'batch injection layout has an unknown slot kind.'

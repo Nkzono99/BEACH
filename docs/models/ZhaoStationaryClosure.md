@@ -268,7 +268,7 @@ outflow_refresh_batches = 50
 
 | 出力 | 見るもの |
 |---|---|
-| `summary.txt` | `surface_current_model_zhao_branch`、`surface_current_model_phi0_V`、`surface_current_model_phi_m_V`（初期根）。二つの残差 `surface_current_model_pe_budget_residual_current_density_A_m2` と `surface_current_model_surface_budget_residual_current_density_A_m2` が 0 に近い。電子に drift があるなら `surface_current_model_upstream_field_deficit_V_m` が `upstream_field_floor_v_m` 以下 |
+| `summary.txt` | `surface_current_model_zhao_branch`、`surface_current_model_phi0_V`、`surface_current_model_phi_m_V`（初期根）。定常条件の残差 `surface_current_model_net_current_density_A_m2` が 0 に近い。電子に drift があるなら `surface_current_model_upstream_field_deficit_V_m` が `upstream_field_floor_v_m` 以下 |
 | `fixed_current_history.csv` | `target_over_tracked`。外部根とセル内の追跡が整合していれば、どの粒子種も 1 の近く。光電子の `escape` が 1 から外れるときは、上端面の電位と $\phi_0$ の差を疑う |
 | `charge_ledger.csv` | 粒子種ごとの追跡・目標・適用の電荷、`fixed_*_weight_scale`、個数 |
 | `matching_plane_history.csv`（外部根の更新） | `phi_H_V`（現在の $\phi_0$）、PE + SEE の流出束と平均法線エネルギー、SEE の割合と収支残差。`residual` は流出の束と平均エネルギーの変化で、$\phi_0$ の揺れは `phi_H_V` を直接見る |

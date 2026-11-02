@@ -51,7 +51,7 @@ contains
     call configure_multiple_box_event_soft_discard_fixture( &
       soft_mesh, soft_cfg, 1_i32, 100000_i32, 1.0_dp, 1.0e9_dp &
       )
-    soft_cfg%sim%multiple_box_events_retry_backend = 'upper_panel_fourier'
+    soft_cfg%sim%box_events%retry_backend = 'upper_panel_fourier'
 
     call run_absorption_insulator(soft_mesh, soft_cfg, soft_stats, charge_ledger=soft_ledger)
     call assert_equal_i64(soft_stats%processed_particles, 1_i64, 'soft discard processed count mismatch')
@@ -301,7 +301,6 @@ contains
     tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(soft_mesh, tri_v0, tri_v1, tri_v2)
     soft_mesh%elem_vacuum_sign = 1_i32
-    soft_mesh%vacuum_normals = soft_mesh%normals
     call default_app_config(soft_cfg)
     soft_cfg%sim%rng_seed = 995_i32
     soft_cfg%sim%batch_count = 1_i32
@@ -312,10 +311,10 @@ contains
     soft_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     soft_cfg%sim%bc_low(1) = bc_reflect
     soft_cfg%sim%bc_high(1) = bc_reflect
-    soft_cfg%sim%multiple_box_events_policy = 'soft_discard'
-    soft_cfg%sim%multiple_box_events_soft_discard_count_grace = count_grace
-    soft_cfg%sim%multiple_box_events_soft_discard_fraction_limit = fraction_limit
-    soft_cfg%sim%multiple_box_events_soft_discard_abs_charge_limit = abs_charge_limit
+    soft_cfg%sim%box_events%policy = 'soft_discard'
+    soft_cfg%sim%box_events%soft_discard_count_grace = count_grace
+    soft_cfg%sim%box_events%soft_discard_fraction_limit = fraction_limit
+    soft_cfg%sim%box_events%soft_discard_abs_charge_limit = abs_charge_limit
     soft_cfg%n_particle_species = 1_i32
     soft_cfg%particle_species(1) = species_from_defaults()
     soft_cfg%particle_species(1)%source_mode = 'volume_seed'

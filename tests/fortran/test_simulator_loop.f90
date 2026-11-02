@@ -19,8 +19,9 @@ program test_simulator_loop
   type(mesh_type) :: mesh_tree
   type(mesh_type) :: mesh_potential_history
   type(mesh_type) :: mesh_resume
+  type(mesh_type) :: mesh_converged
   type(app_config) :: cfg, cfg_tree, cfg_potential_history
-  type(sim_stats) :: stats, stats_tree, stats_potential_history, stats_seed, stats_resume
+  type(sim_stats) :: stats, stats_tree, stats_potential_history, stats_seed, stats_resume, stats_converged
   type(charge_ledger_type) :: charge_ledger
   real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
   real(dp) :: potential_value
@@ -36,7 +37,6 @@ program test_simulator_loop
   v2(:, 1) = [0.0d0, 1.0d0, 0.0d0]
   call init_mesh(mesh, v0, v1, v2)
   mesh%elem_vacuum_sign = 1_i32
-  mesh%vacuum_normals = mesh%normals
 
   call default_app_config(cfg)
   cfg%sim%rng_seed = 777_i32
@@ -96,7 +96,7 @@ program test_simulator_loop
 
   call seed_particles_from_config(cfg)
 
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('basic_simulation')
   call delete_file_if_exists(history_path)
@@ -153,12 +153,9 @@ program test_simulator_loop
   call test_begin('treecode_equivalence')
   call init_mesh(mesh_tree, v0, v1, v2)
   mesh_tree%elem_vacuum_sign = 1_i32
-  mesh_tree%vacuum_normals = mesh_tree%normals
   cfg_tree = cfg
-  cfg_tree%sim%field_solver = 'treecode'
-  call normalize_legacy_physics_config( &
-    cfg_tree%sim, cfg_tree%field, cfg_tree%periodic2, cfg_tree%panel &
-    )
+  cfg_tree%sim%solver%method = 'treecode'
+  call normalize_legacy_physics_config(cfg_tree%sim, cfg_tree%periodic2)
   call seed_particles_from_config(cfg_tree)
   call run_absorption_insulator(mesh_tree, cfg_tree, stats_tree)
 
@@ -174,14 +171,10 @@ program test_simulator_loop
   call test_begin('fmm_potential_history_refreshes_after_commit')
   call init_mesh(mesh_potential_history, v0, v1, v2)
   mesh_potential_history%elem_vacuum_sign = 1_i32
-  mesh_potential_history%vacuum_normals = mesh_potential_history%normals
   cfg_potential_history = cfg
-  cfg_potential_history%sim%field_solver = 'fmm'
+  cfg_potential_history%sim%solver%method = 'fmm'
   cfg_potential_history%sim%batch_duration = 1.0_dp
-  call normalize_legacy_physics_config( &
-    cfg_potential_history%sim, cfg_potential_history%field, cfg_potential_history%periodic2, &
-    cfg_potential_history%panel &
-    )
+  call normalize_legacy_physics_config(cfg_potential_history%sim, cfg_potential_history%periodic2)
   call seed_particles_from_config(cfg_potential_history)
   ! The top-reference history layout is test_output_writer_io's contract; here only the ordering matters:
   ! the potential written for a batch must come from the charges committed in that batch.
@@ -207,7 +200,6 @@ program test_simulator_loop
   call test_begin('resume_stats')
   call init_mesh(mesh_resume, v0, v1, v2)
   mesh_resume%elem_vacuum_sign = 1_i32
-  mesh_resume%vacuum_normals = mesh_resume%normals
   cfg%sim%batch_count = 8_i32
   call seed_particles_from_config(cfg)
   stats_seed = sim_stats()
@@ -249,6 +241,19 @@ program test_simulator_loop
     )
   call assert_close_dp(mesh_resume%q_elem(1), 5.0d0, 1.0d-12, 'resume deposited charge mismatch')
   call assert_true(stats_resume%last_rel_change > 0.0d0, 'resume last_rel_change should be positive')
+  call test_end()
+
+  call test_begin('charge_rel_change_threshold_stops_run')
+  ! 電荷 0 から始める最初の batch の相対変化はちょうど 1 なので、閾値 1.5 は 1 batch で run を終える。
+  call init_mesh(mesh_converged, v0, v1, v2)
+  mesh_converged%elem_vacuum_sign = 1_i32
+  cfg%sim%batch_count = 4_i32
+  cfg%sim%tol_rel = 1.5d0
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh_converged, cfg, stats_converged)
+  call assert_equal_i32(stats_converged%batches, 1_i32, 'threshold must stop the run after the first batch')
+  call assert_close_dp(stats_converged%last_rel_change, 1.0d0, 1.0d-12, 'first-batch rel_change mismatch')
+  cfg%sim%tol_rel = 0.0d0
   call test_end()
 
   call test_begin('reflected_remainder_deposits')
@@ -329,7 +334,6 @@ contains
     tri_v2(:, 1) = [0.5_dp, 0.0_dp, 1.0_dp]
     call init_mesh(reflected_mesh, tri_v0, tri_v1, tri_v2)
     reflected_mesh%elem_vacuum_sign = 1_i32
-    reflected_mesh%vacuum_normals = reflected_mesh%normals
 
     call default_app_config(reflected_cfg)
     reflected_cfg%sim%rng_seed = 993_i32
@@ -372,7 +376,6 @@ contains
     tri_v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
     call init_mesh(species_mesh, tri_v0, tri_v1, tri_v2)
     species_mesh%elem_vacuum_sign = 1_i32
-    species_mesh%vacuum_normals = species_mesh%normals
 
     call default_app_config(species_cfg)
     species_cfg%sim%rng_seed = 997_i32
@@ -433,7 +436,6 @@ contains
     end do
     call init_mesh(large_mesh, tri_v0, tri_v1, tri_v2)
     large_mesh%elem_vacuum_sign = 1_i32
-    large_mesh%vacuum_normals = large_mesh%normals
 
     charge_scale = huge(1.0_dp)/1.5_dp
     expected_charge = [charge_scale, charge_scale, 0.5_dp*charge_scale]

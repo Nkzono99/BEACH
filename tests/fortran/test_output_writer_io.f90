@@ -118,7 +118,7 @@ program test_output_writer_io
     out_dir_disabled//'/summary.txt', 'direct', saw_auto_resolved_direct &
     )
   call assert_true(saw_auto_resolved_direct, 'auto field solver receipt should resolve a small mesh to direct')
-  cfg%sim%tree_min_nelem = 2_i32
+  cfg%sim%solver%tree_min_nelem = 2_i32
   call write_result_files(out_dir_disabled, mesh, stats, cfg)
   call scan_resolved_field_solver( &
     out_dir_disabled//'/summary.txt', 'fmm', saw_auto_resolved_fmm &
@@ -135,7 +135,6 @@ program test_output_writer_io
   call test_begin('resolved_local_boundary_receipt')
   call default_app_config(cfg)
   stats = sim_stats()
-  cfg%sim%reservoir_potential_model = 'infinity_barrier'
   cfg%boundary_contract%inflow_map = external_inflow_scalar_barrier
   call write_result_files(out_dir_disabled, mesh, stats, cfg)
   call assert_resolved_boundary_summary( &
@@ -234,8 +233,6 @@ program test_output_writer_io
   call ledger%init(2_i32)
   call ledger%reset(1_i32)
   ledger%surface_charge_after = -3.0_dp
-  ledger%local_flight_charge_before = -1.0_dp
-  ledger%local_flight_charge_after = -2.0_dp
   ledger%injected_from_remote(1) = -3.0_dp
   ledger%absorbed_on_surface(1) = -3.0_dp
   ledger%neutral_return_correction(2) = -0.25_dp
@@ -244,7 +241,7 @@ program test_output_writer_io
   ledger%injected_count(1) = 1
   ledger%absorbed_count(1) = 1
   cfg%output_dir = out_dir_ledger
-  cfg%sim%field_solver = 'fmm'
+  cfg%sim%solver%method = 'fmm'
   stats%processed_particles = 8
   stats%multiple_box_events_soft_discarded = 2
   call write_result_files(out_dir_ledger, mesh, stats, cfg, charge_ledger=ledger)
@@ -270,12 +267,12 @@ program test_output_writer_io
     if (ios /= 0) exit
     saw_integrator = saw_integrator .or. index(line, 'particle_time_centering=same_time_midpoint_boris') > 0
     saw_residual = saw_residual .or. &
-                   summary_real_equals(line, 'charge_ledger_residual_C', -0.75_dp, 1.0e-14_dp)
+                   summary_real_equals(line, 'charge_ledger_residual_C', 0.25_dp, 1.0e-14_dp)
     saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=11') > 0
     saw_mesh_fp = saw_mesh_fp .or. index(line, 'mesh_fingerprint=') > 0
     saw_ledger_stock = saw_ledger_stock .or. &
                        summary_real_equals( &
-                       line, 'charge_ledger_local_flight_charge_before_C', -1.0_dp, 1.0e-14_dp &
+                       line, 'charge_ledger_surface_charge_after_C', -3.0_dp, 1.0e-14_dp &
                        )
     saw_ledger_closure = saw_ledger_closure .or. &
                          summary_real_equals( &
@@ -335,7 +332,7 @@ program test_output_writer_io
                                    trim(line) == 'field_reconstruction_periodic_ewald_layers=4'
     saw_field_reconstruction(22) = saw_field_reconstruction(22) .or. &
                                    trim(line) == &
-                                   'field_reconstruction_periodic_cache_dir='//trim(cfg%sim%field_periodic_cache_dir)
+                                   'field_reconstruction_periodic_cache_dir='//trim(cfg%sim%periodic%cache_dir)
     saw_field_reconstruction(23) = saw_field_reconstruction(23) .or. &
                                    index(line, 'field_reconstruction_periodic_generation_tolerance=') == 1
   end do
@@ -671,8 +668,12 @@ contains
     stats%matching_plane%state_valid = .true.
     stats%matching_plane%displacement_c_m2 = 3.0_dp
     stats%matching_plane%phi_v = -4.0_dp
-    stats%matching_plane%response = [99.0_dp, 5.0_dp, 6.0_dp, 7.0_dp, 8.0_dp, 9.0_dp]
-    stats%matching_plane%feedback = [10.0_dp, 11.0_dp, 12.0_dp, 13.0_dp]
+    stats%matching_plane%electron_inward_flux_m2_s = 5.0_dp
+    stats%matching_plane%ion_inward_flux_m2_s = 6.0_dp
+    stats%matching_plane%electron_access_potential_v = 7.0_dp
+    stats%matching_plane%photoelectron_outward_flux_m2_s = 10.0_dp
+    stats%matching_plane%photoelectron_mean_normal_energy_ev = 11.0_dp
+    stats%matching_plane%electron_outward_flux_m2_s = 12.0_dp
     stats%matching_plane%photoelectron_return_flux_m2_s = 14.0_dp
     stats%matching_plane%photoelectron_escape_flux_m2_s = 15.0_dp
     stats%matching_plane%iterations = 16_i32
@@ -697,8 +698,9 @@ contains
     call assert_allclose_1d(legacy_values(1:17), legacy_numbers, 0.0_dp, 'legacy matching values must be preserved')
     call assert_allclose_1d(legacy_values(18:19), [0.0_dp, 0.0_dp], 0.0_dp, 'legacy secondary columns default to zero')
     call assert_true(all(ieee_is_nan(legacy_values(20:21))), 'legacy top-field columns default to NaN')
-    call assert_allclose_1d(new_values, [2.0_dp, 2.0_dp, 3.0_dp, -4.0_dp, 5.0_dp, 6.0_dp, 7.0_dp, 8.0_dp, 9.0_dp, &
-                                         10.0_dp, 11.0_dp, 12.0_dp, 13.0_dp, 14.0_dp, 15.0_dp, 16.0_dp, 1.7e-2_dp, &
+    ! The ion access potential and outward flux are always zero; the photoelectron barrier repeats the electron access.
+    call assert_allclose_1d(new_values, [2.0_dp, 2.0_dp, 3.0_dp, -4.0_dp, 5.0_dp, 6.0_dp, 7.0_dp, 0.0_dp, 7.0_dp, &
+                                         10.0_dp, 11.0_dp, 12.0_dp, 0.0_dp, 14.0_dp, 15.0_dp, 16.0_dp, 1.7e-2_dp, &
                                          0.25_dp, -1.0e-8_dp, 18.0_dp, 19.0_dp], 1.0e-15_dp, &
                             'new matching row values or column order mismatch')
   end subroutine test_secondary_and_legacy_history

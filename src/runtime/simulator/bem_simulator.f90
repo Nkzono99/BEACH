@@ -6,7 +6,6 @@ module bem_simulator
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, particle_domain_config, hit_info
   use bem_app_config, only: app_config, init_particle_batch_from_config
-  use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
   use bem_irradiation_cell_contract, only: &
     irradiation_cell_contract_type, resolve_irradiation_cell_contract, irradiation_cell_ok
   use bem_config_helpers, only: resolve_particle_boundaries

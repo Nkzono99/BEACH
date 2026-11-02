@@ -87,7 +87,7 @@ memory: project
 - **`*.i90` ファイルは無視すること**（自動生成バックアップファイル）
 - Fortran のフォーマットチェックは `fprettify -i 2` 基準（`*.f90` / `*.F90` のみ）
 - SPEC.md と Fortran 実装を正とする。Python 側が乖離している場合は Python 側の問題として報告
-- v0.x の制約を理解すること: absorption only、insulator accumulation only、early-stop なし
+- v0.x の制約を理解すること: absorption only、insulator accumulation only、early-stop は `output.diagnostics.charge_rel_change_threshold` を正にしたときだけ
 - テスト追加が必要と判断した場合は、具体的なテストケースを提案する
 - 問題の重大度を明確に区別する: **致命的**（科学的に間違った結果）、**重要**（テスト失敗）、**警告**（潜在的リスク）
 

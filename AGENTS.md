@@ -118,6 +118,6 @@ Python CLI examples:
 ## Simulator invariants (v1.0)
 - Interaction: absorption only (default).
 - Surface model: insulator accumulation only.
-- Batch execution: run for configured `sim.batch_count` batches.
+- Batch execution: run for configured `sim.batch_count` batches, or stop earlier at the first accepted batch whose
+  `rel_change` falls below a positive `output.diagnostics.charge_rel_change_threshold` (`sim.tol_rel`; 0 disables).
 - Per-particle advance limit: `sim.max_step`.
-- `tol_rel` is currently a monitoring/output metric and **not** an early-stop condition.

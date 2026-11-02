@@ -38,10 +38,6 @@ program test_charge_ledger
   call assert_reset_defaults(ledger, 0_i32, 'initialized ledger')
   ledger%surface_charge_before = 2.0_dp
   ledger%surface_charge_after = 2.0_dp
-  ledger%local_flight_charge_before = 2.0_dp
-  ledger%local_flight_charge_after = 2.0_dp
-  ledger%unresolved_stock_before = 2.0_dp
-  ledger%unresolved_stock_after = 2.0_dp
   ledger%injected_from_remote = 2.0_dp
   ledger%emitted_from_surface = 2.0_dp
   ledger%absorbed_on_surface = 2.0_dp
@@ -108,27 +104,23 @@ program test_charge_ledger
   call ledger%reset(1_i32)
   ledger%surface_charge_before = 1.0_dp
   ledger%surface_charge_after = 4.0_dp
-  ledger%local_flight_charge_before = 2.0_dp
-  ledger%local_flight_charge_after = 7.0_dp
-  ledger%unresolved_stock_before = -3.0_dp
-  ledger%unresolved_stock_after = -2.0_dp
   ledger%injected_from_remote = [-4.0_dp, 6.0_dp]
   ledger%escaped_to_infinity = [-7.0_dp, 8.0_dp]
   ledger%discarded_unresolved = [-9.0_dp, 10.0_dp]
   ledger%neutral_return_correction = [-11.0_dp, 12.0_dp]
   ledger%fixed_current_correction = [-13.0_dp, 14.0_dp]
-  call assert_close_dp(ledger%residual(), 7.0_dp, 1.0d-14, 'owned residual channel signs mismatch')
+  call assert_close_dp(ledger%residual(), 1.0_dp, 1.0d-14, 'owned residual channel signs mismatch')
   ! Raw surface channels are diagnostics; their applied effects already appear in stocks/corrections.
   ledger%emitted_from_surface = [101.0_dp, 103.0_dp]
   ledger%absorbed_on_surface = [107.0_dp, 110.0_dp]
-  call assert_close_dp(ledger%residual(), 7.0_dp, 1.0d-14, 'raw surface diagnostics entered residual')
+  call assert_close_dp(ledger%residual(), 1.0_dp, 1.0d-14, 'raw surface diagnostics entered residual')
   ledger%fixed_absorbed_target_charge = [17.0_dp, 19.0_dp]
   ledger%fixed_absorbed_weight_scale = [2.0_dp, 3.0_dp]
   ledger%fixed_emission_target_charge = [23.0_dp, 29.0_dp]
   ledger%fixed_emission_weight_scale = [4.0_dp, 5.0_dp]
   ledger%fixed_escape_target_charge = [31.0_dp, 37.0_dp]
   ledger%fixed_escape_correction = [41.0_dp, 43.0_dp]
-  call assert_close_dp(ledger%residual(), 7.0_dp, 1.0d-14, 'fixed-current diagnostics entered residual')
+  call assert_close_dp(ledger%residual(), 1.0_dp, 1.0d-14, 'fixed-current diagnostics entered residual')
   call test_end()
 
   call test_begin('discard_diagnostics_do_not_cancel_between_species')
@@ -159,10 +151,6 @@ program test_charge_ledger
   call ledger%reset(1_i32)
   ledger%surface_charge_before = 0.0_dp
   ledger%surface_charge_after = -2.0_dp
-  ledger%local_flight_charge_before = 1.0_dp
-  ledger%local_flight_charge_after = 3.0_dp
-  ledger%unresolved_stock_before = -4.0_dp
-  ledger%unresolved_stock_after = -6.0_dp
   ledger%injected_from_remote(1) = -3.0_dp
   ledger%emitted_from_surface = [-3.0_dp, -5.0_dp]
   ledger%absorbed_on_surface = [-7.0_dp, -11.0_dp]
@@ -177,10 +165,6 @@ program test_charge_ledger
   call batch2%reset(2_i32)
   batch2%surface_charge_before = -2.0_dp
   batch2%surface_charge_after = -1.0_dp
-  batch2%local_flight_charge_before = 3.0_dp
-  batch2%local_flight_charge_after = 2.0_dp
-  batch2%unresolved_stock_before = -6.0_dp
-  batch2%unresolved_stock_after = -5.0_dp
   batch2%escaped_to_infinity(2) = -1.0_dp
   batch2%emitted_from_surface = [-13.0_dp, -17.0_dp]
   batch2%absorbed_on_surface = [-19.0_dp, -23.0_dp]
@@ -195,12 +179,8 @@ program test_charge_ledger
   call accumulate_charge_ledger(cumulative, batch2)
   call assert_equal_i32(cumulative%batch_count, 2_i32, 'cumulative batch count mismatch')
   call assert_allclose_1d( &
-    [ &
-    cumulative%surface_charge_before, cumulative%surface_charge_after, &
-    cumulative%local_flight_charge_before, cumulative%local_flight_charge_after, &
-    cumulative%unresolved_stock_before, cumulative%unresolved_stock_after &
-    ], &
-    [0.0_dp, -1.0_dp, 1.0_dp, 2.0_dp, -4.0_dp, -5.0_dp], 0.0_dp, &
+    [cumulative%surface_charge_before, cumulative%surface_charge_after], &
+    [0.0_dp, -1.0_dp], 0.0_dp, &
     'cumulative stock endpoints mismatch' &
     )
   call assert_allclose_1d( &
@@ -317,8 +297,6 @@ contains
     call assert_true( &
       all([ &
           value%surface_charge_before, value%surface_charge_after, &
-          value%local_flight_charge_before, value%local_flight_charge_after, &
-          value%unresolved_stock_before, value%unresolved_stock_after, &
           value%injected_from_remote, value%emitted_from_surface, value%absorbed_on_surface, &
           value%escaped_to_infinity, value%discarded_unresolved, value%neutral_return_correction, &
           value%neutral_return_unresolved_fraction, value%fixed_absorbed_target_charge, &

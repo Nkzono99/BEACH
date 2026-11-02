@@ -20,4 +20,4 @@ Shared rules:
 - Do not translate code identifiers, TOML keys, file paths, commands, or CSV columns.
 - Do not invent defaults or undocumented behavior.
 - Treat the Fortran implementation and `SPEC.md` as the source of truth for simulation behavior.
-- `output.diagnostics.charge_rel_change_threshold` is an output monitoring metric, not an early-stop condition in the current implementation.
+- `output.diagnostics.charge_rel_change_threshold` defaults to 0 (off); a positive value stops the run at the first accepted batch whose `rel_change` falls below it.

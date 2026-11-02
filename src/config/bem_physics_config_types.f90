@@ -42,21 +42,18 @@ module bem_physics_config_types
 
 contains
 
-  !> 現行 `sim_config` を型付き場設定へ写像する。
-  subroutine normalize_legacy_physics_config(sim, field, periodic2, panel)
+  !> 現行 `sim_config` の periodic2 遠方補正から periodic2 の backend 契約を決める。
+  subroutine normalize_legacy_physics_config(sim, periodic2)
     type(sim_config), intent(in) :: sim
-    type(field_physics_config), intent(out) :: field
     type(periodic2_physics_config), intent(out) :: periodic2
-    type(panel_kernel_config), intent(out) :: panel
     character(len=32) :: bc_mode, far_mode
 
-    call derive_field_panel_config(sim, field, panel)
     periodic2 = periodic2_physics_config()
 
     bc_mode = lower_ascii(trim(sim%field_bc_mode))
     if (trim(bc_mode) /= 'periodic2') return
 
-    far_mode = lower_ascii(trim(sim%field_periodic_far_correction))
+    far_mode = lower_ascii(trim(sim%periodic%far_correction))
     select case (trim(far_mode))
     case ('none', 'auto')
       periodic2%nonzero_mode_backend = 'legacy_finite_images'
@@ -81,8 +78,8 @@ contains
 
     field = field_physics_config()
     panel = panel_kernel_config()
-    field%backend = lower_ascii(trim(sim%field_solver))
-    field%normalization = lower_ascii(trim(sim%field_normalization))
+    field%backend = lower_ascii(trim(sim%solver%method))
+    field%normalization = lower_ascii(trim(sim%solver%normalization))
     select case (trim(field%backend))
     case ('direct')
       panel%kernel_id = 'triangle_p0_exact_direct'
@@ -106,7 +103,7 @@ contains
     status = physics_config_ok
     message = ''
     kernel_id = lower_ascii(trim(panel%kernel_id))
-    solver = lower_ascii(trim(sim%field_solver))
+    solver = lower_ascii(trim(sim%solver%method))
     boundary = lower_ascii(trim(sim%field_bc_mode))
     select case (trim(solver))
     case ('direct')
@@ -190,7 +187,7 @@ contains
       return
     end select
 
-    if (trim(lower_ascii(sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier' .and. &
+    if (trim(lower_ascii(sim%box_events%retry_backend)) == 'upper_panel_fourier' .and. &
         trim(nonzero_backend) /= 'cached_kneq0') then
       call reject( &
         physics_config_invalid_combination, &
@@ -231,7 +228,7 @@ contains
     end if
 
     if (trim(nonzero_backend) == 'panel_spectral_reference') then
-      if (trim(lower_ascii(field%backend)) /= 'direct' .or. trim(lower_ascii(sim%field_solver)) /= 'direct') then
+      if (trim(lower_ascii(field%backend)) /= 'direct' .or. trim(lower_ascii(sim%solver%method)) /= 'direct') then
         call reject( &
           physics_config_invalid_combination, &
           'panel_spectral_reference requires field backend direct.', status, message &
@@ -275,7 +272,7 @@ contains
       call reject(physics_config_invalid_combination, 'Unknown periodic nonzero-mode backend.', status, message)
       return
     end if
-    if (trim(lower_ascii(field%backend)) /= 'fmm' .or. trim(lower_ascii(sim%field_solver)) /= 'fmm') then
+    if (trim(lower_ascii(field%backend)) /= 'fmm' .or. trim(lower_ascii(sim%solver%method)) /= 'fmm') then
       call reject( &
         physics_config_invalid_combination, &
         'cached_kneq0 requires the periodic2 FMM backend.', status, message &

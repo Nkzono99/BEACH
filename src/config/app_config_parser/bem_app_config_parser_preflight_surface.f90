@@ -4,6 +4,7 @@ submodule(bem_app_config_parser) bem_app_config_parser_preflight_surface
   use bem_constants, only: qe, k_boltzmann, pi
   use bem_config_helpers, only: resolve_particle_boundaries, species_number_density_m3, species_temperature_k
   use bem_app_config_types, only: particle_inflow_reservoir
+  use bem_external_boundary_contract, only: external_inflow_none
   implicit none
 contains
 
@@ -100,7 +101,7 @@ contains
     if (any(cfg%sim%b0 /= 0.0_dp)) then
       error stop 'sheath.closure="zero_current" requires fields.external.magnetic_t=[0,0,0] for its unmagnetized sheath closure.'
     end if
-    if (trim(lower_ascii(cfg%sim%reservoir_potential_model)) /= 'none') then
+    if (cfg%boundary_contract%inflow_map /= external_inflow_none) then
       error stop 'Zhao kinetic inflow cannot be combined with the generic reservoir potential model.'
     end if
     if (.not. ieee_is_finite(cfg%surface_current%photoelectron_source_scale) .or. &

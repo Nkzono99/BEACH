@@ -126,7 +126,7 @@ FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、
 `%fmm_core_state` が保持します。旧 FMM の複製 view と未使用の局所展開配列は削除しました。
 診断時は core plan / state を参照し、treecode 用配列から FMM の状態を読まないでください。
 `init` は既存の FMM 作業状態を解放してから再構築します。たとえば、同じ `solver` に対して
-`call solver%init(mesh, sim)` を再度呼び、`sim%field_solver` を切り替えられます。
+`call solver%init(mesh, sim)` を再度呼び、`sim%solver%method` を切り替えられます。
 `refresh(mesh)` は電荷更新に用い、FMM では空メッシュまたは要素数の変更にも対応します。
 同じ要素数で頂点座標を変更した場合は `init` で幾何を再構築してください。
 
@@ -239,15 +239,10 @@ pcls%m = 9.1093837015e-31_dp
 注入時は分布サンプラーが生成先へ直接書き込み、バッチ構築では種別ごとの必要数だけを一時保持し、
 従来の種別交互順で完成した SoA へ詰めます。乱数の消費順と放出元要素の対応を維持します。
 
-mesh の幾何更新は `bem_panel_geometry` が計算した重心・法線・面積を利用します。
+mesh の幾何更新は `bem_panel_geometry` が計算した重心・法線・面積・辺を利用します。
 `fill_panel_quadrature(panel, position, weight)` は確保済みの `position(3,7)` と `weight(7)` に
-積分点と重みを書き込みます。mesh はこの入口を使い、三角形ごとの一時配列の確保・コピーを省きます。
-積分計画を新しく構築する既存の `build_panel_quadrature` も、この計算を共有します。
-mesh 更新では次のように要素 `i` の配列へ書き込みます。
-
-```fortran
-call fill_panel_quadrature(panel, mesh%panel_quad_position(:, :, i), mesh%panel_quad_weight(:, i))
-```
+積分点と重みを書き込みます。mesh は積分点を保持せず、使う側（periodic upper-vacuum plan の構築など）が
+三角形ごとに呼びます。積分計画を新しく構築する既存の `build_panel_quadrature` も、この計算を共有します。
 
 積分対象から除外する細長い三角形も、衝突判定用の幾何情報は保持します。
 

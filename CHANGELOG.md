@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `output.diagnostics.charge_rel_change_threshold` を早期終了条件として実装した。正の値を設定すると、
+  accepted batch の表面電荷の相対変化 `rel_change` がこの値を下回った batch で、`run.batch_count` 前でも run を終える。
+  既定値は `1e-8`（監視値として出力されるだけ）から `0`（無効）に変わり、設定しなければ従来どおり
+  `run.batch_count` まで実行する。`summary.txt` に `charge_rel_change_threshold` と
+  `charge_rel_change_threshold_reached` を追加し、runops adapter は後者が `T` の run を `batches` が少なくても完了とみなす。
+  同梱の `examples/beach.toml` と `examples/closed_photoelectron.toml` は閾値の行を削除し、挙動を変えていない。
 - ドキュメントに、計算サイクル、粒子源・境界、周期場、放出モデル、再開と後処理を説明する日本語の概念図を 24 点追加した。
 
 ### Changed
@@ -74,6 +80,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - 周期 object 検証ツールの job 構成（script、job 名、walltime、担当 case）
   と object 評価 plan（charge-history batch と target mesh）を 1 か所の定義から導出するようにした（#58）。
   生成される job script と検証内容は変わらない。
+
+- 未使用・常に定数・重複していた派生型の成分を削除した（計算結果はビット一致）。主なもの:
+  surface closure 契約の number-flux override 経路（どのモデルも設定しなかった）と、それを受ける粒子源 plan の
+  分岐・`compute_macro_particles_from_flux`、`surface_current_model_result_type%ion_species_idx`、
+  charge ledger の local-flight / unresolved stock（本番では常に 0）、mesh の `h_elem`・`vacuum_normals`・
+  `center_x/y/z`（`centers` の複製）、field solver の `min_nelem`・`field_bc_mode`・`child_octant`、
+  FMM plan の M2L・QR・thread の計数、`template_spec%epsilon_r`（設定経路がなかった）、
+  静電 snapshot の `gauss_residual`（常に 0）と `prescribed_phi_origin`（常に原点）。
+  `sim_config` の型の既定値を `default_app_config` と揃えた（`dt=1e-9`、`max_step=400`）。
+- 層の間で値を写すだけだった成分を整理した（計算結果はビット一致）。粒子源 plan と batch 注入 layout は
+  species 設定（重み、温度、drift、光電子の放出電流と法線 drift、密度）の写しを持たず設定から直接読む。
+  batch workspace は neutral_return の電荷列と未帰還率の写しを、batch ledger は累積時に計算し直す比の写しを持たない。
+  field solver は FMM options へ渡す periodic 設定の写しを持たない。静電 snapshot と FMM plan は options の
+  `reference_mode_layers`・`panel_quadrature_order`・operator セル数を写さない。Zhao 外部根の更新は参照面積を
+  外部根の結果から読む。surface closure の流入写像から常に 0 V だった貯留部電位を除いた。
+- 静電 snapshot と field solver の初期化は `sim` と periodic2 設定だけを受け取り、`sim` から導出する型付きの
+  field/panel 設定（`app_config%field`・`%panel`、どこからも読まれていなかった）を受け取らない。
+  panel の Cartesian moment（`moment0/1/2`、mesh の `panel_moment1/2`）と mesh の積分点配列を削除し、
+  upper-vacuum Fourier plan は構築時に三角形ごとの積分点を作る。batch 幅と外部電場の入力形
+  （`run.batch.duration_steps`、外部電場の大きさと角度）と二次電子種の preflight 専用の値は authoring 型が持ち、
+  `sim_config` と `particle_species_spec` から外した。計算結果はビット一致。
+- `matching_plane_stats` の匿名配列 `response(6)`・`feedback(4)` を名前付きの 6 成分にした。常に 0 だった
+  イオンの access 電位・外向き束と、電子の access 電位と同じ値だった光電子の障壁電位は持たず、
+  `summary.txt` と `matching_plane_history.csv` には従来どおりの値（0 と同じ電位）を書く。
+- `sim_config` の設定を役割ごとの入れ子の型にまとめた: `sim%solver`（`fields.solver.*`）、
+  `sim%periodic`（`fields.periodic.*` の遠方補正・Ewald・cache）、`sim%substep`（適応サブステップと step の伸長）、
+  `sim%box_events`（複数 box event の扱い）。TOML のキーと既定値は変わらない。
+- surface closure 契約の species 別の並列配列 17 本を、species ごとの record（固定電流目標、closure の経路、
+  流入写像と外部障壁）の配列にまとめた（計算結果はビット一致、`summary.txt` は不変）。流入写像と外部障壁の面は
+  常に照射セルの壁面なので契約に 1 つだけ持ち、流入写像の access 電位と外部障壁の電位は同じ外部シース経路の
+  極値電位なので species ごとに 1 つにした。粒子源 plan は流入写像を 4 本の配列へ写さず、契約をそのまま受け取る。
+- FMM plan（`fmm_plan_type`）の成分を内部の型にまとめた（計算結果はビット一致）。source 木と target 木は同じ
+  `fmm_tree_type` の `source_tree`/`target_tree` になり、どちらの木を使うかを選ぶ `active_tree_*` 関数の代わりに
+  評価用の木を引数で渡す。親ノード表は木が持つ（`parent_of`・`source_parent_of` を廃止）。近接 panel の成分表は
+  `near_panels`（単精度は `near_panels_sp`）に、`cached_kneq0` の遠方補正の格子・operator・cache 識別子・計数は
+  `periodic_operator` にまとめた。plan の直下の成分は 133 から 64 に減った。
+
+### Removed
+
+- `summary.txt` から常に 0 または恒等的に決まる key を削除した:
+  `surface_current_model_pe_budget_residual_current_density_A_m2`（定義上 0）、
+  `surface_current_model_surface_budget_residual_current_density_A_m2`（`surface_current_model_net_current_density_A_m2`
+  と同じ式。外部根の残差の検査は後者で行う）、`gauss_residual_C`、
+  `charge_ledger_local_flight_charge_{before,after}_C`、`charge_ledger_unresolved_stock_{before,after}_C`、
+  `surface_current_model_electron_inflow_reservoir_potential_V`（常に 0）。
+  再開時は旧 checkpoint にあるこれらの key を読み飛ばす。
 
 ### Fixed
 

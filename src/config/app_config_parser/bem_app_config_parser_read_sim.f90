@@ -215,103 +215,103 @@ contains
       call get_toml_int(table, keys(ikey), cfg%sim%particle_pool_chunk, 'run.batch.particle_pool_chunk')
     case ('batch_duration')
       call get_toml_real(table, keys(ikey), cfg%sim%batch_duration, 'run.batch.duration_s')
-      cfg%sim%has_batch_duration = .true.
+      sim_input%has_batch_duration = .true.
     case ('batch_duration_step')
-      call get_toml_real(table, keys(ikey), cfg%sim%batch_duration_step, 'run.batch.duration_steps')
-      cfg%sim%has_batch_duration_step = .true.
+      call get_toml_real(table, keys(ikey), sim_input%batch_duration_step, 'run.batch.duration_steps')
+      sim_input%has_batch_duration_step = .true.
     case ('max_step')
       call get_toml_int(table, keys(ikey), cfg%sim%max_step, 'particles.tracking.max_steps_per_particle')
     case ('substep_field_change_max')
-      call get_toml_real(table, keys(ikey), cfg%sim%substep_field_change_max, &
+      call get_toml_real(table, keys(ikey), cfg%sim%substep%field_change_max, &
                          'particles.tracking.substep_field_change_max')
     case ('substep_max_halvings')
-      call get_toml_int(table, keys(ikey), cfg%sim%substep_max_halvings, 'particles.tracking.substep_max_halvings')
+      call get_toml_int(table, keys(ikey), cfg%sim%substep%max_halvings, 'particles.tracking.substep_max_halvings')
     case ('step_growth')
-      call get_toml_logical(table, keys(ikey), cfg%sim%step_growth, 'particles.tracking.step_growth')
+      call get_toml_logical(table, keys(ikey), cfg%sim%substep%growth, 'particles.tracking.step_growth')
     case ('step_growth_max')
-      call get_toml_int(table, keys(ikey), cfg%sim%step_growth_max, 'particles.tracking.step_growth_max')
+      call get_toml_int(table, keys(ikey), cfg%sim%substep%growth_max, 'particles.tracking.step_growth_max')
     case ('step_growth_energy_fraction')
-      call get_toml_real(table, keys(ikey), cfg%sim%step_growth_energy_fraction, &
+      call get_toml_real(table, keys(ikey), cfg%sim%substep%growth_energy_fraction, &
                          'particles.tracking.step_growth_energy_fraction')
     case ('tol_rel')
       call get_toml_real(table, keys(ikey), cfg%sim%tol_rel, 'output.diagnostics.charge_rel_change_threshold')
     case ('q_floor')
       call get_toml_real(table, keys(ikey), cfg%sim%q_floor, 'output.diagnostics.charge_floor_c')
     case ('field_solver')
-      call get_toml_string(table, keys(ikey), cfg%sim%field_solver, 'fields.solver.method')
-      cfg%sim%field_solver = lower_ascii(trim(cfg%sim%field_solver))
+      call get_toml_string(table, keys(ikey), cfg%sim%solver%method, 'fields.solver.method')
+      cfg%sim%solver%method = lower_ascii(trim(cfg%sim%solver%method))
     case ('field_normalization')
-      call get_toml_string(table, keys(ikey), cfg%sim%field_normalization, 'fields.solver.normalization')
-      cfg%sim%field_normalization = lower_ascii(trim(cfg%sim%field_normalization))
+      call get_toml_string(table, keys(ikey), cfg%sim%solver%normalization, 'fields.solver.normalization')
+      cfg%sim%solver%normalization = lower_ascii(trim(cfg%sim%solver%normalization))
     case ('field_length_scale')
-      call get_toml_real(table, keys(ikey), cfg%sim%field_length_scale, 'fields.solver.length_scale_m')
+      call get_toml_real(table, keys(ikey), cfg%sim%solver%length_scale, 'fields.solver.length_scale_m')
     case ('field_periodic_image_layers')
-      call get_toml_int(table, keys(ikey), cfg%sim%field_periodic_image_layers, 'fields.periodic.image_layers')
+      call get_toml_int(table, keys(ikey), cfg%sim%periodic%image_layers, 'fields.periodic.image_layers')
     case ('field_periodic_far_correction')
       call get_toml_string( &
-        table, keys(ikey), cfg%sim%field_periodic_far_correction, 'fields.periodic.backend' &
+        table, keys(ikey), cfg%sim%periodic%far_correction, 'fields.periodic.backend' &
         )
-      cfg%sim%field_periodic_far_correction = lower_ascii(trim(cfg%sim%field_periodic_far_correction))
+      cfg%sim%periodic%far_correction = lower_ascii(trim(cfg%sim%periodic%far_correction))
     case ('field_periodic_ewald_alpha')
-      call get_toml_real(table, keys(ikey), cfg%sim%field_periodic_ewald_alpha, 'fields.periodic.ewald_alpha')
+      call get_toml_real(table, keys(ikey), cfg%sim%periodic%ewald_alpha, 'fields.periodic.ewald_alpha')
     case ('field_periodic_ewald_layers')
-      call get_toml_int(table, keys(ikey), cfg%sim%field_periodic_ewald_layers, 'fields.periodic.ewald_layers')
+      call get_toml_int(table, keys(ikey), cfg%sim%periodic%ewald_layers, 'fields.periodic.ewald_layers')
     case ('field_periodic_cache_dir')
-      call get_toml_string(table, keys(ikey), cfg%sim%field_periodic_cache_dir, 'fields.periodic.cache_dir')
+      call get_toml_string(table, keys(ikey), cfg%sim%periodic%cache_dir, 'fields.periodic.cache_dir')
     case ('field_periodic_generation_tolerance')
       call get_toml_real( &
-        table, keys(ikey), cfg%sim%field_periodic_generation_tolerance, &
+        table, keys(ikey), cfg%sim%periodic%generation_tolerance, &
         'fields.periodic.generation_tolerance' &
         )
     case ('tree_theta')
-      call get_toml_real(table, keys(ikey), cfg%sim%tree_theta, 'fields.solver.tree.theta')
-      cfg%sim%has_tree_theta = .true.
+      call get_toml_real(table, keys(ikey), cfg%sim%solver%tree_theta, 'fields.solver.tree.theta')
+      cfg%sim%solver%has_tree_theta = .true.
     case ('tree_leaf_max')
-      call get_toml_int(table, keys(ikey), cfg%sim%tree_leaf_max, 'fields.solver.tree.leaf_max')
-      cfg%sim%has_tree_leaf_max = .true.
+      call get_toml_int(table, keys(ikey), cfg%sim%solver%tree_leaf_max, 'fields.solver.tree.leaf_max')
+      cfg%sim%solver%has_tree_leaf_max = .true.
     case ('tree_min_nelem')
-      call get_toml_int(table, keys(ikey), cfg%sim%tree_min_nelem, 'fields.solver.auto_fmm_min_elements')
+      call get_toml_int(table, keys(ikey), cfg%sim%solver%tree_min_nelem, 'fields.solver.auto_fmm_min_elements')
     case ('near_field_precision')
-      call get_toml_string(table, keys(ikey), cfg%sim%near_field_precision, 'fields.solver.near_field_precision')
-      cfg%sim%near_field_precision = lower_ascii(trim(cfg%sim%near_field_precision))
+      call get_toml_string(table, keys(ikey), cfg%sim%solver%near_field_precision, 'fields.solver.near_field_precision')
+      cfg%sim%solver%near_field_precision = lower_ascii(trim(cfg%sim%solver%near_field_precision))
     case ('e0')
       call get_toml_real_array(table, keys(ikey), cfg%sim%e0, 'fields.external.electric_v_m')
-      cfg%sim%has_e0_vector = .true.
+      sim_input%has_e0_vector = .true.
     case ('e0_abs')
-      call get_toml_real(table, keys(ikey), cfg%sim%e0_abs, 'fields.external.electric_magnitude_v_m')
-      cfg%sim%has_e0_abs = .true.
+      call get_toml_real(table, keys(ikey), sim_input%e0_abs, 'fields.external.electric_magnitude_v_m')
+      sim_input%has_e0_abs = .true.
     case ('e0_phi_xy_deg')
-      call get_toml_real(table, keys(ikey), cfg%sim%e0_phi_xy_deg, 'fields.external.electric_azimuth_deg')
-      cfg%sim%has_e0_phi_xy_deg = .true.
+      call get_toml_real(table, keys(ikey), sim_input%e0_phi_xy_deg, 'fields.external.electric_azimuth_deg')
+      sim_input%has_e0_phi_xy_deg = .true.
     case ('e0_phi_z_deg')
-      call get_toml_real(table, keys(ikey), cfg%sim%e0_phi_z_deg, 'fields.external.electric_elevation_deg')
-      cfg%sim%has_e0_phi_z_deg = .true.
+      call get_toml_real(table, keys(ikey), sim_input%e0_phi_z_deg, 'fields.external.electric_elevation_deg')
+      sim_input%has_e0_phi_z_deg = .true.
     case ('b0')
       call get_toml_real_array(table, keys(ikey), cfg%sim%b0, 'fields.external.magnetic_t')
     case ('multiple_box_events_policy')
       call get_toml_string( &
-        table, keys(ikey), cfg%sim%multiple_box_events_policy, 'particles.tracking.events.policy' &
+        table, keys(ikey), cfg%sim%box_events%policy, 'particles.tracking.events.policy' &
         )
-      cfg%sim%multiple_box_events_policy = lower_ascii(trim(cfg%sim%multiple_box_events_policy))
+      cfg%sim%box_events%policy = lower_ascii(trim(cfg%sim%box_events%policy))
     case ('multiple_box_events_retry_backend')
       call get_toml_string( &
-        table, keys(ikey), cfg%sim%multiple_box_events_retry_backend, &
+        table, keys(ikey), cfg%sim%box_events%retry_backend, &
         'particles.tracking.events.retry_backend' &
         )
-      cfg%sim%multiple_box_events_retry_backend = lower_ascii(trim(cfg%sim%multiple_box_events_retry_backend))
+      cfg%sim%box_events%retry_backend = lower_ascii(trim(cfg%sim%box_events%retry_backend))
     case ('multiple_box_events_soft_discard_count_grace')
       call get_toml_int( &
-        table, keys(ikey), cfg%sim%multiple_box_events_soft_discard_count_grace, &
+        table, keys(ikey), cfg%sim%box_events%soft_discard_count_grace, &
         'particles.tracking.events.discard_count_grace' &
         )
     case ('multiple_box_events_soft_discard_fraction_limit')
       call get_toml_real( &
-        table, keys(ikey), cfg%sim%multiple_box_events_soft_discard_fraction_limit, &
+        table, keys(ikey), cfg%sim%box_events%soft_discard_fraction_limit, &
         'particles.tracking.events.discard_fraction_limit' &
         )
     case ('multiple_box_events_soft_discard_abs_charge_limit')
       call get_toml_real( &
-        table, keys(ikey), cfg%sim%multiple_box_events_soft_discard_abs_charge_limit, &
+        table, keys(ikey), cfg%sim%box_events%soft_discard_abs_charge_limit, &
         'particles.tracking.events.discard_charge_warning_c' &
         )
     case ('raycast_max_bounce')

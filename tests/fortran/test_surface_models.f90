@@ -5,7 +5,7 @@ program test_surface_models
   use bem_mesh, only: init_mesh
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
+  use bem_physics_config_types, only: periodic2_physics_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_surface_models, only: floating_conductor_solver_type
   use bem_types, only: mesh_type, sim_config, surface_model_conductor, surface_model_insulator
@@ -63,7 +63,6 @@ contains
     end do
     call init_mesh(mesh, v0, v1, v2, q0=q0, elem_mesh_id0=mesh_ids, elem_surface_model0=surface_models)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
     call init_free_space_snapshot(mesh, [0.0d0, 0.0d0, 0.0d0], sim, snapshot)
 
     call solver%init(mesh, sim, snapshot)
@@ -211,7 +210,6 @@ contains
     end do
     call init_mesh(mesh, v0, v1, v2, q0=q0, elem_mesh_id0=mesh_ids, elem_surface_model0=surface_models)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
   end subroutine init_test_mesh
 
   subroutine init_free_space_snapshot(mesh, external_e, sim, snapshot)
@@ -219,17 +217,13 @@ contains
     real(dp), intent(in) :: external_e(3)
     type(sim_config), intent(out) :: sim
     type(electrostatic_snapshot_type), intent(out) :: snapshot
-    type(field_physics_config) :: field_config
     type(periodic2_physics_config) :: periodic_config
-    type(panel_kernel_config) :: panel_config
 
     sim = sim_config()
-    sim%field_solver = 'direct'
+    sim%solver%method = 'direct'
     sim%e0 = external_e
-    field_config = field_physics_config(backend='direct', normalization='si')
     periodic_config = periodic2_physics_config()
-    panel_config = panel_kernel_config(kernel_id='triangle_p0_exact_direct')
-    call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
+    call snapshot%init(mesh, sim, periodic_config)
     call snapshot%refresh(mesh)
   end subroutine init_free_space_snapshot
 

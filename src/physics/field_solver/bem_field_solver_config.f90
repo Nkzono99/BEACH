@@ -1,56 +1,38 @@
 !> `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 submodule(bem_field_solver) bem_field_solver_config
   use bem_coulomb_fmm_core, only: destroy_plan, destroy_state
-  use bem_physics_config_types, only: validate_phase1_panel_config, physics_config_ok
   use bem_periodic2_axes, only: resolve_periodic2_axes
   implicit none
 contains
 
   !> 設定値から direct/treecode/fmm の実行モードを確定し、必要なら木構造を初期化する。
   module procedure init_field_solver
-  character(len=16) :: requested_mode, field_bc_mode
+  character(len=16) :: requested_mode, field_bc_mode, field_normalization, far_correction
   logical :: use_periodic2
-  integer(i32) :: panel_status
-  character(len=256) :: panel_message
+  integer(i32) :: periodic_axes(2)
+  real(dp) :: field_length_scale, periodic_len(2), target_box_min(3), target_box_max(3)
 
   call destroy_plan(self%fmm_core_plan)
   call destroy_state(self%fmm_core_state)
   self%fmm_core_ready = .false.
   call reset_tree_storage(self)
 
-  self%field_normalization = lower_ascii(trim(sim%field_normalization))
-  self%field_length_scale = resolve_field_length_scale(mesh, sim)
-  self%field_origin = resolve_field_origin(mesh, sim, self%field_normalization)
-  self%field_inv_length_scale = 1.0d0/self%field_length_scale
+  field_normalization = lower_ascii(trim(sim%solver%normalization))
+  field_length_scale = resolve_field_length_scale(mesh, sim)
+  self%field_origin = resolve_field_origin(mesh, sim, field_normalization)
+  self%field_inv_length_scale = 1.0d0/field_length_scale
   self%field_output_scale = k_coulomb*self%field_inv_length_scale*self%field_inv_length_scale
   self%potential_output_scale = k_coulomb*self%field_inv_length_scale
-  self%min_nelem = sim%tree_min_nelem
   self%nelem = mesh%nelem
-  self%use_periodic2 = .false.
-  self%periodic_axes = 0_i32
-  self%periodic_len = 0.0d0
-  self%periodic_image_layers = max(0_i32, sim%field_periodic_image_layers)
-  self%periodic_far_correction = lower_ascii(trim(sim%field_periodic_far_correction))
-  self%periodic_ewald_alpha = sim%field_periodic_ewald_alpha
-  self%periodic_ewald_layers = max(0_i32, sim%field_periodic_ewald_layers)
-  self%periodic_cache_dir = trim(sim%field_periodic_cache_dir)
-  self%periodic_generation_tolerance = sim%field_periodic_generation_tolerance
-  self%target_box_min = 0.0d0
-  self%target_box_max = 0.0d0
+  use_periodic2 = .false.
+  periodic_axes = 0_i32
+  periodic_len = 0.0d0
+  far_correction = lower_ascii(trim(sim%periodic%far_correction))
+  target_box_min = 0.0d0
+  target_box_max = 0.0d0
 
-  requested_mode = lower_ascii(trim(sim%field_solver))
+  requested_mode = lower_ascii(trim(sim%solver%method))
   field_bc_mode = lower_ascii(trim(sim%field_bc_mode))
-  if (present(periodic_config)) continue
-  if (present(panel_config)) then
-    call validate_phase1_panel_config(sim, panel_config, panel_status, panel_message)
-    if (panel_status /= physics_config_ok) error stop 'field solver panel config: '//trim(panel_message)
-  end if
-  if (present(field_config)) then
-    if (trim(lower_ascii(field_config%backend)) /= trim(requested_mode) .or. &
-        trim(lower_ascii(field_config%normalization)) /= trim(self%field_normalization)) then
-      error stop 'typed field config does not match sim field config.'
-    end if
-  end if
   if (mesh%nelem > 0_i32) then
     if (any(mesh%panel_area <= 0.0_dp)) then
       error stop 'triangle_p0 requires finite, non-degenerate triangles.'
@@ -59,21 +41,19 @@ contains
       error stop 'triangle_p0 requires resolved element vacuum sides.'
     end if
   end if
-  self%field_bc_mode = field_bc_mode
   select case (trim(field_bc_mode))
   case ('free')
-    self%periodic_far_correction = 'none'
-    continue
+    far_correction = 'none'
   case ('periodic2')
     if (trim(requested_mode) /= 'fmm') then
       error stop 'fields.boundary must be "free" unless fields.solver.method="fmm".'
     end if
-    call resolve_periodic2_axes(sim, use_periodic2, self%periodic_axes, self%periodic_len)
-    self%target_box_min = sim%box_min
-    self%target_box_max = sim%box_max
-    select case (trim(self%periodic_far_correction))
+    call resolve_periodic2_axes(sim, use_periodic2, periodic_axes, periodic_len)
+    target_box_min = sim%box_min
+    target_box_max = sim%box_max
+    select case (trim(far_correction))
     case ('auto')
-      self%periodic_far_correction = 'none'
+      far_correction = 'none'
     case ('none')
       continue
     case ('m2l_root_oracle')
@@ -83,7 +63,7 @@ contains
     case default
       error stop 'periodic2 far correction supports "auto", "none", or "cached_kneq0" only.'
     end select
-    self%use_periodic2 = .true.
+    use_periodic2 = .true.
   case default
     error stop 'Unknown fields.boundary in field solver init.'
   end select
@@ -95,8 +75,8 @@ contains
     if (any(sim%box_max <= sim%box_min)) then
       error stop 'A finite [domain] requires positive box extents for fmm dual-target.'
     end if
-    self%target_box_min = sim%box_min
-    self%target_box_max = sim%box_max
+    target_box_min = sim%box_min
+    target_box_max = sim%box_max
   end if
 
   call resolve_field_solver_tree_params(mesh%nelem, sim, self%theta, self%leaf_max)
@@ -105,28 +85,22 @@ contains
   self%fmm_core_options%theta = self%theta
   self%fmm_core_options%leaf_max = self%leaf_max
   self%fmm_core_options%order = field_solver_fmm_expansion_order
-  self%fmm_core_options%near_field_single = trim(sim%near_field_precision) == 'single'
+  self%fmm_core_options%near_field_single = trim(sim%solver%near_field_precision) == 'single'
   self%fmm_core_options%softening = 0.0_dp
-  self%fmm_core_options%use_periodic2 = self%use_periodic2
-  self%fmm_core_options%periodic_far_correction = self%periodic_far_correction
-  self%fmm_core_options%periodic_axes = self%periodic_axes
-  self%fmm_core_options%periodic_len = self%periodic_len*self%field_inv_length_scale
-  self%fmm_core_options%periodic_image_layers = self%periodic_image_layers
-  self%fmm_core_options%periodic_ewald_alpha = self%periodic_ewald_alpha*self%field_length_scale
-  self%fmm_core_options%periodic_ewald_layers = self%periodic_ewald_layers
-  self%fmm_core_options%periodic_cache_dir = self%periodic_cache_dir
-  self%fmm_core_options%periodic_generation_tolerance = self%periodic_generation_tolerance
-  self%fmm_core_options%target_box_min = (self%target_box_min - self%field_origin)*self%field_inv_length_scale
-  self%fmm_core_options%target_box_max = (self%target_box_max - self%field_origin)*self%field_inv_length_scale
+  self%fmm_core_options%use_periodic2 = use_periodic2
+  self%fmm_core_options%periodic_far_correction = far_correction
+  self%fmm_core_options%periodic_axes = periodic_axes
+  self%fmm_core_options%periodic_len = periodic_len*self%field_inv_length_scale
+  self%fmm_core_options%periodic_image_layers = max(0_i32, sim%periodic%image_layers)
+  self%fmm_core_options%periodic_ewald_alpha = sim%periodic%ewald_alpha*field_length_scale
+  self%fmm_core_options%periodic_ewald_layers = max(0_i32, sim%periodic%ewald_layers)
+  self%fmm_core_options%periodic_cache_dir = trim(sim%periodic%cache_dir)
+  self%fmm_core_options%periodic_generation_tolerance = sim%periodic%generation_tolerance
+  self%fmm_core_options%target_box_min = (target_box_min - self%field_origin)*self%field_inv_length_scale
+  self%fmm_core_options%target_box_max = (target_box_max - self%field_origin)*self%field_inv_length_scale
   if (present(mpi)) self%fmm_core_options%mpi = mpi
 
   if (self%mode_id == field_solver_mode_fmm) then
-    select case (trim(self%periodic_far_correction))
-    case ('auto', 'none', 'cached_kneq0')
-      continue
-    case default
-      error stop 'FMM core received an unsupported periodic far correction.'
-    end select
     call refresh_fmm_solver(self, mesh)
     return
   end if
@@ -147,12 +121,12 @@ contains
     real(dp) :: bbox_min(3), bbox_max(3), span(3)
     character(len=16) :: mode
 
-    mode = lower_ascii(trim(sim%field_normalization))
+    mode = lower_ascii(trim(sim%solver%normalization))
     select case (trim(mode))
     case ('si')
       length_scale = 1.0d0
     case ('length')
-      length_scale = sim%field_length_scale
+      length_scale = sim%solver%length_scale
     case ('box')
       if (.not. sim%use_box) error stop 'fields.solver.normalization="box" requires a finite [domain].'
       span = sim%box_max - sim%box_min
@@ -160,7 +134,7 @@ contains
       length_scale = maxval(span)
     case ('mesh')
       if (mesh%nelem <= 0_i32) then
-        length_scale = sim%field_length_scale
+        length_scale = sim%solver%length_scale
       else
         bbox_min = min(minval(mesh%v0, dim=2), min(minval(mesh%v1, dim=2), minval(mesh%v2, dim=2)))
         bbox_max = max(maxval(mesh%v0, dim=2), max(maxval(mesh%v1, dim=2), maxval(mesh%v2, dim=2)))
@@ -218,27 +192,27 @@ contains
   character(len=16) :: requested_mode
   logical :: uses_tree
 
-  requested_mode = lower_ascii(trim(sim%field_solver))
+  requested_mode = lower_ascii(trim(sim%solver%method))
   uses_tree = trim(requested_mode) == 'treecode' .or. trim(requested_mode) == 'fmm' .or. &
-              (trim(requested_mode) == 'auto' .and. nelem >= sim%tree_min_nelem)
-  theta = sim%tree_theta
-  leaf_max = sim%tree_leaf_max
+              (trim(requested_mode) == 'auto' .and. nelem >= sim%solver%tree_min_nelem)
+  theta = sim%solver%tree_theta
+  leaf_max = sim%solver%tree_leaf_max
   if (.not. uses_tree) return
 
   call estimate_auto_tree_params(nelem, theta, leaf_max)
-  if (sim%has_tree_theta) theta = sim%tree_theta
-  if (sim%has_tree_leaf_max) leaf_max = sim%tree_leaf_max
+  if (sim%solver%has_tree_theta) theta = sim%solver%tree_theta
+  if (sim%solver%has_tree_leaf_max) leaf_max = sim%solver%tree_leaf_max
   end procedure resolve_field_solver_tree_params
 
   module procedure resolve_field_solver_mode
   character(len=16) :: requested_mode
 
-  requested_mode = lower_ascii(trim(sim%field_solver))
+  requested_mode = lower_ascii(trim(sim%solver%method))
   select case (trim(requested_mode))
   case ('direct', 'treecode', 'fmm')
     mode = requested_mode
   case ('auto')
-    if (nelem >= sim%tree_min_nelem) then
+    if (nelem >= sim%solver%tree_min_nelem) then
       mode = 'fmm'
     else
       mode = 'direct'

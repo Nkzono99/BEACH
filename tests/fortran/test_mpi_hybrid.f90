@@ -95,7 +95,6 @@ program test_mpi_hybrid
   v2(:, 1) = [0.0d0, 1.0d0, 0.0d0]
   call init_mesh(mesh, v0, v1, v2)
   mesh%elem_vacuum_sign = 1_i32
-  mesh%vacuum_normals = mesh%normals
 
   call default_app_config(cfg)
   cfg%sim%rng_seed = 2468_i32
@@ -185,7 +184,6 @@ program test_mpi_hybrid
     )
   call init_mesh(mesh_restart, v0, v1, v2)
   mesh_restart%elem_vacuum_sign = 1_i32
-  mesh_restart%vacuum_normals = mesh_restart%normals
   call load_restart_checkpoint( &
     trim(resolved_checkpoint_dir), mesh_restart, stats_restart, has_restart, mpi=mpi, app=cfg &
     )
@@ -250,7 +248,6 @@ program test_mpi_hybrid
   call default_app_config(reservoir_cfg)
   reservoir_cfg%sim%batch_count = 4_i32
   reservoir_cfg%sim%batch_duration = 1.0_dp
-  reservoir_cfg%sim%has_batch_duration = .true.
   reservoir_cfg%sim%use_box = .true.
   reservoir_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
   reservoir_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -314,7 +311,6 @@ program test_mpi_hybrid
 
   call init_mesh(mesh_restart, v0, v1, v2)
   mesh_restart%elem_vacuum_sign = 1_i32
-  mesh_restart%vacuum_normals = mesh_restart%normals
   allocate (state_restart%macro_residual(1), state_restart%boundary_macro_residual(6, 1))
   state_restart%macro_residual = 0.0d0
   state_restart%boundary_macro_residual = 0.0_dp
@@ -471,7 +467,6 @@ contains
     soft_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(soft_mesh, soft_v0, soft_v1, soft_v2)
     soft_mesh%elem_vacuum_sign = 1_i32
-    soft_mesh%vacuum_normals = soft_mesh%normals
     call default_app_config(soft_cfg)
     soft_cfg%sim%rng_seed = 5119_i32
     soft_cfg%sim%batch_count = 1_i32
@@ -482,11 +477,11 @@ contains
     soft_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     soft_cfg%sim%bc_low(1) = bc_reflect
     soft_cfg%sim%bc_high(1) = bc_reflect
-    soft_cfg%sim%multiple_box_events_policy = 'soft_discard'
-    soft_cfg%sim%multiple_box_events_retry_backend = 'upper_panel_fourier'
-    soft_cfg%sim%multiple_box_events_soft_discard_count_grace = 100000_i32
-    soft_cfg%sim%multiple_box_events_soft_discard_fraction_limit = 1.0_dp
-    soft_cfg%sim%multiple_box_events_soft_discard_abs_charge_limit = 1.0e9_dp
+    soft_cfg%sim%box_events%policy = 'soft_discard'
+    soft_cfg%sim%box_events%retry_backend = 'upper_panel_fourier'
+    soft_cfg%sim%box_events%soft_discard_count_grace = 100000_i32
+    soft_cfg%sim%box_events%soft_discard_fraction_limit = 1.0_dp
+    soft_cfg%sim%box_events%soft_discard_abs_charge_limit = 1.0e9_dp
     soft_cfg%n_particle_species = 1_i32
     soft_cfg%particle_species(1) = species_from_defaults()
     soft_cfg%particle_species(1)%source_mode = 'volume_seed'
@@ -713,7 +708,6 @@ contains
     call resolve_latest_checkpoint_dir(pool_dir, pool_checkpoint_dir)
     call init_mesh(resume_mesh, pool_mesh%v0, pool_mesh%v1, pool_mesh%v2)
     resume_mesh%elem_vacuum_sign = 1_i32
-    resume_mesh%vacuum_normals = resume_mesh%normals
     call load_restart_checkpoint( &
       trim(pool_checkpoint_dir), resume_mesh, resume_stats, pool_has_restart, mpi_rank=0_i32, mpi_size=mpi%size + 1_i32, &
       app=pool_cfg &
@@ -900,19 +894,15 @@ contains
     tri_v2(:, 4) = [0.3_dp, 1.0_dp, 0.25_dp]
     call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
 
     call default_app_config(cfg)
     cfg%sim%rng_seed = 4242_i32
     cfg%sim%batch_count = 1_i32
     cfg%sim%batch_duration = 1.0_dp
-    cfg%sim%has_batch_duration = .true.
     cfg%sim%dt = 0.1_dp
     cfg%sim%max_step = 20_i32
     cfg%sim%q_floor = 1.0e-30_dp
-    cfg%sim%field_solver = 'direct'
-    cfg%field%backend = 'direct'
-    cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+    cfg%sim%solver%method = 'direct'
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -987,7 +977,6 @@ contains
     tri_v2(:, 4) = [0.98_dp, 1.0_dp, 0.25_dp]
     call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
 
     call default_app_config(cfg)
     cfg%sim%rng_seed = 998_i32
@@ -996,9 +985,7 @@ contains
     cfg%sim%dt = 0.6_dp
     cfg%sim%max_step = 1_i32
     cfg%sim%q_floor = 1.0e-30_dp
-    cfg%sim%field_solver = 'direct'
-    cfg%field%backend = 'direct'
-    cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+    cfg%sim%solver%method = 'direct'
     cfg%sim%use_box = .true.
     cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]

@@ -14,7 +14,6 @@ module bem_injection_flux
 
   public :: compute_inflow_flux_from_drifting_maxwellian
   public :: compute_macro_particles_for_batch
-  public :: compute_macro_particles_from_flux
   public :: sample_reservoir_face_particle_counter
   public :: sample_flux_weighted_normal_component
 
@@ -104,36 +103,6 @@ contains
       n_macro &
       )
   end subroutine compute_macro_particles_for_batch
-
-  !> 指定済み粒子 flux・重み・残差から今バッチのマクロ粒子数を決める。
-  !! @param[in] particle_flux_m2_s 粒子数 flux [1/m^2/s]。
-  !! @param[in] inject_face 注入面識別子。
-  !! @param[in] pos_low 注入口矩形の下限座標 `(x,y,z)` [m]。
-  !! @param[in] pos_high 注入口矩形の上限座標 `(x,y,z)` [m]。
-  !! @param[in] batch_duration 1バッチの物理時間長 [s]。
-  !! @param[in] w_particle マクロ粒子重み。
-  !! @param[inout] residual 前バッチから繰り越すマクロ粒子端数。
-  !! @param[out] n_macro 今バッチで生成するマクロ粒子数。
-  subroutine compute_macro_particles_from_flux( &
-    particle_flux_m2_s, inject_face, pos_low, pos_high, batch_duration, w_particle, residual, n_macro &
-    )
-    real(dp), intent(in) :: particle_flux_m2_s
-    character(len=*), intent(in) :: inject_face
-    real(dp), intent(in) :: pos_low(3), pos_high(3)
-    real(dp), intent(in) :: batch_duration, w_particle
-    real(dp), intent(inout) :: residual
-    integer(i32), intent(out) :: n_macro
-
-    if (.not. ieee_is_finite(particle_flux_m2_s) .or. particle_flux_m2_s < 0.0_dp) then
-      error stop "particle_flux_m2_s must be finite and >= 0"
-    end if
-    if (w_particle <= 0.0_dp) error stop "macro-particle weight must be > 0"
-
-    call carry_macro_particle_budget( &
-      particle_flux_m2_s, compute_face_area_from_bounds(inject_face, pos_low, pos_high), batch_duration, w_particle, &
-      residual, n_macro &
-      )
-  end subroutine compute_macro_particles_from_flux
 
   !> flux × 面積 × バッチ時間を重みで割ったマクロ粒子数に前バッチの端数を足し、整数部を今バッチの数、
   !! 残りを次バッチへの端数にする。負の予算は 0 に切り上げる。入力の検査は呼出し元が行う。

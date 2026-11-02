@@ -107,10 +107,9 @@ contains
     triangles(:, 3, 2) = [-0.5_dp, 0.5_dp, 0.0_dp]
     call init_mesh(plate, triangles(:, 1, :), triangles(:, 2, :), triangles(:, 3, :))
     plate%elem_vacuum_sign = 1_i32
-    plate%vacuum_normals = plate%normals
     call default_app_config(app)
     app%write_output = .false.
-    app%sim%field_solver = 'direct'
+    app%sim%solver%method = 'direct'
     app%sim%use_box = .true.
     app%sim%box_min = [-0.5_dp, -0.5_dp, -0.01_dp]
     app%sim%box_max = [0.5_dp, 0.5_dp, 1.0e-4_dp]

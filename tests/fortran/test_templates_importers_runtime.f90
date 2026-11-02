@@ -55,7 +55,6 @@ program test_templates_importers_runtime
     cfg%mesh_parts(i)%enabled = mod(i, 4) /= 0
     cfg%mesh_parts(i)%center(3) = real(i, dp)
     cfg%mesh_parts(i)%ny = 1 + mod(i, 3)
-    cfg%mesh_parts(i)%epsilon_r = real(i, dp)
     cfg%mesh_parts(i)%surface_side_policy = 'normal_plus'
   end do
   call build_mesh_from_config(cfg, mesh)
@@ -67,7 +66,6 @@ program test_templates_importers_runtime
     last = first + 2*cfg%mesh_parts(i)%ny - 1
     call assert_true(all(mesh%elem_mesh_id(first:last) == part_id), 'enabled part order')
     call assert_true(all(mesh%v0(3, first:last) == real(i, dp)), 'part height')
-    call assert_true(all(mesh%elem_epsilon_r(first:last) == real(i, dp)), 'part permittivity')
     call assert_close_dp(sum(mesh%panel_area(first:last)), 1.0_dp, 1.0e-12_dp, 'unit plane area')
     first = last + 1
   end do
@@ -288,7 +286,6 @@ program test_templates_importers_runtime
   cfg%mesh_parts(1)%surface_side_policy = 'normal_minus'
   call build_mesh_from_config(cfg, mesh)
   call assert_true(all(mesh%elem_vacuum_sign == -1_i32), 'template vacuum side mismatch')
-  call assert_true(all(abs(mesh%vacuum_normals + mesh%normals) < 1.0e-15_dp), 'template vacuum normal mismatch')
   call test_end()
 
   call test_begin('triangle_panel_surface_side_preserves_prior_templates')
@@ -320,12 +317,8 @@ program test_templates_importers_runtime
     all(mesh%elem_mesh_id /= 1_i32 .or. mesh%elem_vacuum_sign == 1_i32), &
     'later template must preserve the first template normal_plus side' &
     )
-  call assert_true( &
-    all(abs(mesh%vacuum_normals(:, 1:2) - mesh%normals(:, 1:2)) < 1.0e-15_dp), &
-    'later template must preserve the first template vacuum normals' &
-    )
-  outward_dot = sum( &
-                mesh%vacuum_normals*(mesh%centers - spread(cfg%mesh_parts(2)%center, 2, mesh%nelem)), dim=1 &
+  outward_dot = real(mesh%elem_vacuum_sign, dp)*sum( &
+                mesh%normals*(mesh%centers - spread(cfg%mesh_parts(2)%center, 2, mesh%nelem)), dim=1 &
                 )
   call assert_true( &
     all(mesh%elem_mesh_id /= 2_i32 .or. outward_dot > 0.0_dp), &

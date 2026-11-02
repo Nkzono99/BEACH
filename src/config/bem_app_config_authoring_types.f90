@@ -21,6 +21,20 @@ module bem_app_config_authoring_types
     real(dp) :: max_nonzero_mode_potential_step = 0.0_dp
   end type periodic2_authoring_spec
 
+  !> batch 幅と一様外部電場の入力形。preflight で `sim%batch_duration` と `sim%e0` へ解決する。
+  type :: sim_input_authoring_spec
+    logical :: has_batch_duration = .false.
+    real(dp) :: batch_duration_step = 0.0d0
+    logical :: has_batch_duration_step = .false.
+    logical :: has_e0_vector = .false.
+    real(dp) :: e0_abs = 0.0d0
+    logical :: has_e0_abs = .false.
+    real(dp) :: e0_phi_xy_deg = 0.0d0
+    logical :: has_e0_phi_xy_deg = .false.
+    real(dp) :: e0_phi_z_deg = 0.0d0
+    logical :: has_e0_phi_z_deg = .false.
+  end type sim_input_authoring_spec
+
   !> 計算領域と周期 topology の公開 authoring 設定。
   type :: domain_authoring_spec
     logical :: present = .false.
@@ -57,6 +71,11 @@ module bem_app_config_authoring_types
   end type reservoir_authoring_spec
 
   type :: particle_authoring_spec
+    !> secondary_emission 種が持てない粒子源 key（sampling、inflow、emission）を指定したか。
+    logical :: has_secondary_forbidden_source_option = .false.
+    logical :: has_surface_charge_closure = .false.
+    !> preflight が `secondary_emission_target_idx` へ解決する二次電子の species key。
+    character(len=64) :: secondary_emission_target_species = ''
     logical :: has_inject_region_mode = .false.
     character(len=32) :: inject_region_mode = 'absolute'
     logical :: has_uv_low = .false.
@@ -115,6 +134,7 @@ module bem_app_config_authoring_types
   end type template_authoring_spec
 
   type :: app_config_authoring
+    type(sim_input_authoring_spec) :: sim_input
     type(domain_authoring_spec) :: domain
     type(field_boundary_authoring_spec) :: field_boundary
     type(particle_boundary_authoring_spec) :: particle_boundary
@@ -127,6 +147,7 @@ module bem_app_config_authoring_types
   end type app_config_authoring
 
   public :: app_config_authoring
+  public :: sim_input_authoring_spec
   public :: domain_authoring_spec
   public :: field_boundary_authoring_spec
   public :: particle_boundary_authoring_spec

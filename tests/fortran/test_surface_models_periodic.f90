@@ -2,7 +2,7 @@
 program test_surface_models_periodic
   use bem_kinds, only: dp, i32
   use bem_mesh, only: init_mesh
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
+  use bem_physics_config_types, only: periodic2_physics_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_surface_models, only: floating_conductor_solver_type
   use bem_types, only: mesh_type, sim_config, surface_model_conductor, surface_model_insulator, bc_open, bc_periodic
@@ -28,9 +28,7 @@ contains
   subroutine test_periodic2_cached_conductor_equalizes_and_conserves_charge()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
-    type(field_physics_config) :: field_config
     type(periodic2_physics_config) :: periodic_config
-    type(panel_kernel_config) :: panel_config
     type(electrostatic_snapshot_type) :: snapshot
     type(floating_conductor_solver_type) :: solver
     real(dp) :: v0(3, 3), v1(3, 3), v2(3, 3), q0(3), phi1, phi2, phi_scale
@@ -41,9 +39,9 @@ contains
     cache_dir = unique_test_path('test_surface_models_periodic_tmp_')
     call periodic_plate_fixture(v0, v1, v2, q0, mesh_ids, surface_models)
     call init_periodic_mesh(mesh, v0, v1, v2, q0, mesh_ids, surface_models)
-    call configure_periodic_cell(sim, field_config, periodic_config, panel_config)
-    sim%field_periodic_cache_dir = cache_dir
-    call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
+    call configure_periodic_cell(sim, periodic_config)
+    sim%periodic%cache_dir = cache_dir
+    call snapshot%init(mesh, sim, periodic_config)
     cache_path = snapshot%diagnostics%periodic_cache_path
 
     call solver%init(mesh, sim, snapshot)
@@ -67,9 +65,7 @@ contains
   subroutine test_periodic2_reference_conductor_is_translation_invariant()
     type(mesh_type) :: mesh, shifted_mesh
     type(sim_config) :: sim
-    type(field_physics_config) :: field_config
     type(periodic2_physics_config) :: periodic_config
-    type(panel_kernel_config) :: panel_config
     type(electrostatic_snapshot_type) :: snapshot, shifted_snapshot
     type(floating_conductor_solver_type) :: solver, shifted_solver
     real(dp) :: v0(3, 3), v1(3, 3), v2(3, 3), q0(3), shift(3)
@@ -77,16 +73,14 @@ contains
 
     call periodic_plate_fixture(v0, v1, v2, q0, mesh_ids, surface_models)
     call init_periodic_mesh(mesh, v0, v1, v2, q0, mesh_ids, surface_models)
-    call configure_periodic_cell(sim, field_config, periodic_config, panel_config)
-    sim%field_solver = 'direct'
-    sim%field_periodic_far_correction = 'none'
-    field_config = field_physics_config(backend='direct', normalization='si')
+    call configure_periodic_cell(sim, periodic_config)
+    sim%solver%method = 'direct'
+    sim%periodic%far_correction = 'none'
     periodic_config = periodic2_physics_config( &
                       nonzero_mode_backend='panel_spectral_reference', zero_mode_policy='exclude_k0', &
                       lower_boundary_model='symmetric_vacuum', reference_mode_layers=6_i32, panel_quadrature_order=12_i32 &
                       )
-    panel_config = panel_kernel_config(kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element')
-    call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
+    call snapshot%init(mesh, sim, periodic_config)
     call solver%init(mesh, sim, snapshot)
     call solver%relax(mesh, sim, snapshot)
     call assert_true(mesh%q_elem(1) /= mesh%q_elem(2), 'reference case must redistribute the plate charge')
@@ -96,7 +90,7 @@ contains
       shifted_mesh, v0 + spread(shift, 2, 3), v1 + spread(shift, 2, 3), v2 + spread(shift, 2, 3), &
       q0, mesh_ids, surface_models &
       )
-    call shifted_snapshot%init(shifted_mesh, sim, field_config, periodic_config, panel_config)
+    call shifted_snapshot%init(shifted_mesh, sim, periodic_config)
     call shifted_solver%init(shifted_mesh, sim, shifted_snapshot)
     call shifted_solver%relax(shifted_mesh, sim, shifted_snapshot)
     call assert_close_dp( &
@@ -136,39 +130,34 @@ contains
 
     call init_mesh(mesh, v0, v1, v2, q0=q0, elem_mesh_id0=mesh_ids, elem_surface_model0=surface_models)
     mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
   end subroutine init_periodic_mesh
 
-  subroutine configure_periodic_cell(sim, field_config, periodic_config, panel_config)
+  subroutine configure_periodic_cell(sim, periodic_config)
     type(sim_config), intent(out) :: sim
-    type(field_physics_config), intent(out) :: field_config
     type(periodic2_physics_config), intent(out) :: periodic_config
-    type(panel_kernel_config), intent(out) :: panel_config
 
     sim = sim_config()
-    sim%field_solver = 'fmm'
+    sim%solver%method = 'fmm'
     sim%field_bc_mode = 'periodic2'
-    sim%field_periodic_far_correction = 'cached_kneq0'
-    sim%field_periodic_image_layers = 1_i32
-    sim%field_periodic_ewald_layers = 3_i32
-    sim%field_periodic_generation_tolerance = 1.0e-8_dp
-    sim%field_normalization = 'si'
-    sim%tree_theta = 0.5_dp
-    sim%has_tree_theta = .true.
-    sim%tree_leaf_max = 8_i32
-    sim%has_tree_leaf_max = .true.
+    sim%periodic%far_correction = 'cached_kneq0'
+    sim%periodic%image_layers = 1_i32
+    sim%periodic%ewald_layers = 3_i32
+    sim%periodic%generation_tolerance = 1.0e-8_dp
+    sim%solver%normalization = 'si'
+    sim%solver%tree_theta = 0.5_dp
+    sim%solver%has_tree_theta = .true.
+    sim%solver%tree_leaf_max = 8_i32
+    sim%solver%has_tree_leaf_max = .true.
     sim%e0 = [0.2_dp, -0.1_dp, 0.3_dp]
     sim%use_box = .true.
     sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    field_config = field_physics_config(backend='fmm', normalization='si')
     periodic_config = periodic2_physics_config( &
                       nonzero_mode_backend='cached_kneq0', zero_mode_policy='exclude_k0', &
                       lower_boundary_model='symmetric_vacuum' &
                       )
-    panel_config = panel_kernel_config(kernel_id='triangle_p0_exact_p2m_near', surface_side_policy='per_element')
   end subroutine configure_periodic_cell
 
 end program test_surface_models_periodic

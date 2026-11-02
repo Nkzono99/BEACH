@@ -77,19 +77,19 @@ contains
   thread_step_counts = 0_i64
   pool_claims = 0_i64
   pool_claim_seconds = 0.0_dp
-  adaptive_substeps = app%sim%substep_field_change_max > 0.0_dp
-  h_min = app%sim%dt*0.5_dp**app%sim%substep_max_halvings
+  adaptive_substeps = app%sim%substep%field_change_max > 0.0_dp
+  h_min = app%sim%dt*0.5_dp**app%sim%substep%max_halvings
   ! Step growth doubles a particle's step while the field change stays below a quarter of the halving threshold.
-  step_growth = app%sim%step_growth .and. adaptive_substeps
+  step_growth = app%sim%substep%growth .and. adaptive_substeps
   growth_chunk_max = 1_i32
-  if (step_growth) growth_chunk_max = 2_i32**min(16_i32, app%sim%step_growth_max)
-  growth_change_max = 0.25_dp*app%sim%substep_field_change_max
-  growth_energy_fraction = app%sim%step_growth_energy_fraction
+  if (step_growth) growth_chunk_max = 2_i32**min(16_i32, app%sim%substep%growth_max)
+  growth_change_max = 0.25_dp*app%sim%substep%field_change_max
+  growth_energy_fraction = app%sim%substep%growth_energy_fraction
   adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
   shared_pool = trim(app%sim%particle_distribution) == 'shared'
   ! multiple_box_events の再試行 backend と policy はバッチの先頭で一度だけ解決する。
-  retry_upper_panel_fourier = trim(lower_ascii(app%sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier'
-  soft_discard_multiple_box_events = trim(lower_ascii(app%sim%multiple_box_events_policy)) == 'soft_discard'
+  retry_upper_panel_fourier = trim(lower_ascii(app%sim%box_events%retry_backend)) == 'upper_panel_fourier'
+  soft_discard_multiple_box_events = trim(lower_ascii(app%sim%box_events%policy)) == 'soft_discard'
   ! Boundary settings and kinetic barriers are fixed throughout this trial batch.
   do species_idx = 1_i32, app%n_particle_species
     species_sim(species_idx) = app%sim%particle_domain_config
@@ -301,10 +301,10 @@ contains
           if (.not. all(ieee_is_finite(x1)) .or. .not. all(ieee_is_finite(v1))) exit halve_loop
           if (step_growth) then
             if (.not. particle_substep_needs_halving(sampled_electric_field, field_ref, pcls_batch%q(i), x0, x1, &
-                                                     app%sim%substep_field_change_max, energy_floor)) exit halve_loop
+                                                     app%sim%substep%field_change_max, energy_floor)) exit halve_loop
           else
             if (.not. particle_substep_needs_halving(sampled_electric_field, field_ref, pcls_batch%q(i), x0, x1, &
-                                                     app%sim%substep_field_change_max)) exit halve_loop
+                                                     app%sim%substep%field_change_max)) exit halve_loop
           end if
           if (0.5_dp*h < h_min) then
             depth_limited = .true.
@@ -563,18 +563,20 @@ contains
     type(external_boundary_contract_type), intent(inout) :: contract
 
     integer(i32) :: axis, face
+    real(dp) :: barrier_potential_v
 
     if (.not. current_model%active) return
-    if (.not. current_model%has_outflow_kinetic_barrier(species_idx)) return
-    face = current_model%outflow_barrier_face(species_idx)
+    if (.not. current_model%species(species_idx)%has_outflow_kinetic_barrier) return
+    face = current_model%kinetic_face
+    barrier_potential_v = current_model%species(species_idx)%kinetic_path_potential_v
     axis = (face + 1_i32)/2_i32
     if (mod(face, 2_i32) == 0_i32) then
       contract%barrier_override_high(axis) = .true.
-      contract%barrier_potential_high_v(axis) = current_model%outflow_barrier_potential_v(species_idx)
+      contract%barrier_potential_high_v(axis) = barrier_potential_v
       contract%barrier_redistribute_high(axis) = current_model%outer_return_cell_uniform
     else
       contract%barrier_override_low(axis) = .true.
-      contract%barrier_potential_low_v(axis) = current_model%outflow_barrier_potential_v(species_idx)
+      contract%barrier_potential_low_v(axis) = barrier_potential_v
       contract%barrier_redistribute_low(axis) = current_model%outer_return_cell_uniform
     end if
   end subroutine apply_species_kinetic_barrier

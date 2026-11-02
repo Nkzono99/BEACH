@@ -90,24 +90,21 @@ contains
     tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
     call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
     failure_mesh%elem_vacuum_sign = 1_i32
-    failure_mesh%vacuum_normals = failure_mesh%normals
 
     call default_app_config(failure_cfg)
     failure_cfg%sim%rng_seed = 991_i32
     failure_cfg%sim%batch_count = 1_i32
     failure_cfg%sim%dt = 1.0d0
     failure_cfg%sim%max_step = 1_i32
-    failure_cfg%sim%field_solver = 'fmm'
+    failure_cfg%sim%solver%method = 'fmm'
     failure_cfg%sim%field_bc_mode = 'periodic2'
-    failure_cfg%sim%field_periodic_far_correction = 'none'
+    failure_cfg%sim%periodic%far_correction = 'none'
     failure_cfg%sim%use_box = .true.
     failure_cfg%sim%box_min = [0.0d0, 0.0d0, -1.0d0]
     failure_cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
     failure_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     failure_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call normalize_legacy_physics_config( &
-      failure_cfg%sim, failure_cfg%field, failure_cfg%periodic2, failure_cfg%panel &
-      )
+    call normalize_legacy_physics_config(failure_cfg%sim, failure_cfg%periodic2)
 
     failure_cfg%n_particle_species = 1_i32
     failure_cfg%particle_species(1) = species_from_defaults()
@@ -159,7 +156,6 @@ contains
     tri_v2(:, 1) = [0.5d0, 1.0d0, 0.5d0]
     call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
     failure_mesh%elem_vacuum_sign = 1_i32
-    failure_mesh%vacuum_normals = failure_mesh%normals
 
     call default_app_config(failure_cfg)
     failure_cfg%sim%rng_seed = 992_i32
@@ -167,17 +163,15 @@ contains
     failure_cfg%sim%batch_duration = 0.5d0
     failure_cfg%sim%dt = 1.0d0
     failure_cfg%sim%max_step = 1_i32
-    failure_cfg%sim%field_solver = 'fmm'
+    failure_cfg%sim%solver%method = 'fmm'
     failure_cfg%sim%field_bc_mode = 'periodic2'
-    failure_cfg%sim%field_periodic_far_correction = 'none'
+    failure_cfg%sim%periodic%far_correction = 'none'
     failure_cfg%sim%use_box = .true.
     failure_cfg%sim%box_min = [0.0d0, 0.0d0, 0.0d0]
     failure_cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
     failure_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     failure_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call normalize_legacy_physics_config( &
-      failure_cfg%sim, failure_cfg%field, failure_cfg%periodic2, failure_cfg%panel &
-      )
+    call normalize_legacy_physics_config(failure_cfg%sim, failure_cfg%periodic2)
 
     failure_cfg%n_particle_species = 2_i32
     failure_cfg%particle_species(1) = species_from_defaults()
@@ -237,7 +231,6 @@ contains
     tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
     failure_mesh%elem_vacuum_sign = 1_i32
-    failure_mesh%vacuum_normals = failure_mesh%normals
     call default_app_config(failure_cfg)
     failure_cfg%sim%rng_seed = 994_i32
     failure_cfg%sim%batch_count = 1_i32
@@ -287,7 +280,6 @@ contains
     tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
     failure_mesh%elem_vacuum_sign = 1_i32
-    failure_mesh%vacuum_normals = failure_mesh%normals
     call default_app_config(failure_cfg)
     failure_cfg%sim%rng_seed = 995_i32
     failure_cfg%sim%batch_count = 1_i32
@@ -333,7 +325,6 @@ contains
     tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(overflow_mesh, tri_v0, tri_v1, tri_v2)
     overflow_mesh%elem_vacuum_sign = 1_i32
-    overflow_mesh%vacuum_normals = overflow_mesh%normals
     call default_app_config(overflow_cfg)
     overflow_cfg%sim%batch_count = 1_i32
     overflow_cfg%sim%dt = 1.0_dp

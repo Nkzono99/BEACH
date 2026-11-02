@@ -260,8 +260,11 @@ contains
     if (stats%matching_plane%state_valid) then
       print '(a,es12.4)', 'matching_plane_displacement_C_m2=', stats%matching_plane%displacement_c_m2
       print '(a,es12.4)', 'matching_plane_phi_V=', stats%matching_plane%phi_v
-      print '(a,6(1x,es12.4))', 'matching_plane_response=', stats%matching_plane%response
-      print '(a,4(1x,es12.4))', 'matching_plane_feedback=', stats%matching_plane%feedback
+      print '(a,6(1x,es12.4))', 'matching_plane_response=', stats%matching_plane%phi_v, &
+        stats%matching_plane%electron_inward_flux_m2_s, stats%matching_plane%ion_inward_flux_m2_s, &
+        stats%matching_plane%electron_access_potential_v, 0.0_dp, stats%matching_plane%electron_access_potential_v
+      print '(a,4(1x,es12.4))', 'matching_plane_feedback=', stats%matching_plane%photoelectron_outward_flux_m2_s, &
+        stats%matching_plane%photoelectron_mean_normal_energy_ev, stats%matching_plane%electron_outward_flux_m2_s, 0.0_dp
       print '(a,es12.4)', 'matching_plane_photoelectron_return_flux_m2_s=', &
         stats%matching_plane%photoelectron_return_flux_m2_s
       print '(a,es12.4)', 'matching_plane_photoelectron_escape_flux_m2_s=', &

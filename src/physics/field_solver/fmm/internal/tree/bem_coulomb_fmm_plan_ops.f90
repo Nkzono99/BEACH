@@ -4,7 +4,7 @@ module bem_coulomb_fmm_plan_ops
   use bem_filesystem, only: default_periodic_cache_directory
   use bem_kinds, only: dp, sp, i32
   use bem_sorting, only: sort_real_ascending
-  use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, reset_fmm_plan, &
+  use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, fmm_tree_type, reset_fmm_plan, &
                                    periodic_source_proxy_half_size, periodic_operator_source_radius_ratio, &
                                    periodic_operator_target_radius_ratio
   use bem_coulomb_fmm_basis, only: initialize_basis_tables, build_axis_powers, compute_laplace_derivatives
@@ -16,9 +16,7 @@ module bem_coulomb_fmm_plan_ops
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_periodic_zero_mode_plan, only: build_periodic_zero_mode_height_plan, periodic_zero_mode_ok
   use bem_periodic_shell_mean, only: build_periodic_shell_mean_plan
-  use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
-                                        active_tree_node_center, active_tree_node_radius, append_i32_buffer, &
-                                        nodes_well_separated
+  use bem_coulomb_fmm_tree_utils, only: octant_index, append_i32_buffer, nodes_well_separated
   implicit none
   private
 
@@ -77,7 +75,7 @@ contains
     real(dp), allocatable :: original_centroid(:, :)
     real(dp) :: shift(3), shifted_vertex(3, 3)
 
-    if (allocated(plan%alpha) .or. allocated(plan%src_pos) .or. allocated(plan%elem_order)) then
+    if (allocated(plan%alpha) .or. allocated(plan%src_pos) .or. allocated(plan%source_tree%elem_order)) then
       call core_destroy_plan_impl(plan)
     end if
     plan%options = options
@@ -249,15 +247,15 @@ contains
     if (plan%nsrc <= 0_i32) return
     max_node_guess = max(1_i32, 2_i32*plan%nsrc)
     call ensure_source_tree_capacity(plan, max_node_guess)
-    allocate (plan%elem_order(plan%nsrc))
+    allocate (plan%source_tree%elem_order(plan%nsrc))
     do i = 1_i32, plan%nsrc
-      plan%elem_order(i) = i
+      plan%source_tree%elem_order(i) = i
     end do
-    plan%nnode = 1_i32
-    plan%node_max_depth = 0_i32
+    plan%source_tree%nnode = 1_i32
+    plan%source_tree%max_depth = 0_i32
     call build_source_node(plan, 1_i32, 1_i32, plan%nsrc, 0_i32)
-    call rebuild_source_level_cache(plan)
-    call build_source_parent_index(plan)
+    call rebuild_level_cache(plan%source_tree)
+    call build_parent_index(plan%source_tree)
     call build_source_leaf_index(plan)
   end subroutine build_source_tree
 
@@ -271,15 +269,15 @@ contains
     real(dp) :: bb_min(3), bb_max(3), span(3), center(3), split_eps
 
     count = end_idx - start_idx + 1_i32
-    plan%node_start(node_idx) = start_idx
-    plan%node_count(node_idx) = count
-    plan%child_count(node_idx) = 0_i32
-    plan%child_idx(:, node_idx) = 0_i32
-    plan%child_octant(:, node_idx) = 0_i32
-    plan%node_depth(node_idx) = depth
-    plan%node_max_depth = max(plan%node_max_depth, depth)
+    plan%source_tree%node_start(node_idx) = start_idx
+    plan%source_tree%node_count(node_idx) = count
+    plan%source_tree%child_count(node_idx) = 0_i32
+    plan%source_tree%child_idx(:, node_idx) = 0_i32
+    plan%source_tree%child_octant(:, node_idx) = 0_i32
+    plan%source_tree%node_depth(node_idx) = depth
+    plan%source_tree%max_depth = max(plan%source_tree%max_depth, depth)
 
-    idx = plan%elem_order(start_idx)
+    idx = plan%source_tree%elem_order(start_idx)
     if (plan%panel_source) then
       bb_min = minval(plan%panel_geometry(idx)%vertex, dim=2)
       bb_max = maxval(plan%panel_geometry(idx)%vertex, dim=2)
@@ -288,7 +286,7 @@ contains
       bb_max = bb_min
     end if
     do p = start_idx + 1_i32, end_idx
-      idx = plan%elem_order(p)
+      idx = plan%source_tree%elem_order(p)
       if (plan%panel_source) then
         bb_min = min(bb_min, minval(plan%panel_geometry(idx)%vertex, dim=2))
         bb_max = max(bb_max, maxval(plan%panel_geometry(idx)%vertex, dim=2))
@@ -300,9 +298,10 @@ contains
 
     span = bb_max - bb_min
     center = 0.5d0*(bb_max + bb_min)
-    plan%node_center(:, node_idx) = center
-    plan%node_half_size(:, node_idx) = 0.5d0*span
-    plan%node_radius(node_idx) = sqrt(sum(plan%node_half_size(:, node_idx)*plan%node_half_size(:, node_idx)))
+    plan%source_tree%node_center(:, node_idx) = center
+    plan%source_tree%node_half_size(:, node_idx) = 0.5d0*span
+    plan%source_tree%node_radius(node_idx) = sqrt(sum(plan%source_tree%node_half_size(:, node_idx)* &
+                                                      plan%source_tree%node_half_size(:, node_idx)))
     if (count <= plan%options%leaf_max) return
 
     split_eps = 1.0d-12*max(1.0d0, maxval(abs(center)))
@@ -310,7 +309,7 @@ contains
 
     counts = 0_i32
     do p = start_idx, end_idx
-      idx = plan%elem_order(p)
+      idx = plan%source_tree%elem_order(p)
       oct = octant_index(plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), center)
       counts(oct) = counts(oct) + 1_i32
     end do
@@ -323,12 +322,12 @@ contains
     end do
     cursor = offsets
     do p = start_idx, end_idx
-      idx = plan%elem_order(p)
+      idx = plan%source_tree%elem_order(p)
       oct = octant_index(plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), center)
       work(cursor(oct)) = idx
       cursor(oct) = cursor(oct) + 1_i32
     end do
-    plan%elem_order(start_idx:end_idx) = work
+    plan%source_tree%elem_order(start_idx:end_idx) = work
     deallocate (work)
 
     child_k = 0_i32
@@ -336,77 +335,86 @@ contains
     do oct = 1_i32, 8_i32
       if (counts(oct) <= 0_i32) cycle
       child_end = child_start + counts(oct) - 1_i32
-      plan%nnode = plan%nnode + 1_i32
-      if (plan%nnode > plan%max_node) error stop 'FMM source tree capacity exceeded.'
-      child_node = plan%nnode
+      plan%source_tree%nnode = plan%source_tree%nnode + 1_i32
+      if (plan%source_tree%nnode > plan%source_tree%max_node) error stop 'FMM source tree capacity exceeded.'
+      child_node = plan%source_tree%nnode
       child_k = child_k + 1_i32
-      plan%child_idx(child_k, node_idx) = child_node
-      plan%child_octant(child_k, node_idx) = oct
+      plan%source_tree%child_idx(child_k, node_idx) = child_node
+      plan%source_tree%child_octant(child_k, node_idx) = oct
       call build_source_node(plan, child_node, child_start, child_end, depth + 1_i32)
       child_start = child_end + 1_i32
     end do
-    plan%child_count(node_idx) = child_k
+    plan%source_tree%child_count(node_idx) = child_k
   end subroutine build_source_node
 
   subroutine ensure_source_tree_capacity(plan, max_node_needed)
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32), intent(in) :: max_node_needed
 
-    plan%max_node = max_node_needed
-    allocate (plan%node_start(plan%max_node), plan%node_count(plan%max_node))
-    allocate (plan%child_count(plan%max_node), plan%child_idx(8, plan%max_node), plan%child_octant(8, plan%max_node))
-    allocate (plan%node_depth(plan%max_node))
-    allocate (plan%node_center(3, plan%max_node), plan%node_half_size(3, plan%max_node), plan%node_radius(plan%max_node))
-    plan%node_start = 0_i32
-    plan%node_count = 0_i32
-    plan%child_count = 0_i32
-    plan%child_idx = 0_i32
-    plan%child_octant = 0_i32
-    plan%node_depth = 0_i32
-    plan%node_center = 0.0d0
-    plan%node_half_size = 0.0d0
-    plan%node_radius = 0.0d0
+    call allocate_tree_nodes(plan%source_tree, max_node_needed)
+    allocate (plan%source_tree%node_start(max_node_needed), plan%source_tree%node_count(max_node_needed))
+    plan%source_tree%node_start = 0_i32
+    plan%source_tree%node_count = 0_i32
   end subroutine ensure_source_tree_capacity
 
-  subroutine rebuild_source_level_cache(plan)
-    type(fmm_plan_type), intent(inout) :: plan
+  !> Allocate the per-node arrays shared by the source and target trees for max_node nodes, zeroed.
+  subroutine allocate_tree_nodes(tree, max_node)
+    type(fmm_tree_type), intent(inout) :: tree
+    integer(i32), intent(in) :: max_node
+
+    tree%max_node = max_node
+    allocate (tree%child_count(max_node), tree%child_idx(8, max_node), tree%child_octant(8, max_node))
+    allocate (tree%node_depth(max_node))
+    allocate (tree%node_center(3, max_node), tree%node_half_size(3, max_node), tree%node_radius(max_node))
+    tree%child_count = 0_i32
+    tree%child_idx = 0_i32
+    tree%child_octant = 0_i32
+    tree%node_depth = 0_i32
+    tree%node_center = 0.0d0
+    tree%node_half_size = 0.0d0
+    tree%node_radius = 0.0d0
+  end subroutine allocate_tree_nodes
+
+  !> 深さ順のノード表 level_start/level_nodes を作る。各深さの中ではノード番号の昇順に並ぶ。
+  subroutine rebuild_level_cache(tree)
+    type(fmm_tree_type), intent(inout) :: tree
     integer(i32) :: node_idx, depth
     integer(i32), allocatable :: depth_count(:), cursor(:)
 
-    if (plan%nnode <= 0_i32) return
-    allocate (depth_count(plan%node_max_depth + 1_i32), cursor(plan%node_max_depth + 1_i32))
+    if (tree%nnode <= 0_i32) return
+    allocate (depth_count(tree%max_depth + 1_i32), cursor(tree%max_depth + 1_i32))
     depth_count = 0_i32
-    do node_idx = 1_i32, plan%nnode
-      depth_count(plan%node_depth(node_idx) + 1_i32) = depth_count(plan%node_depth(node_idx) + 1_i32) + 1_i32
+    do node_idx = 1_i32, tree%nnode
+      depth_count(tree%node_depth(node_idx) + 1_i32) = depth_count(tree%node_depth(node_idx) + 1_i32) + 1_i32
     end do
-    allocate (plan%node_level_start(plan%node_max_depth + 2_i32), plan%node_level_nodes(plan%nnode))
-    plan%node_level_start(1) = 1_i32
-    do depth = 0_i32, plan%node_max_depth
-      plan%node_level_start(depth + 2_i32) = plan%node_level_start(depth + 1_i32) + depth_count(depth + 1_i32)
+    allocate (tree%level_start(tree%max_depth + 2_i32), tree%level_nodes(tree%nnode))
+    tree%level_start(1) = 1_i32
+    do depth = 0_i32, tree%max_depth
+      tree%level_start(depth + 2_i32) = tree%level_start(depth + 1_i32) + depth_count(depth + 1_i32)
     end do
-    cursor = plan%node_level_start(1:plan%node_max_depth + 1_i32)
-    do node_idx = 1_i32, plan%nnode
-      depth = plan%node_depth(node_idx)
-      plan%node_level_nodes(cursor(depth + 1_i32)) = node_idx
+    cursor = tree%level_start(1:tree%max_depth + 1_i32)
+    do node_idx = 1_i32, tree%nnode
+      depth = tree%node_depth(node_idx)
+      tree%level_nodes(cursor(depth + 1_i32)) = node_idx
       cursor(depth + 1_i32) = cursor(depth + 1_i32) + 1_i32
     end do
     deallocate (depth_count, cursor)
-  end subroutine rebuild_source_level_cache
+  end subroutine rebuild_level_cache
 
-  subroutine build_source_parent_index(plan)
-    type(fmm_plan_type), intent(inout) :: plan
+  subroutine build_parent_index(tree)
+    type(fmm_tree_type), intent(inout) :: tree
     integer(i32) :: parent_node, child_k, child_node
 
-    if (allocated(plan%source_parent_of)) deallocate (plan%source_parent_of)
-    allocate (plan%source_parent_of(max(1_i32, plan%nnode)))
-    plan%source_parent_of = 0_i32
-    do parent_node = 1_i32, plan%nnode
-      do child_k = 1_i32, plan%child_count(parent_node)
-        child_node = plan%child_idx(child_k, parent_node)
-        plan%source_parent_of(child_node) = parent_node
+    if (allocated(tree%parent)) deallocate (tree%parent)
+    allocate (tree%parent(max(1_i32, tree%nnode)))
+    tree%parent = 0_i32
+    do parent_node = 1_i32, tree%nnode
+      do child_k = 1_i32, tree%child_count(parent_node)
+        child_node = tree%child_idx(child_k, parent_node)
+        tree%parent(child_node) = parent_node
       end do
     end do
-  end subroutine build_source_parent_index
+  end subroutine build_parent_index
 
   subroutine build_source_leaf_index(plan)
     type(fmm_plan_type), intent(inout) :: plan
@@ -414,15 +422,15 @@ contains
 
     if (allocated(plan%source_leaf_nodes)) deallocate (plan%source_leaf_nodes)
     plan%nsource_leaf = 0_i32
-    do node_idx = 1_i32, plan%nnode
-      if (plan%child_count(node_idx) <= 0_i32) plan%nsource_leaf = plan%nsource_leaf + 1_i32
+    do node_idx = 1_i32, plan%source_tree%nnode
+      if (plan%source_tree%child_count(node_idx) <= 0_i32) plan%nsource_leaf = plan%nsource_leaf + 1_i32
     end do
     if (plan%nsource_leaf <= 0_i32) return
 
     allocate (plan%source_leaf_nodes(plan%nsource_leaf))
     leaf_idx = 0_i32
-    do node_idx = 1_i32, plan%nnode
-      if (plan%child_count(node_idx) > 0_i32) cycle
+    do node_idx = 1_i32, plan%source_tree%nnode
+      if (plan%source_tree%child_count(node_idx) > 0_i32) cycle
       leaf_idx = leaf_idx + 1_i32
       plan%source_leaf_nodes(leaf_idx) = node_idx
     end do
@@ -458,32 +466,31 @@ contains
     end if
     plan%options%periodic_operator_anchor_cells = nanchor
     plan%options%periodic_operator_source_cells = ncell
-    plan%periodic_operator_anchor_cells = nanchor
-    plan%periodic_operator_source_cells = ncell
     half = 0.5_dp*span/real(ncell, dp)
-    plan%periodic_source_half = half
-    plan%periodic_anchor_half = 0.5_dp*span/real(nanchor, dp)
+    plan%periodic_operator%source_half = half
+    plan%periodic_operator%anchor_half = 0.5_dp*span/real(nanchor, dp)
     proxy_half = periodic_source_proxy_half_size(half)
-    plan%periodic_root_source_count = product(ncell)
-    allocate (plan%periodic_source_center(3, plan%periodic_root_source_count), plan%periodic_source_cell(plan%nsrc))
-    allocate (plan%periodic_source_p2m_basis(plan%ncoef, plan%nsrc))
+    plan%periodic_operator%root_source_count = product(ncell)
+    allocate (plan%periodic_operator%source_center(3, plan%periodic_operator%root_source_count), &
+              plan%periodic_operator%source_cell(plan%nsrc))
+    allocate (plan%periodic_operator%source_p2m_basis(plan%ncoef, plan%nsrc))
     do iz = 0_i32, ncell(3) - 1_i32
       do iy = 0_i32, ncell(2) - 1_i32
         do ix = 0_i32, ncell(1) - 1_i32
           cell = 1_i32 + ix + ncell(1)*(iy + ncell(2)*iz)
-          plan%periodic_source_center(:, cell) = plan%options%target_box_min + &
-                                                 (real([ix, iy, iz], dp) + 0.5_dp)*2.0_dp*half
+          plan%periodic_operator%source_center(:, cell) = plan%options%target_box_min + &
+                                                          (real([ix, iy, iz], dp) + 0.5_dp)*2.0_dp*half
         end do
       end do
     end do
-    plan%periodic_operator_anchor_count = product(nanchor)
-    allocate (plan%periodic_anchor_center(3, plan%periodic_operator_anchor_count))
+    plan%periodic_operator%anchor_count = product(nanchor)
+    allocate (plan%periodic_operator%anchor_center(3, plan%periodic_operator%anchor_count))
     do iz = 0_i32, nanchor(3) - 1_i32
       do iy = 0_i32, nanchor(2) - 1_i32
         do ix = 0_i32, nanchor(1) - 1_i32
           cell = 1_i32 + ix + nanchor(1)*(iy + nanchor(2)*iz)
-          plan%periodic_anchor_center(:, cell) = plan%options%target_box_min + &
-                                                 (real([ix, iy, iz], dp) + 0.5_dp)*2.0_dp*plan%periodic_anchor_half
+          plan%periodic_operator%anchor_center(:, cell) = &
+            plan%options%target_box_min + (real([ix, iy, iz], dp) + 0.5_dp)*2.0_dp*plan%periodic_operator%anchor_half
         end do
       end do
     end do
@@ -493,8 +500,8 @@ contains
       index3 = min(ncell - 1_i32, max(0_i32, floor((plan%src_pos(:, source) - &
                                                     plan%options%target_box_min)/span*real(ncell, dp), kind=i32)))
       cell = 1_i32 + index3(1) + ncell(1)*(index3(2) + ncell(2)*index3(3))
-      plan%periodic_source_cell(source) = cell
-      center = plan%periodic_source_center(:, cell)
+      plan%periodic_operator%source_cell(source) = cell
+      center = plan%periodic_operator%source_center(:, cell)
       if (plan%panel_source) then
         if (any(abs(plan%panel_geometry(source)%vertex - spread(center, 2, 3)) > &
                 spread(proxy_half + tolerance, 2, 3))) then
@@ -502,7 +509,7 @@ contains
             'Refine the mesh or decrease periodic_operator_source_cells; keep panels inside the source box.'
         end if
         do alpha_idx = 1_i32, plan%ncoef
-          plan%periodic_source_p2m_basis(alpha_idx, source) = &
+          plan%periodic_operator%source_p2m_basis(alpha_idx, source) = &
             panel_monomial_average(plan%panel_geometry(source), center, plan%alpha(:, alpha_idx))/ &
             plan%alpha_factorial(alpha_idx)
         end do
@@ -513,7 +520,7 @@ contains
         end if
         call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
         do alpha_idx = 1_i32, plan%ncoef
-          plan%periodic_source_p2m_basis(alpha_idx, source) = &
+          plan%periodic_operator%source_p2m_basis(alpha_idx, source) = &
             xpow(plan%alpha(1, alpha_idx))*ypow(plan%alpha(2, alpha_idx))*zpow(plan%alpha(3, alpha_idx))/ &
             plan%alpha_factorial(alpha_idx)
         end do
@@ -552,17 +559,17 @@ contains
     !$omp shared(plan) private(leaf_idx, node_idx, p, idx, p_end, alpha_idx, d, xpow, ypow, zpow)
     do leaf_idx = 1_i32, plan%nsource_leaf
       node_idx = plan%source_leaf_nodes(leaf_idx)
-      p_end = plan%node_start(node_idx) + plan%node_count(node_idx) - 1_i32
-      do p = plan%node_start(node_idx), p_end
-        idx = plan%elem_order(p)
+      p_end = plan%source_tree%node_start(node_idx) + plan%source_tree%node_count(node_idx) - 1_i32
+      do p = plan%source_tree%node_start(node_idx), p_end
+        idx = plan%source_tree%elem_order(p)
         if (plan%panel_source) then
           do alpha_idx = 1_i32, plan%ncoef
             plan%source_p2m_basis(alpha_idx, p) = panel_monomial_average( &
-                                                 plan%panel_geometry(idx), plan%node_center(:, node_idx), plan%alpha(:, alpha_idx) &
-                                                  )/plan%alpha_factorial(alpha_idx)
+                                                  plan%panel_geometry(idx), plan%source_tree%node_center(:, node_idx), &
+                                                  plan%alpha(:, alpha_idx))/plan%alpha_factorial(alpha_idx)
           end do
         else
-          d = plan%src_pos(:, idx) - plan%node_center(:, node_idx)
+          d = plan%src_pos(:, idx) - plan%source_tree%node_center(:, node_idx)
           call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
           do alpha_idx = 1_i32, plan%ncoef
             plan%source_p2m_basis(alpha_idx, p) = xpow(plan%alpha(1, alpha_idx))*ypow(plan%alpha(2, alpha_idx)) &
@@ -628,7 +635,7 @@ contains
   subroutine build_target_topology(plan)
     type(fmm_plan_type), intent(inout) :: plan
 
-    if (plan%nnode <= 0_i32) then
+    if (plan%source_tree%nnode <= 0_i32) then
       call clear_target_tree(plan)
       return
     end if
@@ -643,21 +650,10 @@ contains
   subroutine clear_target_tree(plan)
     type(fmm_plan_type), intent(inout) :: plan
 
-    if (allocated(plan%target_child_count)) deallocate (plan%target_child_count)
-    if (allocated(plan%target_child_idx)) deallocate (plan%target_child_idx)
-    if (allocated(plan%target_child_octant)) deallocate (plan%target_child_octant)
-    if (allocated(plan%target_node_depth)) deallocate (plan%target_node_depth)
-    if (allocated(plan%target_level_start)) deallocate (plan%target_level_start)
-    if (allocated(plan%target_level_nodes)) deallocate (plan%target_level_nodes)
-    if (allocated(plan%target_node_center)) deallocate (plan%target_node_center)
-    if (allocated(plan%target_node_half_size)) deallocate (plan%target_node_half_size)
-    if (allocated(plan%target_node_radius)) deallocate (plan%target_node_radius)
+    plan%target_tree = fmm_tree_type()
     if (allocated(plan%leaf_nodes)) deallocate (plan%leaf_nodes)
     if (allocated(plan%leaf_slot_of_node)) deallocate (plan%leaf_slot_of_node)
     plan%target_tree_ready = .false.
-    plan%target_nnode = 0_i32
-    plan%target_max_node = 0_i32
-    plan%target_node_max_depth = 0_i32
     plan%nleaf = 0_i32
   end subroutine clear_target_tree
 
@@ -666,15 +662,15 @@ contains
     integer(i32) :: node_idx, leaf_idx
 
     call clear_target_tree(plan)
-    do node_idx = 1_i32, plan%nnode
-      if (plan%child_count(node_idx) <= 0_i32) plan%nleaf = plan%nleaf + 1_i32
+    do node_idx = 1_i32, plan%source_tree%nnode
+      if (plan%source_tree%child_count(node_idx) <= 0_i32) plan%nleaf = plan%nleaf + 1_i32
     end do
     if (plan%nleaf <= 0_i32) return
-    allocate (plan%leaf_nodes(plan%nleaf), plan%leaf_slot_of_node(plan%max_node))
+    allocate (plan%leaf_nodes(plan%nleaf), plan%leaf_slot_of_node(plan%source_tree%max_node))
     plan%leaf_slot_of_node = 0_i32
     leaf_idx = 0_i32
-    do node_idx = 1_i32, plan%nnode
-      if (plan%child_count(node_idx) > 0_i32) cycle
+    do node_idx = 1_i32, plan%source_tree%nnode
+      if (plan%source_tree%child_count(node_idx) > 0_i32) cycle
       leaf_idx = leaf_idx + 1_i32
       plan%leaf_nodes(leaf_idx) = node_idx
       plan%leaf_slot_of_node(node_idx) = leaf_idx
@@ -688,13 +684,13 @@ contains
     integer(i32) :: leaf_idx, node_idx, target_cap, level_nodes, depth
     real(dp) :: root_min(3), root_max(3), src_center(3), src_half(3)
 
-    if (plan%nnode <= 0_i32) then
+    if (plan%source_tree%nnode <= 0_i32) then
       call clear_target_tree(plan)
       return
     end if
 
-    src_center = plan%node_center(:, 1_i32)
-    src_half = plan%node_half_size(:, 1_i32)
+    src_center = plan%source_tree%node_center(:, 1_i32)
+    src_half = plan%source_tree%node_half_size(:, 1_i32)
     root_min = plan%options%target_box_min
     root_max = plan%options%target_box_max
     if (any(root_max <= root_min)) then
@@ -716,45 +712,42 @@ contains
 
     call clear_target_tree(plan)
     ! depth_max bounds the complete target octree independently of the source tree.
-    plan%target_max_node = target_cap
-    allocate (plan%target_child_count(plan%target_max_node), plan%target_child_idx(8, plan%target_max_node))
-    allocate (plan%target_child_octant(8, plan%target_max_node))
-    allocate (plan%target_node_depth(plan%target_max_node))
-    allocate (plan%target_node_center(3, plan%target_max_node), plan%target_node_half_size(3, plan%target_max_node))
-    allocate (plan%target_node_radius(plan%target_max_node))
-    plan%target_child_count = 0_i32
-    plan%target_child_idx = 0_i32
-    plan%target_child_octant = 0_i32
-    plan%target_node_depth = 0_i32
-    plan%target_node_center = 0.0d0
-    plan%target_node_half_size = 0.0d0
-    plan%target_node_radius = 0.0d0
-
-    plan%target_nnode = 1_i32
-    plan%target_node_depth(1_i32) = 0_i32
-    plan%target_node_center(:, 1_i32) = 0.5d0*(root_min + root_max)
-    plan%target_node_half_size(:, 1_i32) = 0.5d0*(root_max - root_min)
-    plan%target_node_radius(1_i32) = sqrt(sum(plan%target_node_half_size(:, 1_i32)*plan%target_node_half_size(:, 1_i32)))
+    call init_box_target_root(plan%target_tree, target_cap, root_min, root_max)
     call build_target_box_node(plan, 1_i32, 0_i32, depth_min, depth_max, src_center, src_half, use_periodic_wrap)
 
-    do node_idx = 1_i32, plan%target_nnode
-      if (plan%target_child_count(node_idx) <= 0_i32) plan%nleaf = plan%nleaf + 1_i32
+    do node_idx = 1_i32, plan%target_tree%nnode
+      if (plan%target_tree%child_count(node_idx) <= 0_i32) plan%nleaf = plan%nleaf + 1_i32
     end do
     if (plan%nleaf <= 0_i32) return
 
-    allocate (plan%leaf_nodes(plan%nleaf), plan%leaf_slot_of_node(plan%target_max_node))
+    allocate (plan%leaf_nodes(plan%nleaf), plan%leaf_slot_of_node(plan%target_tree%max_node))
     plan%leaf_slot_of_node = 0_i32
     leaf_idx = 0_i32
-    do node_idx = 1_i32, plan%target_nnode
-      if (plan%target_child_count(node_idx) > 0_i32) cycle
+    do node_idx = 1_i32, plan%target_tree%nnode
+      if (plan%target_tree%child_count(node_idx) > 0_i32) cycle
       leaf_idx = leaf_idx + 1_i32
       plan%leaf_nodes(leaf_idx) = node_idx
       plan%leaf_slot_of_node(node_idx) = leaf_idx
     end do
 
-    call rebuild_target_level_cache(plan)
+    call rebuild_level_cache(plan%target_tree)
+    call build_parent_index(plan%target_tree)
     plan%target_tree_ready = .true.
   end subroutine build_box_target_tree
+
+  !> Allocate a box target tree of capacity max_node with only its root, which covers [root_min, root_max].
+  subroutine init_box_target_root(tree, max_node, root_min, root_max)
+    type(fmm_tree_type), intent(inout) :: tree
+    integer(i32), intent(in) :: max_node
+    real(dp), intent(in) :: root_min(3), root_max(3)
+
+    call allocate_tree_nodes(tree, max_node)
+    tree%nnode = 1_i32
+    tree%node_depth(1_i32) = 0_i32
+    tree%node_center(:, 1_i32) = 0.5d0*(root_min + root_max)
+    tree%node_half_size(:, 1_i32) = 0.5d0*(root_max - root_min)
+    tree%node_radius(1_i32) = sqrt(sum(tree%node_half_size(:, 1_i32)*tree%node_half_size(:, 1_i32)))
+  end subroutine init_box_target_root
 
   recursive subroutine build_target_box_node(plan, node_idx, depth, depth_min, depth_max, src_center, src_half, use_periodic_wrap)
     type(fmm_plan_type), intent(inout) :: plan
@@ -766,31 +759,31 @@ contains
 
     if (.not. target_should_split_box( &
         plan, node_idx, depth, depth_min, depth_max, src_center, src_half, use_periodic_wrap)) return
-    child_half = 0.5d0*plan%target_node_half_size(:, node_idx)
+    child_half = 0.5d0*plan%target_tree%node_half_size(:, node_idx)
     if (maxval(child_half) <= tiny(1.0d0)) return
 
     child_k = 0_i32
     do oct = 1_i32, 8_i32
-      plan%target_nnode = plan%target_nnode + 1_i32
-      if (plan%target_nnode > plan%target_max_node) error stop 'FMM target tree capacity exceeded.'
-      child_node = plan%target_nnode
+      plan%target_tree%nnode = plan%target_tree%nnode + 1_i32
+      if (plan%target_tree%nnode > plan%target_tree%max_node) error stop 'FMM target tree capacity exceeded.'
+      child_node = plan%target_tree%nnode
       child_k = child_k + 1_i32
-      plan%target_child_idx(child_k, node_idx) = child_node
-      plan%target_child_octant(child_k, node_idx) = oct
-      plan%target_node_depth(child_node) = depth + 1_i32
-      plan%target_node_max_depth = max(plan%target_node_max_depth, depth + 1_i32)
+      plan%target_tree%child_idx(child_k, node_idx) = child_node
+      plan%target_tree%child_octant(child_k, node_idx) = oct
+      plan%target_tree%node_depth(child_node) = depth + 1_i32
+      plan%target_tree%max_depth = max(plan%target_tree%max_depth, depth + 1_i32)
 
       offset(1) = merge(-1.0d0, 1.0d0, iand(oct - 1_i32, 1_i32) == 0_i32)
       offset(2) = merge(-1.0d0, 1.0d0, iand(oct - 1_i32, 2_i32) == 0_i32)
       offset(3) = merge(-1.0d0, 1.0d0, iand(oct - 1_i32, 4_i32) == 0_i32)
-      plan%target_node_half_size(:, child_node) = child_half
-      plan%target_node_center(:, child_node) = plan%target_node_center(:, node_idx) + offset*child_half
-      plan%target_node_radius(child_node) = sqrt(sum(child_half*child_half))
+      plan%target_tree%node_half_size(:, child_node) = child_half
+      plan%target_tree%node_center(:, child_node) = plan%target_tree%node_center(:, node_idx) + offset*child_half
+      plan%target_tree%node_radius(child_node) = sqrt(sum(child_half*child_half))
       call build_target_box_node( &
         plan, child_node, depth + 1_i32, depth_min, depth_max, src_center, src_half, use_periodic_wrap &
         )
     end do
-    plan%target_child_count(node_idx) = child_k
+    plan%target_tree%child_count(node_idx) = child_k
   end subroutine build_target_box_node
 
   logical function target_should_split_box(plan, node_idx, depth, depth_min, depth_max, src_center, src_half, use_periodic_wrap)
@@ -809,48 +802,18 @@ contains
       return
     end if
 
-    radius = plan%target_node_radius(node_idx)
+    radius = plan%target_tree%node_radius(node_idx)
     if (use_periodic_wrap) then
-      dsrc = distance_to_source_bbox_periodic(plan, plan%target_node_center(:, node_idx), src_center, src_half)
+      dsrc = distance_to_source_bbox_periodic(plan, plan%target_tree%node_center(:, node_idx), src_center, src_half)
     else
-      dsrc = distance_to_source_bbox(plan%target_node_center(:, node_idx), src_center, src_half)
+      dsrc = distance_to_source_bbox(plan%target_tree%node_center(:, node_idx), src_center, src_half)
     end if
     target_should_split_box = (radius > 0.35d0*max(dsrc, 1.0d-12))
   end function target_should_split_box
 
-  subroutine rebuild_target_level_cache(plan)
-    type(fmm_plan_type), intent(inout) :: plan
-    integer(i32) :: node_idx, depth
-    integer(i32), allocatable :: depth_count(:), cursor(:)
-
-    if (plan%target_nnode <= 0_i32) return
-    allocate (depth_count(plan%target_node_max_depth + 1_i32), cursor(plan%target_node_max_depth + 1_i32))
-    depth_count = 0_i32
-    do node_idx = 1_i32, plan%target_nnode
-      depth_count(plan%target_node_depth(node_idx) + 1_i32) = depth_count(plan%target_node_depth(node_idx) + 1_i32) + 1_i32
-    end do
-    allocate (plan%target_level_start(plan%target_node_max_depth + 2_i32), plan%target_level_nodes(plan%target_nnode))
-    plan%target_level_start(1) = 1_i32
-    do depth = 0_i32, plan%target_node_max_depth
-      plan%target_level_start(depth + 2_i32) = plan%target_level_start(depth + 1_i32) + depth_count(depth + 1_i32)
-    end do
-    cursor = plan%target_level_start(1:plan%target_node_max_depth + 1_i32)
-    do node_idx = 1_i32, plan%target_nnode
-      depth = plan%target_node_depth(node_idx)
-      plan%target_level_nodes(cursor(depth + 1_i32)) = node_idx
-      cursor(depth + 1_i32) = cursor(depth + 1_i32) + 1_i32
-    end do
-    deallocate (depth_count, cursor)
-  end subroutine rebuild_target_level_cache
-
   subroutine build_interactions(plan)
     type(fmm_plan_type), intent(inout) :: plan
-    integer(i32) :: leaf_idx, i, near_n, near_used, near_cap
-    integer(i32) :: n_target_nodes, child_k, parent_node, node_idx
-    integer(i32) :: pair_cap, pair_used, nshift
-    integer(i32), allocatable :: near_work(:), near_buf(:)
-    integer(i32), allocatable :: m2l_target_buf(:), m2l_source_buf(:), m2l_shift_idx1_buf(:), m2l_shift_idx2_buf(:)
-    logical :: use_target_tree
+    integer(i32) :: nshift
 
     nshift = 1_i32
     if (plan%options%use_periodic2) nshift = 2_i32*max(0_i32, plan%options%periodic_image_layers) + 1_i32
@@ -858,17 +821,33 @@ contains
     call build_periodic_shift_values(plan, plan%shift_axis1, plan%shift_axis2, nshift)
 
     if (plan%nleaf <= 0_i32) return
+    if (plan%target_tree_ready) then
+      call build_interaction_lists(plan, plan%target_tree)
+    else
+      call build_interaction_lists(plan, plan%source_tree)
+    end if
+  end subroutine build_interactions
 
-    use_target_tree = plan%target_tree_ready
-    n_target_nodes = active_tree_nnode(plan, use_target_tree)
+  !> Near lists, M2L pairs and near-field tables of every target leaf.
+  !! @param[in] target_tree 評価用の木（plan%target_tree か plan%source_tree）。読むだけで、plan の他の成分を書く。
+  subroutine build_interaction_lists(plan, target_tree)
+    type(fmm_plan_type), intent(inout) :: plan
+    type(fmm_tree_type), intent(in) :: target_tree
+    integer(i32) :: leaf_idx, i, near_n, near_used, near_cap
+    integer(i32) :: n_target_nodes
+    integer(i32) :: pair_cap, pair_used
+    integer(i32), allocatable :: near_work(:), near_buf(:)
+    integer(i32), allocatable :: m2l_target_buf(:), m2l_source_buf(:), m2l_shift_idx1_buf(:), m2l_shift_idx2_buf(:)
+
+    n_target_nodes = target_tree%nnode
     allocate (plan%near_start(plan%nleaf + 1_i32))
-    allocate (near_work(plan%nnode))
+    allocate (near_work(plan%source_tree%nnode))
     near_cap = max(64_i32, plan%nleaf*16_i32)
     allocate (near_buf(near_cap))
     near_used = 0_i32
     do leaf_idx = 1_i32, plan%nleaf
       near_n = 0_i32
-      call gather_leaf_near_sources(plan, plan%leaf_nodes(leaf_idx), 1_i32, near_work, near_n)
+      call gather_leaf_near_sources(plan, target_tree, plan%leaf_nodes(leaf_idx), 1_i32, near_work, near_n)
       plan%near_start(leaf_idx) = near_used + 1_i32
       do i = 1_i32, near_n
         call append_i32_buffer(near_buf, near_used, near_cap, near_work(i))
@@ -879,15 +858,6 @@ contains
     plan%near_nodes = 0_i32
     if (near_used > 0_i32) plan%near_nodes(1:near_used) = near_buf(1:near_used)
 
-    allocate (plan%parent_of(n_target_nodes))
-    plan%parent_of = 0_i32
-    do parent_node = 1_i32, n_target_nodes
-      do child_k = 1_i32, active_tree_child_count(plan, use_target_tree, parent_node)
-        node_idx = active_tree_child_idx(plan, use_target_tree, child_k, parent_node)
-        plan%parent_of(node_idx) = parent_node
-      end do
-    end do
-
     pair_cap = max(64_i32, plan%nleaf*32_i32)
     allocate (m2l_target_buf(pair_cap), m2l_source_buf(pair_cap), m2l_shift_idx1_buf(pair_cap), m2l_shift_idx2_buf(pair_cap))
     m2l_target_buf = 0_i32
@@ -895,15 +865,14 @@ contains
     m2l_shift_idx1_buf = 0_i32
     m2l_shift_idx2_buf = 0_i32
     pair_used = 0_i32
-    plan%m2l_visit_count = 0_i32
     call accumulate_cached_pairs( &
-      plan, 1_i32, 1_i32, use_target_tree, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, &
+      plan, target_tree, 1_i32, 1_i32, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, &
       pair_used, pair_cap &
       )
     call build_near_source_index( &
-      plan, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, pair_used, pair_cap &
+      plan, target_tree, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, pair_used, pair_cap &
       )
-    if (plan%panel_source) call build_near_panel_tables(plan)
+    if (plan%panel_source) call build_near_panel_tables(plan, target_tree)
     allocate ( &
       plan%m2l_target_nodes(max(1_i32, pair_used)), plan%m2l_source_nodes(max(1_i32, pair_used)), &
       plan%m2l_shift_idx1(max(1_i32, pair_used)), plan%m2l_shift_idx2(max(1_i32, pair_used)) &
@@ -919,16 +888,16 @@ contains
       plan%m2l_shift_idx2(1:pair_used) = m2l_shift_idx2_buf(1:pair_used)
     end if
     plan%m2l_pair_count = pair_used
-    plan%m2l_build_count = plan%m2l_build_count + 1_i32
     call build_target_pair_index(plan, n_target_nodes)
 
     deallocate (near_work, near_buf, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf)
-  end subroutine build_interactions
+  end subroutine build_interaction_lists
 
   subroutine build_near_source_index( &
-    plan, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, pair_used, pair_cap &
+    plan, target_tree, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, pair_used, pair_cap &
     )
     type(fmm_plan_type), intent(inout) :: plan
+    type(fmm_tree_type), intent(in) :: target_tree
     integer(i32), allocatable, intent(inout) :: m2l_target_buf(:), m2l_source_buf(:), &
                                                 m2l_shift_idx1_buf(:), m2l_shift_idx2_buf(:)
     integer(i32), intent(inout) :: pair_used, pair_cap
@@ -956,13 +925,13 @@ contains
             shift1 = plan%shift_axis1(shift_idx1)
             do shift_idx2 = 1_i32, nshift
               shift2 = plan%shift_axis2(shift_idx2)
-              if (.not. nodes_well_separated_shifted(plan, target_leaf, near_node, shift1, shift2)) then
-                near_source_used = near_source_used + plan%node_count(near_node)
+              if (.not. nodes_well_separated_shifted(plan, target_tree, target_leaf, near_node, shift1, shift2)) then
+                near_source_used = near_source_used + plan%source_tree%node_count(near_node)
               end if
             end do
           end do
         else
-          near_source_used = near_source_used + plan%node_count(near_node)
+          near_source_used = near_source_used + plan%source_tree%node_count(near_node)
         end if
       end do
     end do
@@ -983,31 +952,31 @@ contains
       target_leaf = plan%leaf_nodes(leaf_idx)
       do near_pos = plan%near_start(leaf_idx), plan%near_start(leaf_idx + 1_i32) - 1_i32
         near_node = plan%near_nodes(near_pos)
-        p_end = plan%node_start(near_node) + plan%node_count(near_node) - 1_i32
+        p_end = plan%source_tree%node_start(near_node) + plan%source_tree%node_count(near_node) - 1_i32
         if (plan%options%use_periodic2) then
           do shift_idx1 = 1_i32, nshift
             shift1 = plan%shift_axis1(shift_idx1)
             do shift_idx2 = 1_i32, nshift
               shift2 = plan%shift_axis2(shift_idx2)
-              if (nodes_well_separated_shifted(plan, target_leaf, near_node, shift1, shift2)) then
+              if (nodes_well_separated_shifted(plan, target_tree, target_leaf, near_node, shift1, shift2)) then
                 call append_m2l_pair( &
                   m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, pair_used, pair_cap, &
                   target_leaf, near_node, shift_idx1, shift_idx2 &
                   )
                 cycle
               end if
-              do p = plan%node_start(near_node), p_end
+              do p = plan%source_tree%node_start(near_node), p_end
                 near_source_used = near_source_used + 1_i32
-                plan%near_source_idx(near_source_used) = plan%elem_order(p)
+                plan%near_source_idx(near_source_used) = plan%source_tree%elem_order(p)
                 plan%near_source_shift1(near_source_used) = shift1
                 plan%near_source_shift2(near_source_used) = shift2
               end do
             end do
           end do
         else
-          do p = plan%node_start(near_node), p_end
+          do p = plan%source_tree%node_start(near_node), p_end
             near_source_used = near_source_used + 1_i32
-            plan%near_source_idx(near_source_used) = plan%elem_order(p)
+            plan%near_source_idx(near_source_used) = plan%source_tree%elem_order(p)
           end do
         end if
       end do
@@ -1017,8 +986,9 @@ contains
   !> Store every near-field panel of every leaf, translated by its image shift, as component arrays
   !! in `near_source_idx` order. The translation is the same `vertex + shift` the point kernel used
   !! to apply per evaluation, so the tables reproduce it bit for bit.
-  subroutine build_near_panel_tables(plan)
+  subroutine build_near_panel_tables(plan, target_tree)
     type(fmm_plan_type), intent(inout) :: plan
+    type(fmm_tree_type), intent(in) :: target_tree
     integer(i32) :: n, pos, idx, axes(2), leaf_idx
     real(dp) :: shift(3), center(3)
 
@@ -1028,86 +998,92 @@ contains
     axes = 0_i32
     if (plan%options%use_periodic2) axes = plan%options%periodic_axes
     if (plan%options%near_field_single) then
-      call build_near_panel_tables_single(plan, n, axes)
+      call build_near_panel_tables_single(plan, target_tree, n, axes)
       return
     end if
-    allocate (plan%near_vx(3, max(1_i32, n)), plan%near_vy(3, max(1_i32, n)), plan%near_vz(3, max(1_i32, n)))
-    allocate (plan%near_nx(max(1_i32, n)), plan%near_ny(max(1_i32, n)), plan%near_nz(max(1_i32, n)))
-    allocate (plan%near_edge(3, max(1_i32, n)), plan%near_ox(3, max(1_i32, n)), plan%near_oy(3, max(1_i32, n)))
-    allocate (plan%near_oz(3, max(1_i32, n)), plan%near_area(max(1_i32, n)))
-    plan%near_vx = 0.0_dp
-    plan%near_vy = 0.0_dp
-    plan%near_vz = 0.0_dp
-    plan%near_nx = 0.0_dp
-    plan%near_ny = 0.0_dp
-    plan%near_nz = 0.0_dp
-    plan%near_edge = 0.0_dp
-    plan%near_ox = 0.0_dp
-    plan%near_oy = 0.0_dp
-    plan%near_oz = 0.0_dp
-    plan%near_area = 1.0_dp
+    allocate (plan%near_panels%vx(3, max(1_i32, n)), plan%near_panels%vy(3, max(1_i32, n)), &
+              plan%near_panels%vz(3, max(1_i32, n)))
+    allocate (plan%near_panels%nx(max(1_i32, n)), plan%near_panels%ny(max(1_i32, n)), plan%near_panels%nz(max(1_i32, n)))
+    allocate (plan%near_panels%edge(3, max(1_i32, n)), plan%near_panels%ox(3, max(1_i32, n)), &
+              plan%near_panels%oy(3, max(1_i32, n)))
+    allocate (plan%near_panels%oz(3, max(1_i32, n)), plan%near_panels%area(max(1_i32, n)))
+    plan%near_panels%vx = 0.0_dp
+    plan%near_panels%vy = 0.0_dp
+    plan%near_panels%vz = 0.0_dp
+    plan%near_panels%nx = 0.0_dp
+    plan%near_panels%ny = 0.0_dp
+    plan%near_panels%nz = 0.0_dp
+    plan%near_panels%edge = 0.0_dp
+    plan%near_panels%ox = 0.0_dp
+    plan%near_panels%oy = 0.0_dp
+    plan%near_panels%oz = 0.0_dp
+    plan%near_panels%area = 1.0_dp
     do pos = 1_i32, n
       idx = plan%near_source_idx(pos)
       shift = 0.0_dp
       if (axes(1) > 0_i32) shift(axes(1)) = shift(axes(1)) + plan%near_source_shift1(pos)
       if (axes(2) > 0_i32) shift(axes(2)) = shift(axes(2)) + plan%near_source_shift2(pos)
-      plan%near_vx(:, pos) = plan%panel_geometry(idx)%vertex(1, :) + shift(1)
-      plan%near_vy(:, pos) = plan%panel_geometry(idx)%vertex(2, :) + shift(2)
-      plan%near_vz(:, pos) = plan%panel_geometry(idx)%vertex(3, :) + shift(3)
-      plan%near_nx(pos) = plan%panel_geometry(idx)%normal(1)
-      plan%near_ny(pos) = plan%panel_geometry(idx)%normal(2)
-      plan%near_nz(pos) = plan%panel_geometry(idx)%normal(3)
-      plan%near_edge(:, pos) = plan%panel_geometry(idx)%edge_length
-      plan%near_ox(:, pos) = plan%panel_geometry(idx)%edge_outward(1, :)
-      plan%near_oy(:, pos) = plan%panel_geometry(idx)%edge_outward(2, :)
-      plan%near_oz(:, pos) = plan%panel_geometry(idx)%edge_outward(3, :)
-      plan%near_area(pos) = plan%panel_geometry(idx)%area
+      plan%near_panels%vx(:, pos) = plan%panel_geometry(idx)%vertex(1, :) + shift(1)
+      plan%near_panels%vy(:, pos) = plan%panel_geometry(idx)%vertex(2, :) + shift(2)
+      plan%near_panels%vz(:, pos) = plan%panel_geometry(idx)%vertex(3, :) + shift(3)
+      plan%near_panels%nx(pos) = plan%panel_geometry(idx)%normal(1)
+      plan%near_panels%ny(pos) = plan%panel_geometry(idx)%normal(2)
+      plan%near_panels%nz(pos) = plan%panel_geometry(idx)%normal(3)
+      plan%near_panels%edge(:, pos) = plan%panel_geometry(idx)%edge_length
+      plan%near_panels%ox(:, pos) = plan%panel_geometry(idx)%edge_outward(1, :)
+      plan%near_panels%oy(:, pos) = plan%panel_geometry(idx)%edge_outward(2, :)
+      plan%near_panels%oz(:, pos) = plan%panel_geometry(idx)%edge_outward(3, :)
+      plan%near_panels%area(pos) = plan%panel_geometry(idx)%area
     end do
   contains
 
     !> Single-precision tables: each panel is stored relative to the center of the leaf whose near list
     !! holds it, so the rounding error stays at single-precision resolution of the leaf size rather than
     !! of the absolute coordinates. The leaf center is kept in double for shifting the target.
-    subroutine build_near_panel_tables_single(plan, n, axes)
+    subroutine build_near_panel_tables_single(plan, target_tree, n, axes)
       type(fmm_plan_type), intent(inout) :: plan
+      type(fmm_tree_type), intent(in) :: target_tree
       integer(i32), intent(in) :: n, axes(2)
 
-      allocate (plan%near_sp_vx(3, max(1_i32, n)), plan%near_sp_vy(3, max(1_i32, n)), plan%near_sp_vz(3, max(1_i32, n)))
-      allocate (plan%near_sp_nx(max(1_i32, n)), plan%near_sp_ny(max(1_i32, n)), plan%near_sp_nz(max(1_i32, n)))
-      allocate (plan%near_sp_edge(3, max(1_i32, n)), plan%near_sp_ox(3, max(1_i32, n)), plan%near_sp_oy(3, max(1_i32, n)))
-      allocate (plan%near_sp_oz(3, max(1_i32, n)), plan%near_sp_area(max(1_i32, n)))
-      allocate (plan%near_leaf_center(3, max(1_i32, plan%nleaf)))
-      plan%near_sp_vx = 0.0_sp
-      plan%near_sp_vy = 0.0_sp
-      plan%near_sp_vz = 0.0_sp
-      plan%near_sp_nx = 0.0_sp
-      plan%near_sp_ny = 0.0_sp
-      plan%near_sp_nz = 0.0_sp
-      plan%near_sp_edge = 0.0_sp
-      plan%near_sp_ox = 0.0_sp
-      plan%near_sp_oy = 0.0_sp
-      plan%near_sp_oz = 0.0_sp
-      plan%near_sp_area = 1.0_sp
-      plan%near_leaf_center = 0.0_dp
+      allocate (plan%near_panels_sp%vx(3, max(1_i32, n)), plan%near_panels_sp%vy(3, max(1_i32, n)), &
+                plan%near_panels_sp%vz(3, max(1_i32, n)))
+      allocate (plan%near_panels_sp%nx(max(1_i32, n)), plan%near_panels_sp%ny(max(1_i32, n)), &
+                plan%near_panels_sp%nz(max(1_i32, n)))
+      allocate (plan%near_panels_sp%edge(3, max(1_i32, n)), plan%near_panels_sp%ox(3, max(1_i32, n)), &
+                plan%near_panels_sp%oy(3, max(1_i32, n)))
+      allocate (plan%near_panels_sp%oz(3, max(1_i32, n)), plan%near_panels_sp%area(max(1_i32, n)))
+      allocate (plan%near_panels_sp%leaf_center(3, max(1_i32, plan%nleaf)))
+      plan%near_panels_sp%vx = 0.0_sp
+      plan%near_panels_sp%vy = 0.0_sp
+      plan%near_panels_sp%vz = 0.0_sp
+      plan%near_panels_sp%nx = 0.0_sp
+      plan%near_panels_sp%ny = 0.0_sp
+      plan%near_panels_sp%nz = 0.0_sp
+      plan%near_panels_sp%edge = 0.0_sp
+      plan%near_panels_sp%ox = 0.0_sp
+      plan%near_panels_sp%oy = 0.0_sp
+      plan%near_panels_sp%oz = 0.0_sp
+      plan%near_panels_sp%area = 1.0_sp
+      plan%near_panels_sp%leaf_center = 0.0_dp
       do leaf_idx = 1_i32, plan%nleaf
-        center = active_tree_node_center(plan, plan%target_tree_ready, plan%leaf_nodes(leaf_idx))
-        plan%near_leaf_center(:, leaf_idx) = center
+        center = target_tree%node_center(:, plan%leaf_nodes(leaf_idx))
+        plan%near_panels_sp%leaf_center(:, leaf_idx) = center
         do pos = plan%near_source_start(leaf_idx), plan%near_source_start(leaf_idx + 1_i32) - 1_i32
           idx = plan%near_source_idx(pos)
           shift = 0.0_dp
           if (axes(1) > 0_i32) shift(axes(1)) = shift(axes(1)) + plan%near_source_shift1(pos)
           if (axes(2) > 0_i32) shift(axes(2)) = shift(axes(2)) + plan%near_source_shift2(pos)
-          plan%near_sp_vx(:, pos) = real(plan%panel_geometry(idx)%vertex(1, :) + shift(1) - center(1), sp)
-          plan%near_sp_vy(:, pos) = real(plan%panel_geometry(idx)%vertex(2, :) + shift(2) - center(2), sp)
-          plan%near_sp_vz(:, pos) = real(plan%panel_geometry(idx)%vertex(3, :) + shift(3) - center(3), sp)
-          plan%near_sp_nx(pos) = real(plan%panel_geometry(idx)%normal(1), sp)
-          plan%near_sp_ny(pos) = real(plan%panel_geometry(idx)%normal(2), sp)
-          plan%near_sp_nz(pos) = real(plan%panel_geometry(idx)%normal(3), sp)
-          plan%near_sp_edge(:, pos) = real(plan%panel_geometry(idx)%edge_length, sp)
-          plan%near_sp_ox(:, pos) = real(plan%panel_geometry(idx)%edge_outward(1, :), sp)
-          plan%near_sp_oy(:, pos) = real(plan%panel_geometry(idx)%edge_outward(2, :), sp)
-          plan%near_sp_oz(:, pos) = real(plan%panel_geometry(idx)%edge_outward(3, :), sp)
-          plan%near_sp_area(pos) = real(plan%panel_geometry(idx)%area, sp)
+          plan%near_panels_sp%vx(:, pos) = real(plan%panel_geometry(idx)%vertex(1, :) + shift(1) - center(1), sp)
+          plan%near_panels_sp%vy(:, pos) = real(plan%panel_geometry(idx)%vertex(2, :) + shift(2) - center(2), sp)
+          plan%near_panels_sp%vz(:, pos) = real(plan%panel_geometry(idx)%vertex(3, :) + shift(3) - center(3), sp)
+          plan%near_panels_sp%nx(pos) = real(plan%panel_geometry(idx)%normal(1), sp)
+          plan%near_panels_sp%ny(pos) = real(plan%panel_geometry(idx)%normal(2), sp)
+          plan%near_panels_sp%nz(pos) = real(plan%panel_geometry(idx)%normal(3), sp)
+          plan%near_panels_sp%edge(:, pos) = real(plan%panel_geometry(idx)%edge_length, sp)
+          plan%near_panels_sp%ox(:, pos) = real(plan%panel_geometry(idx)%edge_outward(1, :), sp)
+          plan%near_panels_sp%oy(:, pos) = real(plan%panel_geometry(idx)%edge_outward(2, :), sp)
+          plan%near_panels_sp%oz(:, pos) = real(plan%panel_geometry(idx)%edge_outward(3, :), sp)
+          plan%near_panels_sp%area(pos) = real(plan%panel_geometry(idx)%area, sp)
         end do
       end do
     end subroutine build_near_panel_tables_single
@@ -1115,56 +1091,55 @@ contains
 
   !> Source leaves that are not well separated from target_leaf. Well-separated subtrees reach the
   !! leaf through the M2L pairs, so the traversal only stops there.
-  recursive subroutine gather_leaf_near_sources(plan, target_leaf, source_node, near_buf, near_n)
+  recursive subroutine gather_leaf_near_sources(plan, target_tree, target_leaf, source_node, near_buf, near_n)
     type(fmm_plan_type), intent(in) :: plan
+    type(fmm_tree_type), intent(in) :: target_tree
     integer(i32), intent(in) :: target_leaf, source_node
     integer(i32), intent(inout) :: near_buf(:), near_n
     integer(i32) :: child_k, child_node
 
-    if (nodes_well_separated(plan, target_leaf, source_node)) return
-    if (plan%child_count(source_node) <= 0_i32) then
+    if (nodes_well_separated(plan, target_tree, target_leaf, source_node)) return
+    if (plan%source_tree%child_count(source_node) <= 0_i32) then
       near_n = near_n + 1_i32
       near_buf(near_n) = source_node
       return
     end if
-    do child_k = 1_i32, plan%child_count(source_node)
-      child_node = plan%child_idx(child_k, source_node)
-      call gather_leaf_near_sources(plan, target_leaf, child_node, near_buf, near_n)
+    do child_k = 1_i32, plan%source_tree%child_count(source_node)
+      child_node = plan%source_tree%child_idx(child_k, source_node)
+      call gather_leaf_near_sources(plan, target_tree, target_leaf, child_node, near_buf, near_n)
     end do
   end subroutine gather_leaf_near_sources
 
   recursive subroutine accumulate_cached_pairs( &
-    plan, t_node, s_node, use_target_tree, target_buf, source_buf, shift_idx1_buf, shift_idx2_buf, pair_used, pair_cap &
+    plan, target_tree, t_node, s_node, target_buf, source_buf, shift_idx1_buf, shift_idx2_buf, pair_used, pair_cap &
     )
-    type(fmm_plan_type), intent(inout) :: plan
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_tree_type), intent(in) :: target_tree
     integer(i32), intent(in) :: t_node, s_node
-    logical, intent(in) :: use_target_tree
     integer(i32), allocatable, intent(inout) :: target_buf(:), source_buf(:), shift_idx1_buf(:), shift_idx2_buf(:)
     integer(i32), intent(inout) :: pair_used, pair_cap
     integer(i32) :: tc, sc, t_child, s_child
 
-    plan%m2l_visit_count = plan%m2l_visit_count + 1_i32
-    tc = active_tree_child_count(plan, use_target_tree, t_node)
-    sc = plan%child_count(s_node)
-    if (nodes_well_separated(plan, t_node, s_node)) then
+    tc = target_tree%child_count(t_node)
+    sc = plan%source_tree%child_count(s_node)
+    if (nodes_well_separated(plan, target_tree, t_node, s_node)) then
       call append_m2l_pair( &
         target_buf, source_buf, shift_idx1_buf, shift_idx2_buf, pair_used, pair_cap, t_node, s_node, 0_i32, 0_i32 &
         )
       return
     end if
     if (tc <= 0_i32 .and. sc <= 0_i32) return
-    if (sc > 0_i32 .and. (tc <= 0_i32 .or. plan%node_radius(s_node) >= &
-                          active_tree_node_radius(plan, use_target_tree, t_node))) then
+    if (sc > 0_i32 .and. (tc <= 0_i32 .or. plan%source_tree%node_radius(s_node) >= target_tree%node_radius(t_node))) then
       do s_child = 1_i32, sc
         call accumulate_cached_pairs( &
-          plan, t_node, plan%child_idx(s_child, s_node), use_target_tree, target_buf, source_buf, shift_idx1_buf, &
+          plan, target_tree, t_node, plan%source_tree%child_idx(s_child, s_node), target_buf, source_buf, shift_idx1_buf, &
           shift_idx2_buf, pair_used, pair_cap &
           )
       end do
     else
       do t_child = 1_i32, tc
         call accumulate_cached_pairs( &
-          plan, active_tree_child_idx(plan, use_target_tree, t_child, t_node), s_node, use_target_tree, &
+          plan, target_tree, target_tree%child_idx(t_child, t_node), s_node, &
           target_buf, source_buf, shift_idx1_buf, shift_idx2_buf, pair_used, pair_cap &
           )
       end do
@@ -1242,7 +1217,7 @@ contains
   subroutine precompute_translation_operators(plan)
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32) :: alpha_idx, beta_idx, gamma_idx, term_idx
-    integer(i32) :: node_idx, n_target_nodes, parent_node
+    integer(i32) :: node_idx, parent_node
     integer(i32) :: delta(3)
     integer(i32) :: max_m2m_terms, max_l2l_terms
     real(dp) :: d(3)
@@ -1301,35 +1276,48 @@ contains
     end do
 
     if (allocated(plan%source_shift_monomial)) deallocate (plan%source_shift_monomial)
-    allocate (plan%source_shift_monomial(plan%ncoef, max(1_i32, plan%nnode)))
+    allocate (plan%source_shift_monomial(plan%ncoef, max(1_i32, plan%source_tree%nnode)))
     plan%source_shift_monomial = 0.0d0
-    if (plan%nnode > 0_i32) plan%source_shift_monomial(1_i32, 1_i32) = 1.0d0
+    if (plan%source_tree%nnode > 0_i32) plan%source_shift_monomial(1_i32, 1_i32) = 1.0d0
     !$omp parallel do default(none) schedule(static) &
     !$omp shared(plan) private(node_idx, parent_node, d)
-    do node_idx = 1_i32, plan%nnode
-      parent_node = plan%source_parent_of(node_idx)
+    do node_idx = 1_i32, plan%source_tree%nnode
+      parent_node = plan%source_tree%parent(node_idx)
       if (parent_node <= 0_i32) cycle
-      d = plan%node_center(:, node_idx) - plan%node_center(:, parent_node)
+      d = plan%source_tree%node_center(:, node_idx) - plan%source_tree%node_center(:, parent_node)
       call fill_shift_monomial(plan, d, plan%source_shift_monomial(:, node_idx))
     end do
     !$omp end parallel do
 
-    n_target_nodes = active_tree_nnode(plan, plan%target_tree_ready)
+    if (plan%target_tree_ready) then
+      call precompute_target_shift_monomials(plan, plan%target_tree)
+    else
+      call precompute_target_shift_monomials(plan, plan%source_tree)
+    end if
+  end subroutine precompute_translation_operators
+
+  !> L2L monomials of the evaluation tree (plan%target_tree or plan%source_tree), which is only read.
+  subroutine precompute_target_shift_monomials(plan, target_tree)
+    type(fmm_plan_type), intent(inout) :: plan
+    type(fmm_tree_type), intent(in) :: target_tree
+    integer(i32) :: node_idx, n_target_nodes, parent_node
+    real(dp) :: d(3)
+
+    n_target_nodes = target_tree%nnode
     if (allocated(plan%target_shift_monomial)) deallocate (plan%target_shift_monomial)
     allocate (plan%target_shift_monomial(plan%ncoef, max(1_i32, n_target_nodes)))
     plan%target_shift_monomial = 0.0d0
     if (n_target_nodes > 0_i32) plan%target_shift_monomial(1_i32, 1_i32) = 1.0d0
     !$omp parallel do default(none) schedule(static) &
-    !$omp shared(plan, n_target_nodes) private(node_idx, parent_node, d)
+    !$omp shared(plan, target_tree, n_target_nodes) private(node_idx, parent_node, d)
     do node_idx = 1_i32, n_target_nodes
-      parent_node = plan%parent_of(node_idx)
+      parent_node = target_tree%parent(node_idx)
       if (parent_node <= 0_i32) cycle
-      d = active_tree_node_center(plan, plan%target_tree_ready, node_idx) - &
-          active_tree_node_center(plan, plan%target_tree_ready, parent_node)
+      d = target_tree%node_center(:, node_idx) - target_tree%node_center(:, parent_node)
       call fill_shift_monomial(plan, d, plan%target_shift_monomial(:, node_idx))
     end do
     !$omp end parallel do
-  end subroutine precompute_translation_operators
+  end subroutine precompute_target_shift_monomials
 
   !> Monomials `d^alpha/alpha!` of one parent-to-child offset, shared by the source (M2M) and target (L2L) trees.
   subroutine fill_shift_monomial(plan, d, monomial)
@@ -1349,6 +1337,18 @@ contains
 
   subroutine precompute_m2l_derivatives(plan)
     type(fmm_plan_type), intent(inout) :: plan
+
+    if (plan%target_tree_ready) then
+      call precompute_m2l_derivatives_for(plan, plan%target_tree)
+    else
+      call precompute_m2l_derivatives_for(plan, plan%source_tree)
+    end if
+  end subroutine precompute_m2l_derivatives
+
+  !> M2L derivatives of every cached pair; target nodes belong to target_tree (plan%target_tree or plan%source_tree).
+  subroutine precompute_m2l_derivatives_for(plan, target_tree)
+    type(fmm_plan_type), intent(inout) :: plan
+    type(fmm_tree_type), intent(in) :: target_tree
     integer(i32) :: pair_idx, img_i, img_j, nshift
     integer(i32) :: axis1, axis2, s_node, t_node, shift_idx1, shift_idx2
     real(dp) :: base(3), rimg(3)
@@ -1366,13 +1366,13 @@ contains
     end if
     nshift = size(plan%shift_axis1)
     !$omp parallel do default(none) schedule(static) &
-    !$omp shared(plan, axis1, axis2, nshift) &
+    !$omp shared(plan, target_tree, axis1, axis2, nshift) &
     !$omp private(pair_idx, img_i, img_j, s_node, t_node, base, shift_idx1, shift_idx2) &
     !$omp private(rimg, deriv_tmp)
     do pair_idx = 1_i32, plan%m2l_pair_count
       t_node = plan%m2l_target_nodes(pair_idx)
       s_node = plan%m2l_source_nodes(pair_idx)
-      base = active_tree_node_center(plan, plan%target_tree_ready, t_node) - plan%node_center(:, s_node)
+      base = target_tree%node_center(:, t_node) - plan%source_tree%node_center(:, s_node)
       if (.not. plan%options%use_periodic2) then
         call compute_laplace_derivatives(plan, base, deriv_tmp)
         plan%m2l_deriv(:, pair_idx) = plan%m2l_deriv(:, pair_idx) + deriv_tmp
@@ -1395,7 +1395,7 @@ contains
       end do
     end do
     !$omp end parallel do
-  end subroutine precompute_m2l_derivatives
+  end subroutine precompute_m2l_derivatives_for
 
   !> Offset from the source image shifted by (shift1, shift2) along the two periodic axes to the target.
   pure function periodic_image_offset(base, axis1, axis2, shift1, shift2) result(rimg)
@@ -1408,19 +1408,18 @@ contains
     rimg(axis2) = rimg(axis2) - shift2
   end function periodic_image_offset
 
-  logical function nodes_well_separated_shifted(plan, target_node, source_node, shift1, shift2)
+  logical function nodes_well_separated_shifted(plan, target_tree, target_node, source_node, shift1, shift2)
     type(fmm_plan_type), intent(in) :: plan
+    type(fmm_tree_type), intent(in) :: target_tree
     integer(i32), intent(in) :: target_node, source_node
     real(dp), intent(in) :: shift1, shift2
     real(dp) :: d(3), rs, rt, lhs, rhs, theta_eff, target_center(3), shifted_center(3)
     integer(i32) :: axis1, axis2
-    logical :: use_target_tree
 
-    use_target_tree = plan%target_tree_ready
-    target_center = active_tree_node_center(plan, use_target_tree, target_node)
-    rt = active_tree_node_radius(plan, use_target_tree, target_node)
+    target_center = target_tree%node_center(:, target_node)
+    rt = target_tree%node_radius(target_node)
 
-    shifted_center = plan%node_center(:, source_node)
+    shifted_center = plan%source_tree%node_center(:, source_node)
     axis1 = 0_i32
     axis2 = 0_i32
     if (plan%options%use_periodic2) then
@@ -1436,7 +1435,7 @@ contains
       return
     end if
 
-    rs = plan%node_radius(source_node)
+    rs = plan%source_tree%node_radius(source_node)
     theta_eff = plan%options%theta
     lhs = (rs + rt)*(rs + rt)
     rhs = (theta_eff*theta_eff)*sum(d*d)

@@ -28,7 +28,7 @@ memory: project
   - Surface model: insulator accumulation only
   - Batch execution: `sim.batch_count` バッチ分実行
   - Per-particle advance limit: `sim.max_step`
-  - `tol_rel` は監視/出力メトリックであり、早期停止条件ではない
+  - `tol_rel`（`output.diagnostics.charge_rel_change_threshold`）は既定 0 で無効、正なら `rel_change` に対する早期終了条件
 
 ### 配列順序・単位系・境界条件の明示
 - コード変更時は、影響する配列のメモリレイアウト（column-major）、インデックス順序を明示すること。

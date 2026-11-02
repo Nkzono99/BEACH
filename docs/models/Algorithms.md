@@ -70,7 +70,7 @@ BEACH が保持する主な状態は、三角形要素ごとの表面電荷で�
 
 `run.batch.duration_s=0` の `volume_seed` のように、粒子数を batch ごとに直接与えるケースには物理秒を
 割り当てません。逆に境界流入など時間比例の粒子源では、流束と `run.batch.duration_s` から粒子数を決めます。
-`output.diagnostics.charge_rel_change_threshold` は表面電荷変化の監視値であり、現行実装の自動停止条件ではありません。
+正の `output.diagnostics.charge_rel_change_threshold` を設定すると、表面電荷の相対変化がそれを下回った batch で run を終えます（既定 0 は無効）。
 
 ## batch 間で引き継ぐもの
 

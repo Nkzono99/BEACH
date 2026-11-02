@@ -163,16 +163,20 @@ BEACH の adapter は現状 `order = 4` を使いますが、コア自体は1以
 幾何にだけ依存する不変データです。
 
 - 多重指数テーブル `alpha`, `deriv_alpha`
-- source octree
-- optional target tree
+- source octree `source_tree`
+- optional target tree `target_tree`（`target_tree_ready` のときだけ作る）。2 つの木は同じ `fmm_tree_type`
+  （ノード中心・半サイズ・半径、子、深さ順のノード表、親）で、target tree が無いときは `source_tree` が
+  評価用の木を兼ねる。木を読む処理は評価用の木を引数で受け取る
 - source 葉一覧 `source_leaf_nodes`
 - target 葉一覧 `leaf_nodes`
 - 近傍 list `near_start/near_nodes`
+- panel plan の近接 panel 成分表 `near_panels`（`near_field_single` では単精度の `near_panels_sp`）
 - M2L pair cache `m2l_target_nodes/m2l_source_nodes`
 - periodic image shift 配列
 - M2L 微分表 `m2l_deriv`
 - P2M 基底表 `source_p2m_basis`
 - M2M/L2L の平行移動用圧縮テーブル
+- `cached_kneq0` の遠方補正 `periodic_operator`（box 格子、operator、cache 識別子と作成の計数）
 
 ### 3.3 `fmm_state_type`
 
@@ -358,8 +362,7 @@ $$
 
 `build_plan` の最後で、refresh ごとに変わらない量を前計算します。
 
-- `source_parent_of`
-- `parent_of`
+- `source_tree%parent`, `target_tree%parent`（木の構築時）
 - `source_p2m_basis`
 - `m2m_term_count`, `m2m_alpha_list`, `m2m_delta_list`
 - `l2l_term_count`, `l2l_gamma_list`, `l2l_delta_list`
@@ -367,7 +370,7 @@ $$
 - `target_shift_monomial`
 - `shift_axis1`, `shift_axis2`
 - `periodic_ewald`
-- `periodic_root_operator`
+- `periodic_operator%root_operator`
 - `m2l_deriv`
 
 この前計算により、`update_state`では主に電荷に依存する加算だけを実行します。
@@ -438,7 +441,7 @@ M2L の組の評価を rank に分配できる。通信と組数の偏りがあ�
 - `M2M/L2L` の有効な `(alpha, delta)` 項だけを圧縮して持ち、無効項を走査しない
 - `M2L`ではsource nodeのactive flagを調べ、zero-nodeのpairを早期にskipする
 - `M2L`ではtarget node列を繰り返し更新せず、thread-localな`local_acc`へ蓄積してから書き戻す
-- panel plan では各葉の近接 panel を像シフト込みの成分配列（`near_vx` … `near_area`）として build 時に保存し、
+- panel plan では各葉の近接 panel を像シフト込みの成分配列（`near_panels%vx` … `near_panels%area`）として build 時に保存し、
   点評価は葉の区間を 64 panel ずつ SIMD ループで評価して、リスト順に合算する（`panel_field_sum_translated`）
 - 近接 panel の成分表には、像と葉による重複を含む近接リストの 1 エントリにつき約 200 byte を各 rank で追加保持する
 - `P2M` で target leaf ではなく source leaf 専用 index を使う
@@ -834,7 +837,7 @@ cold buildでは、再利用可能なoperator行列を初回だけ生成しま�
   `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_state.f90`,
   `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_eval.f90`
 - shared 型定義:
-  `fmm_options_type`, `fmm_plan_type`, `fmm_state_type`
+  `fmm_options_type`, `fmm_plan_type`, `fmm_tree_type`, `fmm_state_type`
   （`src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_types.f90`）
 - plan 構築:
   `build_plan`, `build_panel_plan`

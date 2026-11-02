@@ -52,7 +52,7 @@ program test_periodic2_length_scale
     options%periodic_len = length
     options%target_box_max = length*[1.0_dp, 1.0_dp, 3.2_dp]
     call build_plan(plan, length*source, options)
-    cache_path = plan%periodic_cache_path
+    cache_path = plan%periodic_operator%cache_path
     call update_state(plan, state, charge)
     call eval_points(plan, state, length*target, field)
     call eval_potential_points(plan, state, length*target, potential)
@@ -123,7 +123,7 @@ contains
     q = [1.0e-12_dp, -0.4e-12_dp]
     call init_mesh(mesh, a, b, c, q0=q)
     call build_panel_plan(plan, a, b, c, config)
-    cache_path = plan%periodic_cache_path
+    cache_path = plan%periodic_operator%cache_path
     call update_state(plan, state, q)
     scale = sum(abs(q))/eps0
     do k = 1_i32, 3_i32
@@ -186,7 +186,7 @@ contains
     options%periodic_image_layers = 1_i32
     options%target_box_max = cell*[1.0_dp, 1.0_dp, 2.0_dp]
     call build_plan(plan, sheet_source, options)
-    cache_path = plan%periodic_cache_path
+    cache_path = plan%periodic_operator%cache_path
     call update_state(plan, state, sheet_q)
     scale = 2.0_dp*acos(-1.0_dp)*sheet_charge/(cell*cell)*cell
     worst = 0.0_dp

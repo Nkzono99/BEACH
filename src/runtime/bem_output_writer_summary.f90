@@ -2,7 +2,7 @@
 submodule(bem_output_writer) bem_output_writer_summary
   use bem_irradiation_cell_contract, only: &
     irradiation_cell_contract_type, resolve_irradiation_cell_contract, irradiation_cell_ok
-  use bem_types, only: surface_model_dielectric
+  use bem_types, only: surface_model_dielectric, charge_rel_change_threshold_reached
   use bem_charge_ledger, only: finite_charge_sum
   use bem_matching_plane_summary, only: write_matching_plane_summary
   use bem_checkpoint_contract, only: checkpoint_schema_version_current
@@ -85,7 +85,7 @@ contains
   write (u, '(a,i0)') 'adaptive_substeps=', stats%adaptive_substeps
   write (u, '(a,i0)') 'adaptive_substep_depth_limited_steps=', stats%adaptive_substep_depth_limited_steps
   write (u, '(a,i0)') 'adaptive_grown_steps=', stats%adaptive_grown_steps
-  write (u, '(a,i0)') 'adaptive_step_growth_max=', merge(cfg%sim%step_growth_max, 0_i32, cfg%sim%step_growth)
+  write (u, '(a,i0)') 'adaptive_step_growth_max=', merge(cfg%sim%substep%growth_max, 0_i32, cfg%sim%substep%growth)
   write (u, '(a,a)') 'particle_distribution=', trim(cfg%sim%particle_distribution)
   write (u, '(a,i0)') 'particle_pool_claims=', stats%particle_pool_claims
   write (u, '(a,es24.16)') 'particle_pool_claim_seconds=', stats%particle_pool_claim_seconds
@@ -94,6 +94,8 @@ contains
   write (u, '(a,es24.16)') 'multiple_box_events_soft_discarded_abs_charge_C=', &
     stats%multiple_box_events_soft_discarded_abs_charge
   write (u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
+  write (u, '(a,es24.16)') 'charge_rel_change_threshold=', cfg%sim%tol_rel
+  write (u, '(a,l1)') 'charge_rel_change_threshold_reached=', charge_rel_change_threshold_reached(cfg%sim, stats)
   write (u, '(a,es24.16)') 'simulated_time_s=', stats%simulated_time
   write (u, '(a,i0)') 'adaptive_nonzero_mode_rejected_trials=', &
     stats%adaptive_nonzero_mode%rejected_trials
@@ -124,7 +126,7 @@ contains
   write (u, '(a)') 'field_reconstruction_schema_version=2'
   write (u, '(a,a)') 'field_reconstruction_resolved_field_solver=', trim(resolved_field_solver)
   write (u, '(a,i0)') 'field_reconstruction_fmm_expansion_order=', field_solver_fmm_expansion_order
-  write (u, '(a,a)') 'field_near_field_precision=', trim(cfg%sim%near_field_precision)
+  write (u, '(a,a)') 'field_near_field_precision=', trim(cfg%sim%solver%near_field_precision)
   write (u, '(a,a)') 'field_reconstruction_field_bc_mode=', trim(cfg%sim%field_bc_mode)
   write (u, '(a,es24.16)') 'field_reconstruction_tree_theta=', resolved_tree_theta
   write (u, '(a,i0)') 'field_reconstruction_tree_leaf_max=', resolved_tree_leaf_max
@@ -134,9 +136,9 @@ contains
   write (u, '(a,3(1x,es24.16))') 'field_reconstruction_box_max_m=', cfg%sim%box_max
   write (u, '(a,3(1x,i0))') 'field_reconstruction_boundary_low=', cfg%sim%bc_low
   write (u, '(a,3(1x,i0))') 'field_reconstruction_boundary_high=', cfg%sim%bc_high
-  write (u, '(a,i0)') 'field_reconstruction_periodic_image_layers=', cfg%sim%field_periodic_image_layers
+  write (u, '(a,i0)') 'field_reconstruction_periodic_image_layers=', cfg%sim%periodic%image_layers
   write (u, '(a,a)') 'field_reconstruction_periodic_far_correction=', &
-    trim(cfg%sim%field_periodic_far_correction)
+    trim(cfg%sim%periodic%far_correction)
   write (u, '(a,a)') 'field_reconstruction_periodic_nonzero_mode_backend=', &
     trim(cfg%periodic2%nonzero_mode_backend)
   write (u, '(a,a)') 'field_reconstruction_periodic_zero_mode_policy=', &
@@ -147,13 +149,13 @@ contains
     cfg%periodic2%reference_mode_layers
   write (u, '(a,i0)') 'field_reconstruction_periodic_panel_quadrature_order=', &
     cfg%periodic2%panel_quadrature_order
-  write (u, '(a,es24.16)') 'field_reconstruction_periodic_ewald_alpha=', cfg%sim%field_periodic_ewald_alpha
-  write (u, '(a,i0)') 'field_reconstruction_periodic_ewald_layers=', cfg%sim%field_periodic_ewald_layers
-  periodic_cache_dir = cfg%sim%field_periodic_cache_dir
+  write (u, '(a,es24.16)') 'field_reconstruction_periodic_ewald_alpha=', cfg%sim%periodic%ewald_alpha
+  write (u, '(a,i0)') 'field_reconstruction_periodic_ewald_layers=', cfg%sim%periodic%ewald_layers
+  periodic_cache_dir = cfg%sim%periodic%cache_dir
   if (len_trim(periodic_cache_dir) == 0) periodic_cache_dir = default_periodic_cache_directory(missing_ok=.true.)
   write (u, '(a,a)') 'field_reconstruction_periodic_cache_dir=', trim(periodic_cache_dir)
   write (u, '(a,es24.16)') 'field_reconstruction_periodic_generation_tolerance=', &
-    cfg%sim%field_periodic_generation_tolerance
+    cfg%sim%periodic%generation_tolerance
   write (u, '(a,a)') 'periodic2_nonzero_mode_backend=', trim(cfg%periodic2%nonzero_mode_backend)
   write (u, '(a,a)') 'periodic2_zero_mode_policy=', trim(cfg%periodic2%zero_mode_policy)
   write (u, '(a,a)') 'periodic2_lower_boundary_model=', trim(cell%lower_boundary_model)
@@ -161,7 +163,7 @@ contains
     cfg%periodic2%max_nonzero_mode_potential_step
   write (u, '(a,a)') 'periodic2_cache_dir=', trim(periodic_cache_dir)
   write (u, '(a,es24.16)') 'periodic2_generation_tolerance=', &
-    cfg%sim%field_periodic_generation_tolerance
+    cfg%sim%periodic%generation_tolerance
   write (u, '(a,a)') 'reservoir_inflow_map=', trim(external_inflow_map_name(cfg%boundary_contract%inflow_map))
   write (u, '(a,a)') 'surface_current_model=', trim(current_model%model)
   write (u, '(a,es24.16)') 'surface_current_model_top_field_V_m=', stats%matching_plane%top_field_v_m
@@ -201,27 +203,21 @@ contains
     write (u, '(a,es24.16)') 'surface_current_model_net_current_density_A_m2=', &
       current_model%net_current_density_a_m2
     write (u, '(a)') 'surface_current_model_current_budget_contract=surface_targets_plus_external_escape'
-    write (u, '(a,es24.16)') 'surface_current_model_pe_budget_residual_current_density_A_m2=', &
-      current_model%photoelectron_budget_residual_current_density_a_m2
-    write (u, '(a,es24.16)') 'surface_current_model_surface_budget_residual_current_density_A_m2=', &
-      current_model%surface_budget_residual_current_density_a_m2
     if (current_model%photoelectron_active) then
       write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', &
-        current_model%escaped_particle_current_a(current_model%photoelectron_species_idx)
+        current_model%species(current_model%photoelectron_species_idx)%escaped_particle_current_a
     else
       write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', 0.0_dp
     end if
-    write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_reservoir_potential_V=', &
-      current_model%inflow_reservoir_potential_v(current_model%electron_species_idx)
     write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_access_potential_V=', &
-      current_model%inflow_access_potential_v(current_model%electron_species_idx)
+      current_model%species(current_model%electron_species_idx)%kinetic_path_potential_v
     write (u, '(a,i0)') 'surface_current_model_electron_inflow_face=', &
-      current_model%inflow_kinetic_face(current_model%electron_species_idx)
+      current_model%kinetic_face
     if (current_model%photoelectron_active) then
       write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', &
-        current_model%outflow_barrier_potential_v(current_model%photoelectron_species_idx)
+        current_model%species(current_model%photoelectron_species_idx)%kinetic_path_potential_v
       write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', &
-        current_model%outflow_barrier_face(current_model%photoelectron_species_idx)
+        current_model%kinetic_face
     else
       write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', 0.0_dp
       write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', 0_i32
@@ -254,7 +250,6 @@ contains
     end if
     write (u, '(a,l1)') 'electrostatic_split_periodic_active=', electrostatic_diagnostics%split_periodic_active
     write (u, '(a,a)') 'electrostatic_status=', trim(electrostatic_diagnostics%status)
-    write (u, '(a,es24.16)') 'gauss_residual_C=', electrostatic_diagnostics%gauss_residual
     write (u, '(a,l1)') 'periodic2_cache_hit=', electrostatic_diagnostics%periodic_cache_hit
     write (u, '(a,i0)') 'periodic2_operator_build_count=', electrostatic_diagnostics%periodic_operator_build_count
     write (u, '(a,a)') 'periodic2_cache_fingerprint=', trim(electrostatic_diagnostics%periodic_cache_fingerprint)
@@ -265,14 +260,6 @@ contains
     write (u, '(a,i0)') 'charge_ledger_batch_count=', charge_ledger%batch_count
     write (u, '(a,es24.16)') 'charge_ledger_surface_charge_before_C=', charge_ledger%surface_charge_before
     write (u, '(a,es24.16)') 'charge_ledger_surface_charge_after_C=', charge_ledger%surface_charge_after
-    write (u, '(a,es24.16)') 'charge_ledger_local_flight_charge_before_C=', &
-      charge_ledger%local_flight_charge_before
-    write (u, '(a,es24.16)') 'charge_ledger_local_flight_charge_after_C=', &
-      charge_ledger%local_flight_charge_after
-    write (u, '(a,es24.16)') 'charge_ledger_unresolved_stock_before_C=', &
-      charge_ledger%unresolved_stock_before
-    write (u, '(a,es24.16)') 'charge_ledger_unresolved_stock_after_C=', &
-      charge_ledger%unresolved_stock_after
     write (u, '(a,es24.16)') 'charge_ledger_residual_C=', charge_ledger%residual()
     write (u, '(a,es24.16)') 'charge_ledger_discarded_unresolved_abs_C=', &
       charge_ledger%discarded_unresolved_abs()

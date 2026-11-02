@@ -312,7 +312,6 @@ def _write_run_output(
         "periodic2_generation_tolerance=1.0e-8",
         f"electrostatic_split_periodic_active={'T' if backend == 'cached_kneq0' else 'F'}",
         f"electrostatic_status={'cached_kneq0' if backend == 'cached_kneq0' else 'not_applicable'}",
-        "gauss_residual_C=0.0",
         "charge_ledger_nspecies=1",
         f"charge_ledger_batch_count={batches}",
         "charge_ledger_residual_C=0.0",

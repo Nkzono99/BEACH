@@ -101,7 +101,6 @@ contains
     tri_v2(:, 4) = [0.98_dp, 1.0_dp, 0.25_dp]
     call init_mesh(neutral_mesh, tri_v0, tri_v1, tri_v2)
     neutral_mesh%elem_vacuum_sign = 1_i32
-    neutral_mesh%vacuum_normals = neutral_mesh%normals
 
     call default_app_config(neutral_cfg)
     neutral_cfg%sim%rng_seed = 998_i32
@@ -178,7 +177,6 @@ contains
     tri_v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
     call init_mesh(fixed_mesh, tri_v0, tri_v1, tri_v2)
     fixed_mesh%elem_vacuum_sign = 1_i32
-    fixed_mesh%vacuum_normals = fixed_mesh%normals
 
     call default_app_config(fixed_cfg)
     fixed_cfg%sim%batch_count = 1_i32
@@ -244,10 +242,7 @@ contains
     app%particle_species(1)%has_target_absorbed_current_a = .true.
     app%particle_species(1)%target_emission_current_a = 4.0_dp
     app%particle_species(1)%has_target_emission_current_a = .true.
-    allocate (model%has_absorbed_target(1), model%has_emission_target(1), model%has_escape_target(1))
-    model%has_absorbed_target = .false.
-    model%has_emission_target = .false.
-    model%has_escape_target = .false.
+    allocate (model%species(1))
 
     ! Particles 1-3 are absorbed on elements 1, 3 and 3 with weights 1, 2 and 0.5; particle 4 escapes.
     x = 0.0_dp
@@ -312,7 +307,6 @@ contains
     tri_v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
     call init_mesh(fixed_mesh, tri_v0, tri_v1, tri_v2)
     fixed_mesh%elem_vacuum_sign = 1_i32
-    fixed_mesh%vacuum_normals = fixed_mesh%normals
 
     call default_app_config(fixed_cfg)
     fixed_cfg%sim%batch_count = 1_i32
@@ -362,7 +356,6 @@ contains
     tri_v2(:, 2) = [0.0_dp, 1.0_dp, 0.75_dp]
     call init_mesh(fixed_mesh, tri_v0, tri_v1, tri_v2)
     fixed_mesh%elem_vacuum_sign = 1_i32
-    fixed_mesh%vacuum_normals = fixed_mesh%normals
 
     call default_app_config(fixed_cfg)
     fixed_cfg%sim%rng_seed = 999_i32
@@ -444,7 +437,6 @@ contains
     tri_v2(:, 2) = [0.0_dp, 1.0e7_dp, 7.5e5_dp]
     call init_mesh(zhao_mesh, tri_v0, tri_v1, tri_v2)
     zhao_mesh%elem_vacuum_sign = 1_i32
-    zhao_mesh%vacuum_normals = zhao_mesh%normals
 
     call default_app_config(zhao_cfg)
     zhao_cfg%sim%rng_seed = 1234_i32
@@ -571,16 +563,14 @@ contains
     app%particle_species(2)%q_particle = -1.0_dp
 
     model%active = .true.
-    allocate (model%has_absorbed_target(2), model%has_emission_target(2), model%has_escape_target(2), &
-              model%absorbed_current_a(2), model%emission_current_a(2), model%escaped_particle_current_a(2), &
-              model%escape_partner_species(2))
-    model%has_absorbed_target = [.true., .false.]
-    model%has_emission_target = [.true., .false.]
-    model%has_escape_target = [.true., .false.]
-    model%absorbed_current_a = [escape_current - emission_current, 0.0_dp]
-    model%emission_current_a = [emission_current, 0.0_dp]
-    model%escaped_particle_current_a = [-escape_current, 0.0_dp]
-    model%escape_partner_species = [2_i32, 0_i32]
+    allocate (model%species(2))
+    model%species%has_absorbed_target = [.true., .false.]
+    model%species%has_emission_target = [.true., .false.]
+    model%species%has_escape_target = [.true., .false.]
+    model%species%absorbed_current_a = [escape_current - emission_current, 0.0_dp]
+    model%species%emission_current_a = [emission_current, 0.0_dp]
+    model%species%escaped_particle_current_a = [-escape_current, 0.0_dp]
+    model%species%escape_partner_species = [2_i32, 0_i32]
 
     ! 粒子1: 帰還した PE、粒子2: 脱出した PE、粒子3: 脱出した SEE（重み 0.5）。
     x = 0.0_dp
@@ -647,17 +637,14 @@ contains
 
     ! 根: 帰還 0.1、脱出 0.3、放出目標（根に与えた外側源）0.4。放出 − 帰還 = 脱出。
     model%active = .true.
-    allocate (model%has_absorbed_target(1), model%has_emission_target(1), model%has_escape_target(1), &
-              model%absorbed_current_a(1), model%emission_current_a(1), model%escaped_particle_current_a(1), &
-              model%escape_partner_species(1), model%emission_target_from_tracked_source(1))
-    model%has_absorbed_target = .true.
-    model%has_emission_target = .true.
-    model%has_escape_target = .true.
-    model%absorbed_current_a = -0.1_dp
-    model%emission_current_a = 0.4_dp
-    model%escaped_particle_current_a = -0.3_dp
-    model%escape_partner_species = 0_i32
-    model%emission_target_from_tracked_source = .true.
+    allocate (model%species(1))
+    model%species%has_absorbed_target = .true.
+    model%species%has_emission_target = .true.
+    model%species%has_escape_target = .true.
+    model%species%absorbed_current_a = -0.1_dp
+    model%species%emission_current_a = 0.4_dp
+    model%species%escaped_particle_current_a = -0.3_dp
+    model%species%emission_target_from_tracked_source = .true.
 
     ! 粒子1: 再吸収した SEE（重み 0.5）、粒子2: 脱出した SEE（重み 0.5）。raw の放出反作用電荷は 1.0。
     x = 0.0_dp
@@ -683,9 +670,9 @@ contains
                          'SEE emission, return and escape targets must close')
 
     ! 根の脱出がそのバッチの放出を超えても、放出の反作用電荷を根の外側源まで広げて閉じる（繰り越しなし）。
-    model%absorbed_current_a = -0.1_dp
-    model%emission_current_a = 1.6_dp
-    model%escaped_particle_current_a = -1.5_dp
+    model%species%absorbed_current_a = -0.1_dp
+    model%species%emission_current_a = 1.6_dp
+    model%species%escaped_particle_current_a = -1.5_dp
     call prepare_secondary_only_fixture(workspace, .true., .true., 1.0_dp)
     call apply_fixed_surface_current_closure(app, model, batch, 2_i32, workspace, mpi)
     call assert_close_dp(workspace%fixed_emission_weight_scale(1), 1.6_dp, 1.0e-12_dp, 'emission scales up to the root source')
@@ -694,9 +681,9 @@ contains
     call assert_close_dp(workspace%fixed_escape_unclosed_charge(1), 0.0_dp, 0.0_dp, 'nothing carried over')
 
     ! 生の帰還がないバッチでは帰還目標を放出へ畳む。放出 − 帰還 = 脱出は変わらない。
-    model%absorbed_current_a = -0.1_dp
-    model%emission_current_a = 0.4_dp
-    model%escaped_particle_current_a = -0.3_dp
+    model%species%absorbed_current_a = -0.1_dp
+    model%species%emission_current_a = 0.4_dp
+    model%species%escaped_particle_current_a = -0.3_dp
     call prepare_secondary_only_fixture(workspace, .false., .true., 1.0_dp)
     call apply_fixed_surface_current_closure(app, model, batch, 2_i32, workspace, mpi)
     call assert_close_dp(workspace%fixed_absorbed_target_charge(1), 0.0_dp, 0.0_dp, 'return target folds into the emission')
@@ -709,9 +696,9 @@ contains
     call assert_close_dp(workspace%fixed_escape_unclosed_charge(1), 0.0_dp, 0.0_dp, 'nothing unclosed through the emission')
 
     ! 源 0 の初期根（帰還 0、脱出 0）では反作用電荷を置かず、セル総電荷を動かさない。
-    model%absorbed_current_a = 0.0_dp
-    model%emission_current_a = 0.0_dp
-    model%escaped_particle_current_a = 0.0_dp
+    model%species%absorbed_current_a = 0.0_dp
+    model%species%emission_current_a = 0.0_dp
+    model%species%escaped_particle_current_a = 0.0_dp
     call prepare_secondary_only_fixture(workspace, .false., .true., 1.0_dp)
     call apply_fixed_surface_current_closure(app, model, batch, 2_i32, workspace, mpi)
     call assert_close_dp(workspace%photo_emission_dq(1, 1), 0.0_dp, 0.0_dp, 'zero-source root leaves no SEE reaction charge')
@@ -721,9 +708,9 @@ contains
     call assert_close_dp(workspace%fixed_escape_target_charge(1), 0.0_dp, 0.0_dp, 'zero-source root has no escape target')
 
     ! SEE が放出されなかったバッチには目標を載せられない。根の脱出分を未閉として記録し、止まらない。
-    model%absorbed_current_a = -0.1_dp
-    model%emission_current_a = 0.4_dp
-    model%escaped_particle_current_a = -0.3_dp
+    model%species%absorbed_current_a = -0.1_dp
+    model%species%emission_current_a = 0.4_dp
+    model%species%escaped_particle_current_a = -0.3_dp
     call prepare_secondary_only_fixture(workspace, .false., .false., 0.0_dp)
     call apply_fixed_surface_current_closure(app, model, batch, 2_i32, workspace, mpi)
     call assert_close_dp(workspace%fixed_emission_target_charge(1), 0.0_dp, 0.0_dp, 'no emission target without emission')
@@ -756,21 +743,16 @@ contains
     app%particle_species(2)%q_particle = -1.0_dp
 
     model%active = .true.
-    allocate (model%has_absorbed_target(2), model%has_emission_target(2), model%has_escape_target(2), &
-              model%absorbed_current_a(2), model%emission_current_a(2), model%escaped_particle_current_a(2), &
-              model%escape_partner_species(2), model%emission_target_from_tracked_source(2), &
-              model%reflected_electron_species(2), model%absorbed_target_credits_tracked_escape(2))
-    model%has_absorbed_target = .true.
-    model%has_emission_target = [.false., .true.]
-    model%has_escape_target = [.false., .true.]
-    model%escape_partner_species = 0_i32
-    model%emission_target_from_tracked_source = .false.
-    model%reflected_electron_species = [0_i32, 1_i32]
-    model%absorbed_target_credits_tracked_escape = [.true., .false.]
+    allocate (model%species(2))
+    model%species%has_absorbed_target = .true.
+    model%species%has_emission_target = [.false., .true.]
+    model%species%has_escape_target = [.false., .true.]
+    model%species%reflected_electron_species = [0_i32, 1_i32]
+    model%species%absorbed_target_credits_tracked_escape = [.true., .false.]
     ! 根: 電子流入 1.0、PE 放出 1.0、脱出 0.5（反射電子を含む合算）、PE 帰還 = 放出 − 脱出 = 0.5。
-    model%absorbed_current_a = [-1.0_dp, -0.5_dp]
-    model%emission_current_a = [0.0_dp, 1.0_dp]
-    model%escaped_particle_current_a = [0.0_dp, -0.5_dp]
+    model%species%absorbed_current_a = [-1.0_dp, -0.5_dp]
+    model%species%emission_current_a = [0.0_dp, 1.0_dp]
+    model%species%escaped_particle_current_a = [0.0_dp, -0.5_dp]
 
     ! 粒子1: 吸収された電子（重み 1.0）、2: 障壁を越えて脱出した電子（0.2）、3: 再吸収 PE（0.5）、4: 脱出 PE（0.5）。
     x = 0.0_dp
@@ -799,8 +781,8 @@ contains
 
     ! 追跡した反射電子の脱出 0.2 が根の脱出 0.1 を超えると、PE の脱出目標は 0 で止まり帰還が放出全量になる。
     ! 電子へは PE 側が実際に減らした 0.1 だけを足し戻すので、板の収支は閉じたまま（#93）。
-    model%absorbed_current_a = [-1.0_dp, -0.9_dp]
-    model%escaped_particle_current_a = [0.0_dp, -0.1_dp]
+    model%species%absorbed_current_a = [-1.0_dp, -0.9_dp]
+    model%species%escaped_particle_current_a = [0.0_dp, -0.1_dp]
     call prepare_reflected_fixture(workspace)
     call apply_fixed_surface_current_closure(app, model, batch, 4_i32, workspace, mpi)
     call assert_close_dp(workspace%fixed_escape_target_charge(2), 0.0_dp, 1.0e-12_dp, 'PE escape target stops at zero')
@@ -813,10 +795,10 @@ contains
                          'plate budget closes when the reflected escape exceeds the root escape')
 
     ! 追跡した源の種（PE なしの SEE）では、反射電子の脱出・帰還・外向きを脱出・帰還・放出の目標から外す。
-    model%emission_target_from_tracked_source(2) = .true.
-    model%absorbed_current_a = [-1.0_dp, -0.1_dp]
-    model%emission_current_a = [0.0_dp, 0.4_dp]
-    model%escaped_particle_current_a = [0.0_dp, -0.3_dp]
+    model%species(2)%emission_target_from_tracked_source = .true.
+    model%species%absorbed_current_a = [-1.0_dp, -0.1_dp]
+    model%species%emission_current_a = [0.0_dp, 0.4_dp]
+    model%species%escaped_particle_current_a = [0.0_dp, -0.3_dp]
     call prepare_reflected_fixture(workspace)
     call apply_fixed_surface_current_closure(app, model, batch, 4_i32, workspace, mpi)
     call assert_close_dp(workspace%fixed_absorbed_target_charge(1), -0.8_dp, 1.0e-12_dp, 'electron credit is unchanged')
@@ -832,7 +814,7 @@ contains
                          workspace%fixed_absorbed_target_charge(2), 0.0_dp, 1.0e-12_dp, 'SEE-only plate budget closes')
 
     ! 追跡した反射電子の脱出が根の流入を超えることはないが、超えれば吸収なしまで縮めて止まらない。
-    model%absorbed_current_a = [-0.1_dp, -0.1_dp]
+    model%species%absorbed_current_a = [-0.1_dp, -0.1_dp]
     call prepare_reflected_fixture(workspace)
     call apply_fixed_surface_current_closure(app, model, batch, 4_i32, workspace, mpi)
     call assert_close_dp(workspace%fixed_absorbed_target_charge(1), 0.0_dp, 0.0_dp, 'electron target clamps at zero')
@@ -860,22 +842,13 @@ contains
     app%particle_species(2)%q_particle = 1.0_dp
 
     model%active = .true.
-    allocate (model%has_absorbed_target(2), model%has_emission_target(2), model%has_escape_target(2), &
-              model%absorbed_current_a(2), model%emission_current_a(2), model%escaped_particle_current_a(2), &
-              model%escape_partner_species(2), model%emission_target_from_tracked_source(2), &
-              model%reflected_electron_species(2), model%absorbed_target_credits_tracked_escape(2))
+    allocate (model%species(2))
     ! イオンの目標は根の値（+0.8）で、このバッチにイオン粒子は置かないので電子だけを検査する。
-    model%has_absorbed_target = [.true., .false.]
-    model%has_emission_target = .false.
-    model%has_escape_target = [.true., .false.]
-    model%escape_partner_species = 0_i32
-    model%emission_target_from_tracked_source = .false.
-    model%reflected_electron_species = 0_i32
-    model%absorbed_target_credits_tracked_escape = .false.
+    model%species%has_absorbed_target = [.true., .false.]
+    model%species%has_escape_target = [.true., .false.]
     ! 根: 電子流入 1.0、反射電子の脱出 0.2、イオン 0.8（J=0）。電子の吸収目標は流入 − 脱出 = 0.8。
-    model%absorbed_current_a = [-0.8_dp, 0.8_dp]
-    model%emission_current_a = 0.0_dp
-    model%escaped_particle_current_a = [-0.2_dp, 0.0_dp]
+    model%species%absorbed_current_a = [-0.8_dp, 0.8_dp]
+    model%species%escaped_particle_current_a = [-0.2_dp, 0.0_dp]
 
     x = 0.0_dp
     v = 0.0_dp

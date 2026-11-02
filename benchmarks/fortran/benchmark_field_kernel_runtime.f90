@@ -38,7 +38,7 @@ program benchmark_field_kernel_runtime
   mesh_seconds = perf_wall_time_seconds() - t0
 
   t0 = perf_wall_time_seconds()
-  call solver%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
+  call solver%init(mesh, cfg%sim)
   init_seconds = perf_wall_time_seconds() - t0
 
   do i = 1_i32, mesh%nelem
@@ -91,7 +91,7 @@ contains
 
       element_idx = 1_i32 + modulo((target_idx - 1_i32)*7919_i32, local_mesh%nelem)
       near(:, target_idx) = local_mesh%centers(:, element_idx) + &
-                            0.05_dp*local_mesh%h_elem(element_idx)*local_mesh%normals(:, element_idx)
+                            0.05_dp*sqrt(local_mesh%panel_area(element_idx))*local_mesh%normals(:, element_idx)
     end do
   end subroutine build_targets
 

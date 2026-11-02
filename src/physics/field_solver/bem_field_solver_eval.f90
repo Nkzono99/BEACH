@@ -219,7 +219,7 @@ contains
     error stop 'cached kneq0 potential step requires finite charges.'
   end if
   if (self%mode_id /= field_solver_mode_fmm .or. &
-      .not. self%use_periodic2 .or. trim(self%periodic_far_correction) /= 'cached_kneq0') then
+      .not. self%fmm_core_options%use_periodic2 .or. trim(self%fmm_core_options%periodic_far_correction) /= 'cached_kneq0') then
     error stop 'kneq0 potential-step measurement requires the cached_kneq0 FMM backend.'
   end if
   if (.not. self%fmm_core_ready .or. .not. self%fmm_core_plan%built .or. &
@@ -267,7 +267,7 @@ contains
     do i = 1_i32, mesh%nelem
       phi_sum = 0.0_dp
       call traverse_potential_node( &
-        self, mesh, 1_i32, mesh%center_x(i), mesh%center_y(i), mesh%center_z(i), phi_sum &
+        self, mesh, 1_i32, mesh%centers(1, i), mesh%centers(2, i), mesh%centers(3, i), phi_sum &
         )
       potential_v(i) = self%potential_output_scale*phi_sum
     end do
@@ -365,9 +365,6 @@ contains
     geometry%centroid = mesh%centers(:, element)
     geometry%normal = mesh%normals(:, element)
     geometry%area = mesh%panel_area(element)
-    geometry%moment0 = mesh%panel_area(element)
-    geometry%moment1 = mesh%panel_moment1(:, element)
-    geometry%moment2 = mesh%panel_moment2(:, :, element)
     geometry%edge_length = mesh%panel_edge_length(:, element)
     geometry%edge_outward = mesh%panel_edge_outward(:, :, element)
   end subroutine geometry_from_mesh

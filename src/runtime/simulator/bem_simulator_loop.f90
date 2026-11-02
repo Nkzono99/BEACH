@@ -3,7 +3,7 @@ submodule(bem_simulator) bem_simulator_loop
   use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
   use bem_app_config_runtime, only: compute_wall_box_potential_statistics
   use bem_zhao_outflow_refresh, only: zhao_outflow_refresh_type
-  use bem_types, only: adaptive_nonzero_mode_stats
+  use bem_types, only: adaptive_nonzero_mode_stats, charge_rel_change_threshold_reached
   use bem_simulator_workspace, only: fixed_charge_absorbed, fixed_charge_emission, fixed_charge_escaped
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_state_type
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
@@ -93,6 +93,14 @@ contains
     call perf_region_end(perf_region_history_write, t0)
     call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx, charge_ledger, summary_identity)
     call perf_region_end(perf_region_batch_total, batch_t0)
+    ! 全 rank が同じ global q_elem から rel_change を得るので、同じ batch で抜ける。
+    if (charge_rel_change_threshold_reached(app%sim, stats)) then
+      if (mpi_is_root(mpi_ctx)) then
+        print '(a,i0,a,es12.4)', 'charge_rel_change_threshold reached: batch=', stats%batches, &
+          ' rel_change=', stats%last_rel_change
+      end if
+      exit
+    end if
   end do
   if (shared_pool) call pool_counter%destroy()
   call perf_region_end(perf_region_simulation_total, sim_t0)
@@ -216,8 +224,6 @@ contains
 
   !> 再開 batch を検査し、場ソルバ・浮遊導体・外部根の更新を初期化して、replay と共有 pool の作業領域を用意する。
   subroutine initialize_fields()
-    type(field_physics_config) :: field_config
-    type(panel_kernel_config) :: panel_config
 
     bfield = app%sim%b0
     final_batch_idx = app%sim%batch_count
@@ -231,8 +237,7 @@ contains
 
     call perf_region_begin(perf_region_simulation_total, sim_t0)
     call perf_region_begin(perf_region_field_solver_init, t0)
-    call derive_field_panel_config(app%sim, field_config, panel_config)
-    call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config, mpi=mpi_ctx)
+    call snapshot%init(mesh, app%sim, app%periodic2, mpi=mpi_ctx)
     call conductor_solver%init(mesh, app%sim, snapshot)
     call perf_region_end(perf_region_field_solver_init, t0)
     call outflow_refresh%initialize(app, mesh, stats%matching_plane, surface_closure, cell)
@@ -298,16 +303,7 @@ contains
       end do
 
       call perf_region_begin(perf_region_prepare_batch, t0)
-      call build_particle_source_plan( &
-        trial_app, source_plan, mpi=mpi_ctx, &
-        kinetic_inflow_active=surface_closure%has_inflow_kinetic_map, &
-        kinetic_reservoir_potential_v=surface_closure%inflow_reservoir_potential_v, &
-        kinetic_access_potential_v=surface_closure%inflow_access_potential_v, &
-        kinetic_inflow_face=surface_closure%inflow_kinetic_face, &
-        number_flux_override_active=surface_closure%has_inflow_number_flux, &
-        number_flux_override_m2_s=surface_closure%inflow_number_flux_m2_s, &
-        kinetic_reservoir_density_m3=surface_closure%inflow_reservoir_density_m3 &
-        )
+      call build_particle_source_plan(trial_app, source_plan, mpi=mpi_ctx, closure=surface_closure)
       call prepare_batch_state( &
         mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, injection_layout, mpi_ctx, &
         inject_state, photo_failure &
@@ -645,8 +641,6 @@ contains
     type(charge_ledger_type), intent(inout) :: ledger
 
     ledger%neutral_return_correction = workspace%neutral_return_correction
-    ledger%neutral_return_weight_scale = workspace%neutral_return_weight_scale
-    ledger%neutral_return_unresolved_fraction = workspace%neutral_return_unresolved_fraction
     ledger%fixed_absorbed_target_charge = workspace%fixed_absorbed_target_charge
     ledger%fixed_absorbed_weight_scale = workspace%fixed_absorbed_weight_scale
     ledger%fixed_emission_target_charge = workspace%fixed_emission_target_charge
@@ -753,7 +747,7 @@ contains
     type(sim_config), intent(in) :: sim
     type(sim_stats), intent(in) :: stats
 
-    if (trim(lower_ascii(sim%multiple_box_events_policy)) /= 'soft_discard') return
+    if (trim(lower_ascii(sim%box_events%policy)) /= 'soft_discard') return
     if (stats%processed_particles < 0_i64 .or. stats%multiple_box_events_soft_discarded < 0_i64 .or. &
         stats%multiple_box_events_soft_discarded > stats%processed_particles .or. &
         .not. ieee_is_finite(stats%multiple_box_events_soft_discarded_abs_charge) .or. &
@@ -775,8 +769,8 @@ contains
     real(dp) :: projected_fraction, projected_abs_charge
     logical :: fraction_exceeded, charge_warning
 
-    if (trim(lower_ascii(sim%multiple_box_events_policy)) /= 'soft_discard') return
-    count_grace = int(sim%multiple_box_events_soft_discard_count_grace, i64)
+    if (trim(lower_ascii(sim%box_events%policy)) /= 'soft_discard') return
+    count_grace = int(sim%box_events%soft_discard_count_grace, i64)
     if (batch_count < 0_i64 .or. batch_processed < 0_i64) then
       error stop 'soft-discard batch counters must be nonnegative.'
     end if
@@ -799,17 +793,17 @@ contains
       error stop 'multiple_box_events soft-discard cumulative absolute charge is not finite.'
     end if
     fraction_exceeded = projected_count > count_grace .and. &
-                        projected_fraction > sim%multiple_box_events_soft_discard_fraction_limit
+                        projected_fraction > sim%box_events%soft_discard_fraction_limit
     charge_warning = &
       stats%multiple_box_events_soft_discarded_abs_charge <= &
-      sim%multiple_box_events_soft_discard_abs_charge_limit .and. &
-      projected_abs_charge > sim%multiple_box_events_soft_discard_abs_charge_limit
+      sim%box_events%soft_discard_abs_charge_limit .and. &
+      projected_abs_charge > sim%box_events%soft_discard_abs_charge_limit
 
     if (charge_warning .and. mpi_is_root(mpi)) then
       write (error_unit, '(a,i0,a,es13.5,a,es13.5)') &
         'WARNING: multiple_box_events soft-discard cumulative absolute-charge threshold crossed: batch=', &
         batch_idx, ' abs_charge_C=', projected_abs_charge, &
-        ' particles.tracking.events.discard_charge_warning_c=', sim%multiple_box_events_soft_discard_abs_charge_limit
+        ' particles.tracking.events.discard_charge_warning_c=', sim%box_events%soft_discard_abs_charge_limit
       flush (error_unit)
     end if
     if (.not. fraction_exceeded) return
@@ -819,9 +813,9 @@ contains
         'multiple_box_events soft-discard cumulative fraction limit exceeded: batch=', batch_idx, &
         ' count=', projected_count, ' particles.tracking.events.discard_count_grace=', count_grace, &
         ' processed=', projected_processed, ' fraction=', projected_fraction, &
-        ' particles.tracking.events.discard_fraction_limit=', sim%multiple_box_events_soft_discard_fraction_limit, &
+        ' particles.tracking.events.discard_fraction_limit=', sim%box_events%soft_discard_fraction_limit, &
         ' abs_charge_C=', projected_abs_charge, &
-        ' particles.tracking.events.discard_charge_warning_c=', sim%multiple_box_events_soft_discard_abs_charge_limit
+        ' particles.tracking.events.discard_charge_warning_c=', sim%box_events%soft_discard_abs_charge_limit
       flush (error_unit)
     end if
     error stop 'multiple_box_events soft-discard cumulative fraction limit exceeded.'

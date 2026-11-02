@@ -3,7 +3,7 @@ program test_electrostatic_snapshot
   use bem_constants, only: eps0
   use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
   use bem_mesh, only: init_mesh
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
+  use bem_physics_config_types, only: periodic2_physics_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
@@ -13,9 +13,7 @@ program test_electrostatic_snapshot
 
   type(mesh_type) :: mesh
   type(sim_config) :: sim
-  type(field_physics_config) :: field_config
   type(periodic2_physics_config) :: periodic_config
-  type(panel_kernel_config) :: panel_config
   type(electrostatic_snapshot_type) :: snapshot
   type(panel_geometry_type) :: geometry
   real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2), target(3), electric_field(3), potential, mesh_potential(1)
@@ -29,14 +27,11 @@ program test_electrostatic_snapshot
   v2(:, 1) = [0.0_dp, 0.5_dp, 0.0_dp]
   call init_mesh(mesh, v0(:, :1), v1(:, :1), v2(:, :1), q0=[0.0_dp])
   mesh%elem_vacuum_sign = 1_i32
-  mesh%vacuum_normals = mesh%normals
   sim = sim_config()
-  sim%field_solver = 'direct'
+  sim%solver%method = 'direct'
   sim%e0 = [2.0_dp, -3.0_dp, 4.0_dp]
-  field_config = field_physics_config(backend='direct', normalization='si')
   periodic_config = periodic2_physics_config()
-  panel_config = panel_kernel_config(kernel_id='triangle_p0_exact_direct')
-  call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
+  call snapshot%init(mesh, sim, periodic_config)
   call snapshot%refresh(mesh)
 
   call test_begin('free_snapshot_composes_prescribed_field_and_mesh_potential')
@@ -57,24 +52,19 @@ program test_electrostatic_snapshot
   v2(:, 1) = [0.0_dp, 1.0_dp, 0.25_dp]
   call init_mesh(mesh, v0(:, :1), v1(:, :1), v2(:, :1), q0=[2.0e-12_dp])
   mesh%elem_vacuum_sign = 1
-  mesh%vacuum_normals = mesh%normals
   sim = sim_config()
-  sim%field_solver = 'direct'
+  sim%solver%method = 'direct'
   sim%field_bc_mode = 'periodic2'
   sim%use_box = .true.
   sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
   sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
   sim%bc_low = [bc_periodic, bc_periodic, bc_open]
   sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-  field_config = field_physics_config(backend='direct', normalization='si')
-  panel_config = panel_kernel_config( &
-                 kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
-                 )
   periodic_config = periodic2_physics_config( &
                     nonzero_mode_backend='panel_spectral_reference', zero_mode_policy='exclude_k0', &
                     lower_boundary_model='e_bottom_zero', reference_mode_layers=4, panel_quadrature_order=16 &
                     )
-  call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
+  call snapshot%init(mesh, sim, periodic_config)
   call snapshot%refresh(mesh)
   call test_begin('panel_spectral_snapshot_composes_kneq0_and_k0')
   target = [0.37_dp, 0.43_dp, 0.75_dp]
@@ -120,16 +110,11 @@ program test_electrostatic_snapshot
   v2(:, 2) = [0.0_dp, 0.5_dp, 1.0_dp]
   call init_mesh(mesh, v0, v1, v2, q0=[2.0e-12_dp, -0.5e-12_dp])
   mesh%elem_vacuum_sign = 1_i32
-  mesh%vacuum_normals = mesh%normals
   sim = sim_config()
-  sim%field_solver = 'direct'
+  sim%solver%method = 'direct'
   sim%e0 = [1.0_dp, -2.0_dp, 3.0_dp]
-  field_config = field_physics_config(backend='direct', normalization='si')
   periodic_config = periodic2_physics_config()
-  panel_config = panel_kernel_config( &
-                 kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
-                 )
-  call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
+  call snapshot%init(mesh, sim, periodic_config)
   call snapshot%refresh(mesh)
   call snapshot%eval_local_phi_without_primary_self(mesh, sim, 1_i32, potential_without_self)
   call init_panel_geometry(mesh%v0(:, 2), mesh%v1(:, 2), mesh%v2(:, 2), geometry, panel_status)

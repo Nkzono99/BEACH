@@ -10,7 +10,6 @@ module bem_field_solver
   use bem_string_utils, only: lower_ascii
   use bem_runtime_modes, only: field_solver_mode_direct, field_solver_mode_treecode, field_solver_mode_fmm, &
                                field_solver_mode_id
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
   implicit none
   private
 
@@ -20,34 +19,19 @@ module bem_field_solver
     character(len=16) :: mode = 'direct'
     !> mode を init で解決した値。評価のたびに文字列を比べない。
     integer(i32) :: mode_id = field_solver_mode_direct
-    character(len=16) :: field_bc_mode = 'free'
-    character(len=16) :: field_normalization = 'si'
-    real(dp) :: field_length_scale = 1.0d0
     real(dp) :: field_origin(3) = 0.0d0
     real(dp) :: field_inv_length_scale = 1.0d0
     real(dp) :: field_output_scale = k_coulomb
     real(dp) :: potential_output_scale = k_coulomb
     real(dp) :: theta = 0.5d0
     integer(i32) :: leaf_max = 16_i32
-    integer(i32) :: min_nelem = 256_i32
-    logical :: use_periodic2 = .false.
-    integer(i32) :: periodic_axes(2) = 0_i32
-    real(dp) :: periodic_len(2) = 0.0d0
-    integer(i32) :: periodic_image_layers = 1_i32
-    character(len=16) :: periodic_far_correction = 'none'
-    real(dp) :: periodic_ewald_alpha = 0.0d0
-    integer(i32) :: periodic_ewald_layers = 4_i32
-    character(len=256) :: periodic_cache_dir = ''
-    real(dp) :: periodic_generation_tolerance = 1.0d-8
-    real(dp) :: target_box_min(3) = 0.0d0
-    real(dp) :: target_box_max(3) = 0.0d0
     logical :: tree_ready = .false.
     integer(i32) :: nelem = 0_i32
     integer(i32) :: max_node = 0_i32
     integer(i32) :: nnode = 0_i32
     integer(i32), allocatable :: elem_order(:)
     integer(i32), allocatable :: node_start(:), node_count(:)
-    integer(i32), allocatable :: child_count(:), child_idx(:, :), child_octant(:, :)
+    integer(i32), allocatable :: child_count(:), child_idx(:, :)
     integer(i32), allocatable :: node_depth(:)
     integer(i32) :: node_max_depth = 0_i32
     integer(i32), allocatable :: node_level_start(:), node_level_nodes(:)
@@ -77,13 +61,10 @@ module bem_field_solver
   interface
     !> 設定とメッシュから電場ソルバを初期化する。
     !! mpi は cached_kneq0 の root operator を rank で分担して作るときの文脈（省略時は単一 rank）。
-    module subroutine init_field_solver(self, mesh, sim, field_config, periodic_config, panel_config, mpi)
+    module subroutine init_field_solver(self, mesh, sim, mpi)
       class(field_solver_type), intent(inout) :: self
       type(mesh_type), intent(in) :: mesh
       type(sim_config), intent(in) :: sim
-      type(field_physics_config), intent(in), optional :: field_config
-      type(periodic2_physics_config), intent(in), optional :: periodic_config
-      type(panel_kernel_config), intent(in), optional :: panel_config
       type(mpi_context), intent(in), optional :: mpi
     end subroutine init_field_solver
 

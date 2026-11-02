@@ -40,7 +40,7 @@ contains
     if (.not. any(required .and. .not. have)) return
     call create_directories(trim(plan%options%periodic_cache_dir), directory_status)
     if (directory_status /= filesystem_success) error stop 'Failed to create periodic operator cache directory.'
-    call acquire_file_lock(trim(plan%periodic_cache_path)//'.lock', lock%fd, lock_status)
+    call acquire_file_lock(trim(plan%periodic_operator%cache_path)//'.lock', lock%fd, lock_status)
     if (lock_status /= filesystem_success) error stop 'Failed to lock periodic operator cache.'
     lock%held = .true.
     ! Another job may have added cells while this one waited for the lock.
@@ -84,7 +84,7 @@ contains
 
     allocate (cells(0), blocks(plan%ncoef, plan%ncoef, 0))
     call read_periodic_operator_cache( &
-      trim(plan%periodic_cache_path), trim(plan%periodic_cache_fingerprint), pair_cells, blocks, cache_status, &
+      trim(plan%periodic_operator%cache_path), trim(plan%periodic_operator%cache_fingerprint), pair_cells, blocks, cache_status, &
       expected_ncoef=plan%ncoef &
       )
     if (cache_status /= periodic_cache_ok) then
@@ -139,7 +139,7 @@ contains
       pair_cells((b - 1_i32)*nanchor + 1_i32:b*nanchor) = cells(b)
     end do
     call write_periodic_operator_cache( &
-      trim(plan%periodic_cache_path), trim(plan%periodic_cache_fingerprint), pair_cells, blocks, cache_status &
+      trim(plan%periodic_operator%cache_path), trim(plan%periodic_operator%cache_fingerprint), pair_cells, blocks, cache_status &
       )
     if (cache_status /= periodic_cache_ok) error stop 'Failed to publish periodic operator cache.'
   end subroutine publish_cell_cache

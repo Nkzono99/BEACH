@@ -201,15 +201,12 @@ contains
 
   call allreduce_sum_real_matrix(mpi, workspace%neutral_return_charge_values)
   call allreduce_sum_i64_matrix(mpi, workspace%neutral_return_terminal_counts)
-  workspace%neutral_return_emitted_charge = workspace%neutral_return_charge_values(:, neutral_charge_emitted)
-  workspace%neutral_return_absorbed_charge = workspace%neutral_return_charge_values(:, neutral_charge_absorbed)
-  workspace%neutral_return_unresolved_charge = workspace%neutral_return_charge_values(:, neutral_charge_unresolved)
 
   do species_idx = 1_i32, n
     if (.not. neutral_return_species(species_idx)) cycle
-    emitted_charge = workspace%neutral_return_emitted_charge(species_idx)
-    absorbed_charge = workspace%neutral_return_absorbed_charge(species_idx)
-    unresolved_charge = workspace%neutral_return_unresolved_charge(species_idx)
+    emitted_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_emitted)
+    absorbed_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_absorbed)
+    unresolved_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_unresolved)
     escaped_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_escaped)
     soft_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_soft)
     invalid_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_invalid)
@@ -238,7 +235,6 @@ contains
     end if
     workspace%neutral_return_weight_scale(species_idx) = max(1.0_dp, weight_scale)
     workspace%neutral_return_correction(species_idx) = correction_charge
-    workspace%neutral_return_unresolved_fraction(species_idx) = max(0.0_dp, unresolved_fraction)
   end do
 
   do i = 1_i32, fresh_particle_count
@@ -279,10 +275,7 @@ contains
       surface_charge_closure_fixed_current
     closure_modes(species_idx) = species_closure_mode(current_model, species_idx, fixed_current_species(species_idx))
   end do
-  credits_reflected = .false.
-  if (allocated(current_model%absorbed_target_credits_tracked_escape)) then
-    credits_reflected = current_model%absorbed_target_credits_tracked_escape(1:n)
-  end if
+  credits_reflected = current_model%species(1:n)%absorbed_target_credits_tracked_escape
   reflected_credit = 0.0_dp
   workspace%fixed_escape_closed_charge = 0.0_dp
   workspace%fixed_escape_unclosed_charge = 0.0_dp
@@ -307,10 +300,10 @@ contains
       if (mode /= closure_mode_target) call attribute_tracked_escape()
       folded_return_charge = 0.0_dp
       if (app%particle_species(species_idx)%has_target_absorbed_current_a .or. &
-          current_model%has_absorbed_target(species_idx)) call close_absorbed_channel()
+          current_model%species(species_idx)%has_absorbed_target) call close_absorbed_channel()
       if (app%particle_species(species_idx)%has_target_emission_current_a .or. &
-          current_model%has_emission_target(species_idx)) call close_emission_channel()
-      if (current_model%has_escape_target(species_idx)) call close_escape_channel()
+          current_model%species(species_idx)%has_emission_target) call close_emission_channel()
+      if (current_model%species(species_idx)%has_escape_target) call close_escape_channel()
     end do
   end do
   call record_surface_budget()
@@ -367,12 +360,8 @@ contains
     real(dp) :: partner_escape_charge, total_escape_charge
 
     partner_escape_charge = 0.0_dp
-    partner_idx = 0_i32
-    reflected_idx = 0_i32
-    if (allocated(current_model%escape_partner_species)) partner_idx = current_model%escape_partner_species(species_idx)
-    if (allocated(current_model%reflected_electron_species)) then
-      reflected_idx = current_model%reflected_electron_species(species_idx)
-    end if
+    partner_idx = current_model%species(species_idx)%escape_partner_species
+    reflected_idx = current_model%species(species_idx)%reflected_electron_species
     if (partner_idx > 0_i32) then
       partner_escape_charge = max(0.0_dp, -workspace%fixed_current_charge_values(partner_idx, fixed_charge_escaped))
     end if
@@ -380,9 +369,9 @@ contains
       reflected_escape = max(0.0_dp, -workspace%fixed_current_charge_values(reflected_idx, fixed_charge_escaped))
       reflected_return = max(0.0_dp, -workspace%fixed_current_charge_values(reflected_idx, fixed_charge_barrier_return))
     end if
-    if ((partner_idx > 0_i32 .or. reflected_idx > 0_i32) .and. current_model%has_escape_target(species_idx)) then
+    if ((partner_idx > 0_i32 .or. reflected_idx > 0_i32) .and. current_model%species(species_idx)%has_escape_target) then
       total_escape_charge = max(0.0_dp, -checked_fixed_target_charge( &
-                                current_model%escaped_particle_current_a(species_idx), app%sim%batch_duration, &
+                                current_model%species(species_idx)%escaped_particle_current_a, app%sim%batch_duration, &
                                 'fixed_current escape'))
       partner_charge = min(partner_escape_charge + reflected_escape, total_escape_charge)
       workspace%fixed_escape_closed_charge(species_idx) = partner_charge
@@ -391,7 +380,7 @@ contains
     if (reflected_idx > 0_i32) then
       ! 追跡した源の種は放出・帰還目標から反射電子の脱出全量を差し引く。partner を持つ放出電子は根の脱出束までしか
       ! 差し引けないので、SEE の脱出を先に充てた残りだけが反射電子の分になる。電子へはこの量だけを足し戻す（#93）。
-      if (tracked_source .or. .not. current_model%has_escape_target(species_idx)) then
+      if (tracked_source .or. .not. current_model%species(species_idx)%has_escape_target) then
         reflected_credit(reflected_idx) = reflected_credit(reflected_idx) + reflected_escape
       else
         reflected_credit(reflected_idx) = reflected_credit(reflected_idx) + &
@@ -407,8 +396,8 @@ contains
     real(dp) :: raw_charge, target_current, target_charge, weight_scale, correction, charge_tolerance, macro_charge
 
     raw_charge = workspace%fixed_current_charge_values(species_idx, fixed_charge_absorbed)
-    if (current_model%has_absorbed_target(species_idx)) then
-      target_current = current_model%absorbed_current_a(species_idx)
+    if (current_model%species(species_idx)%has_absorbed_target) then
+      target_current = current_model%species(species_idx)%absorbed_current_a
     else
       target_current = app%particle_species(species_idx)%target_absorbed_current_a
     end if
@@ -469,8 +458,8 @@ contains
     real(dp) :: raw_charge, target_current, target_charge, weight_scale, correction, charge_tolerance
 
     raw_charge = workspace%fixed_current_charge_values(species_idx, fixed_charge_emission)
-    if (current_model%has_emission_target(species_idx)) then
-      target_current = current_model%emission_current_a(species_idx)
+    if (current_model%species(species_idx)%has_emission_target) then
+      target_current = current_model%species(species_idx)%emission_current_a
     else
       target_current = app%particle_species(species_idx)%target_emission_current_a
     end if
@@ -548,7 +537,7 @@ contains
     real(dp) :: raw_charge, target_current, target_charge
 
     raw_charge = workspace%fixed_current_charge_values(species_idx, fixed_charge_escaped)
-    target_current = current_model%escaped_particle_current_a(species_idx)
+    target_current = current_model%species(species_idx)%escaped_particle_current_a
     if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
       error stop 'fixed_current escape raw/current/duration value is not finite.'
     end if

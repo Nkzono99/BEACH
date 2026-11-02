@@ -96,7 +96,7 @@ AABB/grid cache を保持します。OBJ の scale、rotation、offset はこの
 `sim_stats` は processed / absorbed / escaped / max-step survivor、accepted batch 数、累積物理時間、
 適応 batch の棄却数と直近診断、`last_rel_change` を保持します。
 
-`output.diagnostics.charge_rel_change_threshold` は監視・出力値であり、早期停止条件ではありません。
+`output.diagnostics.charge_rel_change_threshold` は既定 0 で無効です。正の値を設定すると、accepted batch の表面電荷の相対変化 `rel_change` がこの値を下回った batch で、`run.batch_count` に達する前でも run を終えます（`summary.txt` の `charge_rel_change_threshold_reached=T`）。
 
 ## 4. 1 batch の計算手順
 
@@ -437,8 +437,8 @@ SEE と同じ規格化で窓の源に加え、各バッチで追跡したその�
 
 - 新規実行は `run.batch_count` 個の accepted batch を処理する
 - 再開は checkpoint の batch 数から `run.batch_count` まで処理する
+- `output.diagnostics.charge_rel_change_threshold` が正なら、`rel_change` がそれを下回った accepted batch で終える
 - 各粒子の前進上限は `particles.tracking.max_steps_per_particle`
-- `output.diagnostics.charge_rel_change_threshold` は早期停止に使わない
 
 ## 9. 出力と再開
 

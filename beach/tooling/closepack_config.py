@@ -21,7 +21,6 @@ DEFAULT_BASE_CONFIG: dict[str, Any] = {
         "dt": 2.0e-8,
         "batch_count": 100,
         "max_step": 100000,
-        "tol_rel": 1.0e-8,
         "b0": [0.0, 0.0, 0.0],
         "rng_seed": 12345,
         "field_solver": "treecode",

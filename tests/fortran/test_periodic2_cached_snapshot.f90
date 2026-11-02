@@ -8,7 +8,7 @@ program test_periodic2_cached_snapshot
                                 beach_kernel_eval_e, beach_kernel_eval_phi, &
                                 beach_kernel_get_periodic_cache_info, beach_kernel_invalid_argument, beach_kernel_ok, &
                                 beach_kernel_set_periodic_cache, beach_kernel_update_charges
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
+  use bem_physics_config_types, only: periodic2_physics_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
@@ -62,9 +62,7 @@ program test_periodic2_cached_snapshot
 
   type(mesh_type) :: mesh
   type(sim_config) :: sim
-  type(field_physics_config) :: field_config
   type(periodic2_physics_config) :: periodic_config
-  type(panel_kernel_config) :: panel_config
   type(electrostatic_snapshot_type) :: snapshot, refreshed_snapshot
   real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2), target(3)
   real(dp) :: total_field(3), expected_field(3), nonzero_field(3), zero_field, zero_potential
@@ -79,8 +77,8 @@ program test_periodic2_cached_snapshot
   logical :: retry_available
 
   cache_dir = unique_test_path('test_periodic2_cached_snapshot_tmp_')
-  call configure_cached_periodic2_fixture(mesh, sim, field_config, periodic_config, panel_config, v0, v1, v2, cache_dir)
-  call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
+  call configure_cached_periodic2_fixture(mesh, sim, periodic_config, v0, v1, v2, cache_dir)
+  call snapshot%init(mesh, sim, periodic_config)
   cache_path = snapshot%diagnostics%periodic_cache_path
   call snapshot%refresh(mesh)
   target = [0.37_dp, 0.61_dp, 0.42_dp]
@@ -127,7 +125,7 @@ program test_periodic2_cached_snapshot
     'upper Fourier retry must compose kneq0, k0, and prescribed field exactly once' &
     )
   retry_expected_potential = retry_potential + zero_potential - &
-                             dot_product(sim%e0, target - snapshot%prescribed_phi_origin)
+                             dot_product(sim%e0, target)
   call snapshot%eval_upper_panel_fourier_phi(mesh, target, retry_total_potential, retry_available)
   call assert_true(retry_available, 'upper Fourier retry potential should be available above the mesh')
   call assert_close_dp( &
@@ -154,7 +152,7 @@ program test_periodic2_cached_snapshot
   call evaluate_components(expected_field, expected_potential, nonzero_field, nonzero_potential, zero_field, zero_potential)
   call snapshot%eval_local_e(mesh, target, total_field)
   call snapshot%eval_local_phi(mesh, sim, target, total_potential)
-  call refreshed_snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
+  call refreshed_snapshot%init(mesh, sim, periodic_config)
   call refreshed_snapshot%refresh(mesh)
   call refreshed_snapshot%eval_local_e(mesh, target, refreshed_field)
   call refreshed_snapshot%eval_local_phi(mesh, sim, target, refreshed_potential)
@@ -280,7 +278,7 @@ contains
     call assert_c_ok(status, 'FieldKernel create status')
     status = beach_kernel_set_periodic_cache( &
              kernel_handle, c_loc(cache_bytes), int(size(cache_bytes), c_int), &
-             real(sim%field_periodic_generation_tolerance, c_double) &
+             real(sim%periodic%generation_tolerance, c_double) &
              )
     call assert_c_ok(status, 'FieldKernel cache status')
     status = beach_kernel_build( &

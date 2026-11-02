@@ -2754,10 +2754,6 @@ def _validate_cached_electrostatic_state(summary: Mapping[str, str]) -> None:
         raise ValidationError("cached electrostatic state is not active")
     if summary.get("electrostatic_status") != "cached_kneq0":
         raise ValidationError("cached electrostatic status mismatch")
-    try:
-        _summary_float(summary, "gauss_residual_C")
-    except ValidationError as exc:
-        raise ValidationError(f"incomplete cached electrostatic state: {exc}") from exc
 
 
 def _validate_history(

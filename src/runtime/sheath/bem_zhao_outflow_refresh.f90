@@ -38,7 +38,6 @@ module bem_zhao_outflow_refresh
     real(dp) :: reflected_flux_m2_s = 0.0_dp
     real(dp) :: window_duration = 0.0_dp
     integer(i32) :: accepted_solves = 0_i32
-    real(dp) :: area = 0.0_dp
     real(dp) :: photo_abs_charge = 0.0_dp
     real(dp) :: last_change = 0.0_dp
     !> 窓内の H 外向き通過数、その法線運動エネルギー和 [J]、表面放出数。raw weight 単位。
@@ -85,25 +84,23 @@ contains
       if (status /= irradiation_cell_ok) error stop trim(message)
     end if
     self%refresh_batches = app%surface_current%outflow_refresh_batches
-    self%area = self%cell%wall_area(app%sim%box_min, app%sim%box_max)
-    if (app%surface_current%has_reference_area_m2) self%area = app%surface_current%reference_area_m2
 
     if (receipt%state_valid) then
-      if (receipt%feedback(1) == 0.0_dp) then
+      if (receipt%photoelectron_outward_flux_m2_s == 0.0_dp) then
         ! Before the first SEE-only refresh, the saved source is zero and the root is Type C.
         call evaluate_surface_current_model(app, self%state, self%cell, self%outer)
         success = .true.
       else if (any(receipt%photoelectron_spectrum_m2_s > 0.0_dp)) then
         call solve_zhao_outflow_closure( &
-          app, receipt%feedback(1), receipt%feedback(2), &
-          branch_from_response(receipt%response), self%state, success, message, &
+          app, receipt%photoelectron_outward_flux_m2_s, receipt%photoelectron_mean_normal_energy_ev, &
+          branch_from_receipt(receipt), self%state, success, message, &
           outer_spectrum_m2_s=receipt%photoelectron_spectrum_m2_s, cell=self%cell, outer=self%outer &
           )
       else
         ! 外部根をまだ更新していない checkpoint の外部源は、表面放出の半 Maxwell 分布である。
         call solve_zhao_outflow_closure( &
-          app, receipt%feedback(1), receipt%feedback(2), &
-          branch_from_response(receipt%response), self%state, success, message, &
+          app, receipt%photoelectron_outward_flux_m2_s, receipt%photoelectron_mean_normal_energy_ev, &
+          branch_from_receipt(receipt), self%state, success, message, &
           cell=self%cell, outer=self%outer &
           )
       end if
@@ -113,7 +110,7 @@ contains
       end if
       self%accepted_solves = receipt%iterations
       self%last_change = receipt%residual
-      self%reflected_flux_m2_s = receipt%feedback(3)
+      self%reflected_flux_m2_s = receipt%electron_outward_flux_m2_s
     else
       call evaluate_surface_current_model(app, self%state, self%cell, self%outer)
       self%accepted_solves = 1_i32
@@ -126,7 +123,7 @@ contains
     if (self%photo_idx > 0_i32) self%photo_abs_charge = abs(app%particle_species(self%photo_idx)%q_particle)
     surface_closure = self%state%surface_closure_contract_type
     call stage_state( &
-      self, receipt, finite_charge_sum(mesh%q_elem, 'zhao outflow refresh initial charge')/self%area &
+      self, receipt, finite_charge_sum(mesh%q_elem, 'zhao outflow refresh initial charge')/self%state%reference_area_m2 &
       )
   end subroutine initialize
 
@@ -157,7 +154,7 @@ contains
     type(surface_current_model_result_type) :: trial
     real(dp) :: batch_moments(3, 3), transmission, outer_flux, outer_energy_ev, displacement
     real(dp) :: photo_flux, secondary_flux, reflected_flux, attributed_secondary_current, total_escape_current
-    real(dp) :: packed_values(3*(2 + outflow_spectrum_bins)), denominator
+    real(dp) :: packed_values(3*(2 + outflow_spectrum_bins)), denominator, area
     integer :: group, idx
     real(dp) :: batch_values(2 + outflow_spectrum_bins, 3), outer_spectrum(outflow_spectrum_bins)
     character(len=256) :: message
@@ -165,6 +162,7 @@ contains
 
     refreshed = .false.
     if (.not. self%active) return
+    area = self%state%reference_area_m2
     batch_values = 0.0_dp
     batch_moments = 0.0_dp
     do group = 1, 3
@@ -193,9 +191,9 @@ contains
     self%window_duration = self%window_duration + app%sim%batch_duration
     if (self%window_batches >= self%refresh_batches) then
       photo_flux = 0.0_dp
-      secondary_flux = self%window_moments(1, 2)/(self%area*self%window_duration)
+      secondary_flux = self%window_moments(1, 2)/(area*self%window_duration)
       ! セル内で反射して H を抜けた上流電子。外部モデルから見れば由来に関わらず境界からの放出電子である。
-      reflected_flux = self%window_moments(1, 3)/(self%area*self%window_duration)
+      reflected_flux = self%window_moments(1, 3)/(area*self%window_duration)
       transmission = 0.0_dp
       if (self%window_moments(3, 1) > 0.0_dp) then
         transmission = self%window_moments(1, 1)/self%window_moments(3, 1)
@@ -275,14 +273,14 @@ contains
       if (self%photo_idx > 0) then
         if (species_closure_mode(self%state, self%photo_idx, .false.) == closure_mode_escape_partner) then
           ! PE の脱出・帰還目標が差し引いた SEE 脱出。根の脱出束を超えた分は差し引けず、収支に残る。
-          attributed_secondary_current = fixed_escape_closed_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
+          attributed_secondary_current = fixed_escape_closed_charge(self%photo_idx)/(area*app%sim%batch_duration)
           receipt%secondary_budget_residual_a_m2 = &
-            fixed_escape_unclosed_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
+            fixed_escape_unclosed_charge(self%photo_idx)/(area*app%sim%batch_duration)
         else
           ! Type C では SEE を根へ固定する。根の脱出束のうち SEE の脱出目標に載せた分が SEE の取り分。
-          attributed_secondary_current = fixed_escape_closed_charge(self%secondary_idx)/(self%area*app%sim%batch_duration)
+          attributed_secondary_current = fixed_escape_closed_charge(self%secondary_idx)/(area*app%sim%batch_duration)
           receipt%secondary_budget_residual_a_m2 = &
-            fixed_escape_unclosed_charge(self%secondary_idx)/(self%area*app%sim%batch_duration)
+            fixed_escape_unclosed_charge(self%secondary_idx)/(area*app%sim%batch_duration)
         end if
         if (total_escape_current > 0.0_dp) then
           receipt%secondary_share = min(1.0_dp, attributed_secondary_current/total_escape_current)
@@ -291,10 +289,10 @@ contains
         ! PE がなければ根の脱出束は全て SEE のもの。SEE の放出がなく目標を載せられなかった分だけが収支に残る。
         receipt%secondary_share = 1.0_dp
         receipt%secondary_budget_residual_a_m2 = &
-          fixed_escape_unclosed_charge(self%secondary_idx)/(self%area*app%sim%batch_duration)
+          fixed_escape_unclosed_charge(self%secondary_idx)/(area*app%sim%batch_duration)
       end if
     end if
-    displacement = finite_charge_sum(mesh%q_elem, 'zhao outflow refresh committed charge')/self%area
+    displacement = finite_charge_sum(mesh%q_elem, 'zhao outflow refresh committed charge')/area
     call stage_state(self, receipt, displacement)
   end subroutine commit_batch
 
@@ -313,16 +311,13 @@ contains
     receipt%state_valid = .true.
     receipt%displacement_c_m2 = displacement
     receipt%phi_v = self%state%phi0_v
-    receipt%response = [ &
-                       self%state%phi0_v, -self%state%electron_current_density_a_m2/qe, &
-                       self%state%ion_current_density_a_m2/qe, access_potential, 0.0_dp, &
-                       access_potential &
-                       ]
-    ! feedback(3) は外部源に含めた反射上流電子の H 外向き束（含めなければ 0）。イオンの外向き束は使わない。
-    receipt%feedback = [ &
-                       self%state%outer_photoelectron_flux_m2_s, &
-                       self%state%outer_photoelectron_mean_energy_ev, self%reflected_flux_m2_s, 0.0_dp &
-                       ]
+    receipt%electron_inward_flux_m2_s = -self%state%electron_current_density_a_m2/qe
+    receipt%ion_inward_flux_m2_s = self%state%ion_current_density_a_m2/qe
+    receipt%electron_access_potential_v = access_potential
+    receipt%photoelectron_outward_flux_m2_s = self%state%outer_photoelectron_flux_m2_s
+    receipt%photoelectron_mean_normal_energy_ev = self%state%outer_photoelectron_mean_energy_ev
+    ! 外部源に含めた反射上流電子の H 外向き束（含めなければ 0）。
+    receipt%electron_outward_flux_m2_s = self%reflected_flux_m2_s
     receipt%photoelectron_spectrum_m2_s = self%state%outer_photoelectron_spectrum_m2_s
     receipt%photoelectron_return_flux_m2_s = return_flux
     receipt%photoelectron_escape_flux_m2_s = escape_flux
@@ -330,17 +325,17 @@ contains
     receipt%residual = self%last_change
   end subroutine stage_state
 
-  !> 保存した外部障壁と壁電位の符号から Zhao branch を復元する。
-  pure character(len=1) function branch_from_response(response) result(branch)
-    real(dp), intent(in) :: response(6)
+  !> 保存した経路電位と壁電位の符号から Zhao branch を復元する。
+  pure character(len=1) function branch_from_receipt(receipt) result(branch)
+    type(matching_plane_stats), intent(in) :: receipt
 
-    if (response(6) < 0.0_dp) then
+    if (receipt%electron_access_potential_v < 0.0_dp) then
       branch = 'A'
-    else if (response(1) >= 0.0_dp) then
+    else if (receipt%phi_v >= 0.0_dp) then
       branch = 'B'
     else
       branch = 'C'
     end if
-  end function branch_from_response
+  end function branch_from_receipt
 
 end module bem_zhao_outflow_refresh

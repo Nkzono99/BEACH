@@ -133,7 +133,7 @@ contains
     end type part_vertices
     type(part_vertices), allocatable :: parts(:)
     type(mesh_type) :: part
-    real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :), elem_epsilon_r(:)
+    real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :)
     integer(i32), allocatable :: elem_mesh_id(:), elem_surface_model(:)
     integer(i32) :: i, mesh_id, n
     integer(i64) :: first, last
@@ -156,7 +156,7 @@ contains
     end do
     if (n == 0_i32) error stop 'No enabled mesh.parts found in configuration.'
 
-    allocate (v0(3, n), v1(3, n), v2(3, n), elem_mesh_id(n), elem_surface_model(n), elem_epsilon_r(n))
+    allocate (v0(3, n), v1(3, n), v2(3, n), elem_mesh_id(n), elem_surface_model(n))
     mesh_id = 0_i32
     first = 1_i64
     do i = 1, cfg%n_mesh_parts
@@ -169,12 +169,10 @@ contains
       deallocate (parts(i)%v0, parts(i)%v1, parts(i)%v2)
       elem_mesh_id(first:last) = mesh_id
       elem_surface_model(first:last) = surface_model_id_from_name(cfg%mesh_parts(i)%surface_model)
-      elem_epsilon_r(first:last) = cfg%mesh_parts(i)%epsilon_r
       first = last + 1_i64
     end do
     call init_mesh( &
-      mesh, v0, v1, v2, elem_mesh_id0=elem_mesh_id, elem_surface_model0=elem_surface_model, &
-      elem_epsilon_r0=elem_epsilon_r &
+      mesh, v0, v1, v2, elem_mesh_id0=elem_mesh_id, elem_surface_model0=elem_surface_model &
       )
   end subroutine build_parts_mesh
 

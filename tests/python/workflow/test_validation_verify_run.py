@@ -675,33 +675,3 @@ def test_native_writer_checkpoint_satisfies_validator(
     (out / "checkpoint_complete.txt").unlink()
     with pytest.raises(tool.ValidationError, match="checkpoint_complete"):
         tool._validate_checkpoint(out, summary)
-
-
-def test_verify_run_requires_complete_cached_electrostatic_state(
-    archive_run: Path,
-    binary: Path,
-    tmp_path: Path,
-) -> None:
-    tool = _load_tool()
-    validation_root = tmp_path / "validation"
-    tool.stage_validation(archive_run, validation_root, binary)
-    out = _write_run_output(
-        validation_root,
-        "cache_prime",
-        batches=1,
-        cache_hit=False,
-        build_count=1,
-    )
-    summary = (out / "summary.txt").read_text(encoding="utf-8")
-    (out / "summary.txt").write_text(
-        "\n".join(
-            line
-            for line in summary.splitlines()
-            if not line.startswith("gauss_residual_C=")
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(tool.ValidationError, match="cached electrostatic state"):
-        tool.verify_run(out, 1)

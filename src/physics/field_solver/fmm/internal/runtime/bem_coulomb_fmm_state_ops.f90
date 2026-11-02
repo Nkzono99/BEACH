@@ -2,9 +2,7 @@
 module bem_coulomb_fmm_state_ops
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: eps0
-  use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, initialize_fmm_state, reset_fmm_state
-  use bem_coulomb_fmm_tree_utils, only: active_tree_nnode, active_tree_max_depth, active_tree_level_bounds, &
-                                        active_tree_level_node
+  use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, fmm_tree_type, initialize_fmm_state, reset_fmm_state
   use bem_periodic_zero_mode_plan, only: refresh_periodic_zero_mode_state
   use bem_periodic_shell_mean, only: refresh_periodic_shell_mean_state
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_allgatherv_inplace_real_dp, mpi_allgatherv_inplace_i32
@@ -50,34 +48,34 @@ contains
         )
       call refresh_periodic_shell_mean_state(plan%periodic_shell_mean, src_q, state%periodic_shell_mean_state)
     end if
-    if (plan%periodic_root_operator_ready) then
+    if (plan%periodic_operator%ready) then
       if (allocated(state%periodic_multipole)) then
-        if (any(shape(state%periodic_multipole) /= [plan%ncoef, plan%periodic_root_source_count])) then
+        if (any(shape(state%periodic_multipole) /= [plan%ncoef, plan%periodic_operator%root_source_count])) then
           deallocate (state%periodic_multipole)
         end if
       end if
       if (.not. allocated(state%periodic_multipole)) then
-        allocate (state%periodic_multipole(plan%ncoef, plan%periodic_root_source_count))
+        allocate (state%periodic_multipole(plan%ncoef, plan%periodic_operator%root_source_count))
       end if
       state%periodic_multipole = 0.0_dp
       do source_idx = 1_i32, plan%nsrc
-        cell = plan%periodic_source_cell(source_idx)
+        cell = plan%periodic_operator%source_cell(source_idx)
         state%periodic_multipole(:, cell) = state%periodic_multipole(:, cell) + &
-                                            src_q(source_idx)*plan%periodic_source_p2m_basis(:, source_idx)
+                                            src_q(source_idx)*plan%periodic_operator%source_p2m_basis(:, source_idx)
       end do
       if (allocated(state%anchor_local)) then
-        if (any(shape(state%anchor_local) /= [plan%ncoef, plan%periodic_operator_anchor_count])) then
+        if (any(shape(state%anchor_local) /= [plan%ncoef, plan%periodic_operator%anchor_count])) then
           deallocate (state%anchor_local, state%anchor_local_active)
         end if
       end if
       if (.not. allocated(state%anchor_local)) then
-        allocate (state%anchor_local(plan%ncoef, plan%periodic_operator_anchor_count), &
-                  state%anchor_local_active(plan%periodic_operator_anchor_count))
+        allocate (state%anchor_local(plan%ncoef, plan%periodic_operator%anchor_count), &
+                  state%anchor_local_active(plan%periodic_operator%anchor_count))
       end if
       state%anchor_local = 0.0_dp
       state%anchor_local_active = 0_i32
     end if
-    n_target_nodes = merge(plan%target_nnode, plan%nnode, plan%target_tree_ready)
+    n_target_nodes = merge(plan%target_tree%nnode, plan%source_tree%nnode, plan%target_tree_ready)
     rank = 0_i32
     rank_count = 1_i32
     if (present(mpi)) call mpi_get_rank_size(rank, rank_count, mpi)
@@ -124,7 +122,11 @@ contains
     !$omp parallel default(none) shared(plan, state, n_target_nodes)
     if (n_target_nodes > 0_i32) then
       call apply_periodic_target_correction(plan, state)
-      call l2l_downward_pass(plan, state)
+      if (plan%target_tree_ready) then
+        call l2l_downward_pass(plan, plan%target_tree, state)
+      else
+        call l2l_downward_pass(plan, plan%source_tree, state)
+      end if
     end if
     !$omp end parallel
 
@@ -145,8 +147,8 @@ contains
     type(fmm_state_type), intent(inout) :: state
     integer(i32) :: n_target_nodes
 
-    n_target_nodes = plan%nnode
-    if (plan%target_tree_ready) n_target_nodes = plan%target_nnode
+    n_target_nodes = plan%source_tree%nnode
+    if (plan%target_tree_ready) n_target_nodes = plan%target_tree%nnode
 
     if (state%update_count <= 0_i32) then
       call initialize_fmm_state(state)
@@ -156,8 +158,8 @@ contains
       if (associated(state%local)) deallocate (state%local)
       if (associated(state%local_active)) deallocate (state%local_active)
       allocate (state%src_q(plan%nsrc))
-      allocate (state%multipole(plan%ncoef, max(1_i32, plan%nnode)))
-      allocate (state%multipole_active(max(1_i32, plan%nnode)))
+      allocate (state%multipole(plan%ncoef, max(1_i32, plan%source_tree%nnode)))
+      allocate (state%multipole_active(max(1_i32, plan%source_tree%nnode)))
       allocate (state%local(plan%ncoef, max(1_i32, n_target_nodes)))
       allocate (state%local_active(max(1_i32, n_target_nodes)))
       return
@@ -169,15 +171,15 @@ contains
     if (.not. associated(state%src_q)) allocate (state%src_q(plan%nsrc))
 
     if (associated(state%multipole)) then
-      if (size(state%multipole, 1) /= plan%ncoef .or. size(state%multipole, 2) /= max(1_i32, plan%nnode)) then
+      if (size(state%multipole, 1) /= plan%ncoef .or. size(state%multipole, 2) /= max(1_i32, plan%source_tree%nnode)) then
         deallocate (state%multipole)
       end if
     end if
-    if (.not. associated(state%multipole)) allocate (state%multipole(plan%ncoef, max(1_i32, plan%nnode)))
+    if (.not. associated(state%multipole)) allocate (state%multipole(plan%ncoef, max(1_i32, plan%source_tree%nnode)))
     if (associated(state%multipole_active)) then
-      if (size(state%multipole_active) /= max(1_i32, plan%nnode)) deallocate (state%multipole_active)
+      if (size(state%multipole_active) /= max(1_i32, plan%source_tree%nnode)) deallocate (state%multipole_active)
     end if
-    if (.not. associated(state%multipole_active)) allocate (state%multipole_active(max(1_i32, plan%nnode)))
+    if (.not. associated(state%multipole_active)) allocate (state%multipole_active(max(1_i32, plan%source_tree%nnode)))
 
     if (associated(state%local)) then
       if (size(state%local, 1) /= plan%ncoef .or. size(state%local, 2) /= max(1_i32, n_target_nodes)) then
@@ -204,9 +206,9 @@ contains
       node_idx = plan%source_leaf_nodes(leaf_idx)
       leaf_multipole = 0.0d0
       leaf_active = .false.
-      p_end = plan%node_start(node_idx) + plan%node_count(node_idx) - 1_i32
-      do p = plan%node_start(node_idx), p_end
-        idx = plan%elem_order(p)
+      p_end = plan%source_tree%node_start(node_idx) + plan%source_tree%node_count(node_idx) - 1_i32
+      do p = plan%source_tree%node_start(node_idx), p_end
+        idx = plan%source_tree%elem_order(p)
         if (abs(state%src_q(idx)) <= tiny(1.0d0)) cycle
         do alpha_idx = 1_i32, plan%ncoef
           leaf_multipole(alpha_idx) = leaf_multipole(alpha_idx) + state%src_q(idx)*plan%source_p2m_basis(alpha_idx, p)
@@ -227,17 +229,17 @@ contains
     real(dp) :: node_multipole(plan%ncoef)
     logical :: node_active
 
-    if (plan%node_max_depth <= 0_i32) return
-    do depth = plan%node_max_depth - 1_i32, 0_i32, -1_i32
-      level_start_pos = plan%node_level_start(depth + 1_i32)
-      level_end_pos = plan%node_level_start(depth + 2_i32) - 1_i32
+    if (plan%source_tree%max_depth <= 0_i32) return
+    do depth = plan%source_tree%max_depth - 1_i32, 0_i32, -1_i32
+      level_start_pos = plan%source_tree%level_start(depth + 1_i32)
+      level_end_pos = plan%source_tree%level_start(depth + 2_i32) - 1_i32
       !$omp do schedule(static)
       do level_pos = level_start_pos, level_end_pos
-        node_idx = plan%node_level_nodes(level_pos)
-        if (plan%child_count(node_idx) <= 0_i32) cycle
+        node_idx = plan%source_tree%level_nodes(level_pos)
+        if (plan%source_tree%child_count(node_idx) <= 0_i32) cycle
         node_multipole = 0.0d0
-        do child_k = 1_i32, plan%child_count(node_idx)
-          child_node = plan%child_idx(child_k, node_idx)
+        do child_k = 1_i32, plan%source_tree%child_count(node_idx)
+          child_node = plan%source_tree%child_idx(child_k, node_idx)
           if (state%multipole_active(child_node) == 0_i32) cycle
           do beta_idx = 1_i32, plan%ncoef
             do term_idx = 1_i32, plan%m2m_term_count(beta_idx)
@@ -325,20 +327,20 @@ contains
     real(dp) :: node_local(plan%ncoef)
     logical :: node_active
 
-    if (.not. plan%periodic_root_operator_ready) return
+    if (.not. plan%periodic_operator%ready) return
     if (.not. allocated(state%anchor_local)) return
-    anchor_count = plan%periodic_operator_anchor_count
-    if (anchor_count <= 0_i32 .or. plan%periodic_root_source_count <= 0_i32) return
+    anchor_count = plan%periodic_operator%anchor_count
+    if (anchor_count <= 0_i32 .or. plan%periodic_operator%root_source_count <= 0_i32) return
     ! 組は source cell ごとに target anchor が連続して並ぶ。anchor 単位で並列化して書き込みの競合を避ける。
     !$omp do schedule(static)
     do target_idx = 1_i32, anchor_count
       node_local = 0.0_dp
-      do source_idx = 1_i32, plan%periodic_root_source_count
+      do source_idx = 1_i32, plan%periodic_operator%root_source_count
         if (.not. coefficient_vector_is_active(state%periodic_multipole(:, source_idx))) cycle
-        slot = plan%periodic_operator_cell_slot(source_idx)
+        slot = plan%periodic_operator%cell_slot(source_idx)
         ! Every cell that holds a source was built at plan time, so a charged cell always has a slot.
         if (slot <= 0_i32) error stop 'periodic far correction has no operator for a charged source cell.'
-        node_local = node_local + matmul(plan%periodic_root_operator(:, :, (slot - 1_i32)*anchor_count + target_idx), &
+        node_local = node_local + matmul(plan%periodic_operator%root_operator(:, :, (slot - 1_i32)*anchor_count + target_idx), &
                                          state%periodic_multipole(:, source_idx))
       end do
       node_active = coefficient_vector_is_active(node_local)
@@ -348,25 +350,25 @@ contains
     !$omp end do
   end subroutine apply_periodic_target_correction
 
-  subroutine l2l_downward_pass(plan, state)
+  !> 局所展開を評価用の木 target_tree（plan%target_tree か plan%source_tree）の根から葉へ L2L で下ろす。
+  subroutine l2l_downward_pass(plan, target_tree, state)
     type(fmm_plan_type), intent(in) :: plan
+    type(fmm_tree_type), intent(in) :: target_tree
     type(fmm_state_type), intent(inout) :: state
-    integer(i32) :: depth, max_depth, level_pos, level_start_pos, level_end_pos
+    integer(i32) :: depth, level_pos, level_start_pos, level_end_pos
     integer(i32) :: node_idx, parent_node, alpha_idx, term_idx, gamma_idx, delta_idx
     real(dp) :: parent_local(plan%ncoef), local_acc(plan%ncoef)
-    logical :: use_target_tree
     logical :: parent_active, node_active
 
-    use_target_tree = plan%target_tree_ready
-    max_depth = active_tree_max_depth(plan, use_target_tree)
-    if (max_depth <= 0_i32) return
+    if (target_tree%max_depth <= 0_i32) return
 
-    do depth = 1_i32, max_depth
-      call active_tree_level_bounds(plan, use_target_tree, depth, level_start_pos, level_end_pos)
+    do depth = 1_i32, target_tree%max_depth
+      level_start_pos = target_tree%level_start(depth + 1_i32)
+      level_end_pos = target_tree%level_start(depth + 2_i32) - 1_i32
       !$omp do schedule(static)
       do level_pos = level_start_pos, level_end_pos
-        node_idx = active_tree_level_node(plan, use_target_tree, level_pos)
-        parent_node = plan%parent_of(node_idx)
+        node_idx = target_tree%level_nodes(level_pos)
+        parent_node = target_tree%parent(node_idx)
         if (parent_node <= 0_i32) cycle
         parent_active = state%local_active(parent_node) /= 0_i32
         node_active = state%local_active(node_idx) /= 0_i32

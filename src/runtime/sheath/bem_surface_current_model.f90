@@ -19,7 +19,6 @@ module bem_surface_current_model
     character(len=32) :: model = 'none'
     character(len=1) :: zhao_branch = ' '
     integer(i32) :: electron_species_idx = 0_i32
-    integer(i32) :: ion_species_idx = 0_i32
     integer(i32) :: photoelectron_species_idx = 0_i32
     logical :: photoelectron_active = .false.
     integer(i32) :: secondary_electron_species_idx = 0_i32
@@ -37,8 +36,6 @@ module bem_surface_current_model
     real(dp) :: photoelectron_escape_current_density_a_m2 = 0.0_dp
     real(dp) :: photoelectron_return_current_density_a_m2 = 0.0_dp
     real(dp) :: net_current_density_a_m2 = 0.0_dp
-    real(dp) :: photoelectron_budget_residual_current_density_a_m2 = 0.0_dp
-    real(dp) :: surface_budget_residual_current_density_a_m2 = 0.0_dp
     !> 外部Zhaoシースが壁放出として見るPE束 [1/(m2 s)] と平均法線エネルギー [eV]。
     real(dp) :: outer_photoelectron_flux_m2_s = 0.0_dp
     real(dp) :: outer_photoelectron_mean_energy_ev = 0.0_dp
@@ -96,53 +93,12 @@ contains
     end select
   end subroutine evaluate_surface_current_model
 
-  !> species別channelを未使用状態で確保する。
+  !> species別channelを未使用状態（既定値）で確保する。
   subroutine allocate_closure_channels(app, result)
     type(app_config), intent(in) :: app
     type(surface_current_model_result_type), intent(inout) :: result
 
-    allocate ( &
-      result%has_absorbed_target(app%n_particle_species), &
-      result%has_emission_target(app%n_particle_species), &
-      result%has_escape_target(app%n_particle_species), &
-      result%has_inflow_kinetic_map(app%n_particle_species), &
-      result%has_outflow_kinetic_barrier(app%n_particle_species), &
-      result%has_inflow_number_flux(app%n_particle_species), &
-      result%absorbed_current_a(app%n_particle_species), &
-      result%emission_current_a(app%n_particle_species), &
-      result%escaped_particle_current_a(app%n_particle_species), &
-      result%inflow_reservoir_potential_v(app%n_particle_species), &
-      result%inflow_access_potential_v(app%n_particle_species), &
-      result%inflow_reservoir_density_m3(app%n_particle_species), &
-      result%inflow_kinetic_face(app%n_particle_species), &
-      result%outflow_barrier_potential_v(app%n_particle_species), &
-      result%outflow_barrier_face(app%n_particle_species), &
-      result%inflow_number_flux_m2_s(app%n_particle_species), &
-      result%escape_partner_species(app%n_particle_species), &
-      result%emission_target_from_tracked_source(app%n_particle_species), &
-      result%reflected_electron_species(app%n_particle_species), &
-      result%absorbed_target_credits_tracked_escape(app%n_particle_species) &
-      )
-    result%has_absorbed_target = .false.
-    result%has_emission_target = .false.
-    result%has_escape_target = .false.
-    result%has_inflow_kinetic_map = .false.
-    result%has_outflow_kinetic_barrier = .false.
-    result%has_inflow_number_flux = .false.
-    result%absorbed_current_a = 0.0_dp
-    result%emission_current_a = 0.0_dp
-    result%escaped_particle_current_a = 0.0_dp
-    result%inflow_reservoir_potential_v = 0.0_dp
-    result%inflow_access_potential_v = 0.0_dp
-    result%inflow_reservoir_density_m3 = 0.0_dp
-    result%inflow_kinetic_face = 0_i32
-    result%outflow_barrier_potential_v = 0.0_dp
-    result%outflow_barrier_face = 0_i32
-    result%inflow_number_flux_m2_s = 0.0_dp
-    result%escape_partner_species = 0_i32
-    result%emission_target_from_tracked_source = .false.
-    result%reflected_electron_species = 0_i32
-    result%absorbed_target_credits_tracked_escape = .false.
+    allocate (result%species(app%n_particle_species))
   end subroutine allocate_closure_channels
 
   !> 設定の表面放出を外部源として零電流根を解く。PEなしではType Cだけが成立する。
@@ -498,30 +454,20 @@ contains
     result%net_current_density_a_m2 = result%electron_current_density_a_m2 + &
                                       result%ion_current_density_a_m2 + &
                                       result%photoelectron_escape_current_density_a_m2
-    result%photoelectron_budget_residual_current_density_a_m2 = &
-      result%photoelectron_emission_current_density_a_m2 + &
-      result%photoelectron_return_current_density_a_m2 - &
-      result%photoelectron_escape_current_density_a_m2
-    result%surface_budget_residual_current_density_a_m2 = &
-      result%electron_current_density_a_m2 + result%ion_current_density_a_m2 + &
-      result%photoelectron_emission_current_density_a_m2 + &
-      result%photoelectron_return_current_density_a_m2
     if (.not. channels_valid()) return
     if (.not. surface_targets_assigned()) return
     call assign_kinetic_map()
     success = .true.
   contains
 
-    !> 根の電流が有限で、符号と PE・表面の収支が閉じていれば真。偽なら message に理由を入れる。
+    !> 根の電流が有限で、符号が正しく、表面の正味電流が閉じていれば真。偽なら message に理由を入れる。
     logical function channels_valid() result(valid)
       valid = .false.
       if (.not. all(ieee_is_finite([ &
                                    result%electron_current_density_a_m2, result%ion_current_density_a_m2, &
                                    result%photoelectron_emission_current_density_a_m2, &
                                    result%photoelectron_escape_current_density_a_m2, &
-                                   result%photoelectron_return_current_density_a_m2, result%net_current_density_a_m2, &
-                                   result%photoelectron_budget_residual_current_density_a_m2, &
-                                   result%surface_budget_residual_current_density_a_m2 &
+                                   result%photoelectron_return_current_density_a_m2, result%net_current_density_a_m2 &
                                    ]))) then
         message = 'surface-current evaluation produced non-finite currents.'
         return
@@ -558,11 +504,7 @@ contains
                      abs(result%photoelectron_return_current_density_a_m2), tiny(1.0_dp) &
                      )
       budget_tolerance = sqrt(epsilon(1.0_dp))*budget_scale
-      if (abs(result%photoelectron_budget_residual_current_density_a_m2) > budget_tolerance) then
-        message = 'PE current budget does not close.'
-        return
-      end if
-      if (abs(result%surface_budget_residual_current_density_a_m2) > budget_tolerance) then
+      if (abs(result%net_current_density_a_m2) > budget_tolerance) then
         message = 'surface current budget does not close.'
         return
       end if
@@ -576,35 +518,34 @@ contains
       result%active = .true.
       result%reference_area_m2 = area
       result%electron_species_idx = electron_idx
-      result%ion_species_idx = ion_idx
       result%photoelectron_species_idx = photo_idx
       result%photoelectron_active = photoelectron_active
       result%secondary_electron_species_idx = secondary_idx
-      result%has_absorbed_target([electron_idx, ion_idx]) = .true.
-      result%absorbed_current_a(electron_idx) = &
+      result%species([electron_idx, ion_idx])%has_absorbed_target = .true.
+      result%species(electron_idx)%absorbed_current_a = &
         checked_area_current(area, result%electron_current_density_a_m2)
-      result%absorbed_current_a(ion_idx) = checked_area_current(area, result%ion_current_density_a_m2)
+      result%species(ion_idx)%absorbed_current_a = checked_area_current(area, result%ion_current_density_a_m2)
       if (photoelectron_active) then
-        result%has_absorbed_target(photo_idx) = .true.
-        result%has_emission_target(photo_idx) = .true.
-        result%has_escape_target(photo_idx) = .true.
-        result%emission_current_a(photo_idx) = &
+        result%species(photo_idx)%has_absorbed_target = .true.
+        result%species(photo_idx)%has_emission_target = .true.
+        result%species(photo_idx)%has_escape_target = .true.
+        result%species(photo_idx)%emission_current_a = &
           checked_area_current(area, result%photoelectron_emission_current_density_a_m2)
         if (secondary_pinned) then
           ! Type C では放出電子が全て脱出する。PE は帰還 0・脱出 = 放出に固定し、残りの脱出束を SEE に充てる。
-          result%absorbed_current_a(photo_idx) = 0.0_dp
-          result%escaped_particle_current_a(photo_idx) = -result%emission_current_a(photo_idx)
+          result%species(photo_idx)%absorbed_current_a = 0.0_dp
+          result%species(photo_idx)%escaped_particle_current_a = -result%species(photo_idx)%emission_current_a
         else
           ! 外部根の脱出束は PE+SEE 合算の値。SEE があれば、各バッチで追跡した SEE 脱出を差し引いた残りが
           ! PE の脱出目標になり、帰還目標はその値と PE 放出の差になる（bem_simulator_charge の固定電流 closure）。
-          result%absorbed_current_a(photo_idx) = checked_area_current( &
-                                                 area, result%photoelectron_escape_current_density_a_m2 - &
-                                                 result%photoelectron_emission_current_density_a_m2 &
-                                                 )
+          result%species(photo_idx)%absorbed_current_a = checked_area_current( &
+                                                         area, result%photoelectron_escape_current_density_a_m2 - &
+                                                         result%photoelectron_emission_current_density_a_m2 &
+                                                         )
           ! Escaping particle current has the opposite sign to surface charging current.
-          result%escaped_particle_current_a(photo_idx) = &
+          result%species(photo_idx)%escaped_particle_current_a = &
             -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
-          if (secondary_active) result%escape_partner_species(photo_idx) = secondary_idx
+          if (secondary_active) result%species(photo_idx)%escape_partner_species = secondary_idx
         end if
       end if
       if (secondary_pinned) then
@@ -621,36 +562,36 @@ contains
           secondary_escape_density = max(0.0_dp, secondary_escape_density - &
                                          result%photoelectron_emission_current_density_a_m2)
         end if
-        result%has_absorbed_target(secondary_idx) = .true.
-        result%has_emission_target(secondary_idx) = .true.
-        result%has_escape_target(secondary_idx) = .true.
-        result%emission_target_from_tracked_source(secondary_idx) = .true.
-        result%absorbed_current_a(secondary_idx) = -checked_area_current(area, qe*plane%emitted_return_flux_m2_s)
-        result%emission_current_a(secondary_idx) = checked_area_current( &
-                                                   area, secondary_escape_density + qe*plane%emitted_return_flux_m2_s &
-                                                   )
-        result%escaped_particle_current_a(secondary_idx) = -checked_area_current(area, secondary_escape_density)
+        result%species(secondary_idx)%has_absorbed_target = .true.
+        result%species(secondary_idx)%has_emission_target = .true.
+        result%species(secondary_idx)%has_escape_target = .true.
+        result%species(secondary_idx)%emission_target_from_tracked_source = .true.
+        result%species(secondary_idx)%absorbed_current_a = -checked_area_current(area, qe*plane%emitted_return_flux_m2_s)
+        result%species(secondary_idx)%emission_current_a = checked_area_current( &
+                                                           area, secondary_escape_density + qe*plane%emitted_return_flux_m2_s &
+                                                           )
+        result%species(secondary_idx)%escaped_particle_current_a = -checked_area_current(area, secondary_escape_density)
       end if
       if (reflected_active .and. (photoelectron_active .or. secondary_active)) then
         ! 外部根の源にセル内で反射して H を抜けた上流電子を含めるとき、根の脱出・帰還は放出電子と反射電子の合算に
         ! 対する値になる。追跡した反射電子の脱出・帰還を放出電子側の目標から差し引き、脱出した反射電子は壁に届かない
         ! ので電子の吸収目標に足し戻す（bem_simulator_charge の固定電流 closure）。
         if (photoelectron_active .and. .not. secondary_pinned) then
-          result%reflected_electron_species(photo_idx) = electron_idx
+          result%species(photo_idx)%reflected_electron_species = electron_idx
         else
-          result%reflected_electron_species(secondary_idx) = electron_idx
+          result%species(secondary_idx)%reflected_electron_species = electron_idx
         end if
-        result%absorbed_target_credits_tracked_escape(electron_idx) = .true.
+        result%species(electron_idx)%absorbed_target_credits_tracked_escape = .true.
       else if (reflected_only) then
         ! PE も SEE もなければ、根の脱出束は全て反射して H を抜けた上流電子のもの。追跡した脱出で電子の目標を
         ! 動かすと、その揺らぎを吸収する種がなくセル総電荷が random walk する。電子の吸収を根の「流入 − 脱出」、
         ! 脱出を根の脱出に固定し（イオンと合わせて J=0 で毎バッチ閉じる）、反射電子のスペクトルは外部源へだけ渡す。
-        result%absorbed_current_a(electron_idx) = checked_area_current( &
-                                                  area, result%electron_current_density_a_m2 + &
-                                                  result%photoelectron_escape_current_density_a_m2 &
-                                                  )
-        result%has_escape_target(electron_idx) = .true.
-        result%escaped_particle_current_a(electron_idx) = &
+        result%species(electron_idx)%absorbed_current_a = checked_area_current( &
+                                                          area, result%electron_current_density_a_m2 + &
+                                                          result%photoelectron_escape_current_density_a_m2 &
+                                                          )
+        result%species(electron_idx)%has_escape_target = .true.
+        result%species(electron_idx)%escaped_particle_current_a = &
           -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
       end if
       assigned = .true.
@@ -659,30 +600,25 @@ contains
     !> Zhao の外部シースを z-high 面の kinetic boundary map（流入写像・外部障壁）と面の gauge へ縮約する。
     subroutine assign_kinetic_map()
       ! Zhao の1-D外部シースを、z-high interfaceに対するkinetic boundary mapへ縮約する。
-      ! 経路の電位は面の電位とは別に越える電位で、Type Aの電子はphi_m、それ以外は上流の0 V。
+      ! 経路の電位は面の電位とは別に越える電位で、Type Aの電子はphi_m、それ以外は上流の0 V。流入写像の貯留部は上流の0 V。
       result%kinetic_contract = 'zhao_barrier_v1'
-      result%has_inflow_kinetic_map([electron_idx, ion_idx]) = .true.
-      result%inflow_reservoir_potential_v([electron_idx, ion_idx]) = 0.0_dp
+      result%kinetic_face = cell%wall_face
+      result%species([electron_idx, ion_idx])%has_inflow_kinetic_map = .true.
       ! 上流電子のMaxwellian密度は、壁で吸われて戻らない高速電子を見込んで無限遠の準中性から決まる。
       ! 設定の太陽風密度をそのまま電子源に使うと流入fluxが根の電子電流からずれる。
-      result%inflow_reservoir_density_m3(electron_idx) = plane%electron_reservoir_density_m3
-      result%inflow_reservoir_density_m3(ion_idx) = plane%ion_reservoir_density_m3
-      result%inflow_access_potential_v(electron_idx) = plane%electron_path_minimum_v
-      result%inflow_access_potential_v(ion_idx) = plane%ion_path_maximum_v
-      result%inflow_kinetic_face([electron_idx, ion_idx]) = cell%wall_face
-      result%has_outflow_kinetic_barrier([electron_idx, ion_idx]) = .true.
-      result%outflow_barrier_potential_v(electron_idx) = plane%electron_path_minimum_v
-      result%outflow_barrier_potential_v(ion_idx) = plane%ion_path_maximum_v
-      result%outflow_barrier_face([electron_idx, ion_idx]) = cell%wall_face
+      result%species(electron_idx)%inflow_reservoir_density_m3 = plane%electron_reservoir_density_m3
+      result%species(ion_idx)%inflow_reservoir_density_m3 = plane%ion_reservoir_density_m3
+      ! 外部障壁は流入写像と同じ経路の極値電位で、放出電子（PE・SEE）も上流電子と同じ経路を通る。
+      result%species([electron_idx, ion_idx])%has_outflow_kinetic_barrier = .true.
+      result%species(electron_idx)%kinetic_path_potential_v = plane%electron_path_minimum_v
+      result%species(ion_idx)%kinetic_path_potential_v = plane%ion_path_maximum_v
       if (photoelectron_active) then
-        result%has_outflow_kinetic_barrier(photo_idx) = .true.
-        result%outflow_barrier_potential_v(photo_idx) = plane%electron_path_minimum_v
-        result%outflow_barrier_face(photo_idx) = cell%wall_face
+        result%species(photo_idx)%has_outflow_kinetic_barrier = .true.
+        result%species(photo_idx)%kinetic_path_potential_v = plane%electron_path_minimum_v
       end if
       if (secondary_active) then
-        result%has_outflow_kinetic_barrier(secondary_idx) = .true.
-        result%outflow_barrier_potential_v(secondary_idx) = plane%electron_path_minimum_v
-        result%outflow_barrier_face(secondary_idx) = cell%wall_face
+        result%species(secondary_idx)%has_outflow_kinetic_barrier = .true.
+        result%species(secondary_idx)%kinetic_path_potential_v = plane%electron_path_minimum_v
       end if
       ! 外部障壁と流入写像は上流0 Vからの電位差なので、z-high面の平均電位を壁電位phi0へ固定する。
       ! 外部での横移動はセル幅よりはるかに大きいので、x/y周期セルでは戻り位置を面内一様にする。

@@ -9,16 +9,15 @@ contains
   module procedure resolve_batch_duration
   real(dp) :: batch_duration
 
-  if (cfg%sim%has_batch_duration .and. cfg%sim%has_batch_duration_step) then
+  if (sim_input%has_batch_duration .and. sim_input%has_batch_duration_step) then
     error stop 'run.batch.duration_s and run.batch.duration_steps cannot be specified together.'
   end if
-  if (cfg%sim%has_batch_duration_step) then
-    batch_duration = cfg%sim%dt*cfg%sim%batch_duration_step
+  if (sim_input%has_batch_duration_step) then
+    batch_duration = cfg%sim%dt*sim_input%batch_duration_step
     if (.not. ieee_is_finite(batch_duration) .or. batch_duration <= 0.0d0) then
       error stop 'run.batch.duration_steps produced invalid run.batch.duration_s.'
     end if
     cfg%sim%batch_duration = batch_duration
-    cfg%sim%has_batch_duration = .true.
   end if
   end procedure resolve_batch_duration
 
@@ -27,25 +26,25 @@ contains
   real(dp), parameter :: deg2rad = acos(-1.0d0)/180.0d0
   real(dp) :: phi_xy, phi_z
 
-  if (cfg%sim%has_e0_vector .and. (cfg%sim%has_e0_abs .or. cfg%sim%has_e0_phi_xy_deg .or. cfg%sim%has_e0_phi_z_deg)) then
+  if (sim_input%has_e0_vector .and. (sim_input%has_e0_abs .or. sim_input%has_e0_phi_xy_deg .or. sim_input%has_e0_phi_z_deg)) then
     error stop 'fields.external.electric_v_m cannot be combined with '// &
       'fields.external.electric_magnitude_v_m/fields.external.electric_azimuth_deg/fields.external.electric_elevation_deg.'
   end if
-  if ((cfg%sim%has_e0_phi_xy_deg .or. cfg%sim%has_e0_phi_z_deg) .and. .not. cfg%sim%has_e0_abs) then
+  if ((sim_input%has_e0_phi_xy_deg .or. sim_input%has_e0_phi_z_deg) .and. .not. sim_input%has_e0_abs) then
     error stop 'fields.external.electric_azimuth_deg/fields.external.electric_elevation_deg require '// &
       'fields.external.electric_magnitude_v_m.'
   end if
-  if (cfg%sim%has_e0_vector) return
-  if (.not. cfg%sim%has_e0_abs) then
+  if (sim_input%has_e0_vector) return
+  if (.not. sim_input%has_e0_abs) then
     cfg%sim%e0 = [0.0d0, 0.0d0, 0.0d0]
     return
   end if
 
-  phi_xy = cfg%sim%e0_phi_xy_deg*deg2rad
-  phi_z = cfg%sim%e0_phi_z_deg*deg2rad
-  cfg%sim%e0(1) = cfg%sim%e0_abs*cos(phi_z)*cos(phi_xy)
-  cfg%sim%e0(2) = cfg%sim%e0_abs*cos(phi_z)*sin(phi_xy)
-  cfg%sim%e0(3) = cfg%sim%e0_abs*sin(phi_z)
+  phi_xy = sim_input%e0_phi_xy_deg*deg2rad
+  phi_z = sim_input%e0_phi_z_deg*deg2rad
+  cfg%sim%e0(1) = sim_input%e0_abs*cos(phi_z)*cos(phi_xy)
+  cfg%sim%e0(2) = sim_input%e0_abs*cos(phi_z)*sin(phi_xy)
+  cfg%sim%e0(3) = sim_input%e0_abs*sin(phi_z)
   end procedure resolve_external_e_field
 
   !> 有効な box 面からの総流入率を求め、粒子重みを導出する。

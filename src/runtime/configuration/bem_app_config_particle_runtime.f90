@@ -6,11 +6,12 @@ module bem_app_config_particle_runtime
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_status_codes, only: collision_query_ok, particle_status_name, photo_ray_failure_type
-  use bem_injection, only: seed_rng, compute_macro_particles_for_batch, compute_macro_particles_from_flux
+  use bem_injection, only: seed_rng, compute_macro_particles_for_batch
   use bem_external_boundary_contract, only: &
     external_inflow_none, external_inflow_scalar_barrier
   use bem_app_config_types, only: &
     app_config, particle_species_spec, particles_per_batch_from_config, particle_inflow_reservoir, species_config_path
+  use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_app_config_potential_runtime, only: &
     compute_face_average_potential, warn_face_average_potential_variation, resolve_face_sampling_geometry
   use bem_string_utils, only: lower_ascii
@@ -29,20 +30,8 @@ module bem_app_config_particle_runtime
     integer(i32) :: mpi_rank = 0_i32
     integer(i32) :: mpi_size = 1_i32
     integer(i32), allocatable :: source_kind(:)
-    real(dp), allocatable :: effective_density_m3(:)
-    real(dp), allocatable :: effective_particle_flux_m2_s(:)
-    logical, allocatable :: number_flux_override_active(:)
-    real(dp), allocatable :: effective_temperature_k(:)
-    real(dp), allocatable :: effective_drift_velocity(:, :)
-    real(dp), allocatable :: effective_weight(:)
-    real(dp), allocatable :: photo_emit_current_density(:)
-    real(dp), allocatable :: photo_normal_drift_speed(:)
-    logical, allocatable :: kinetic_inflow_active(:)
-    real(dp), allocatable :: kinetic_reservoir_potential_v(:)
-    real(dp), allocatable :: kinetic_access_potential_v(:)
-    !> 流入写像の貯留部密度。0なら species 設定の密度を使う。
-    real(dp), allocatable :: kinetic_reservoir_density_m3(:)
-    integer(i32), allocatable :: kinetic_inflow_face(:)
+    !> 外部 closure の写し。reservoir 面の流入写像（species 別の有効フラグ・経路電位・貯留部密度と共通の面）だけを読む。
+    type(surface_closure_contract_type) :: closure
   end type particle_source_plan_type
 
   !> slot の種別。
@@ -57,17 +46,11 @@ module bem_app_config_particle_runtime
   type, public :: batch_injection_layout_type
     logical :: ready = .false.
     integer(i32) :: batch_idx = 0_i32
-    integer(i32) :: nspecies = 0_i32
     integer(i32), allocatable :: source_kind(:)
     integer(i32), allocatable :: source_global_count(:)
     integer(i32), allocatable :: boundary_global_count(:, :)
     real(dp), allocatable :: boundary_vmin(:, :)
     real(dp), allocatable :: boundary_barrier(:, :)
-    real(dp), allocatable :: weight(:)
-    real(dp), allocatable :: temperature_k(:)
-    real(dp), allocatable :: drift_velocity(:, :)
-    real(dp), allocatable :: photo_emit_current_density(:)
-    real(dp), allocatable :: photo_normal_drift_speed(:)
     !> 1 本の ray が当たったときのマクロ粒子重み（全 rank 合計の ray 数で分担）。
     real(dp), allocatable :: photo_ray_weight(:)
     integer(i32) :: nsegments = 0_i32
@@ -154,12 +137,12 @@ module bem_app_config_particle_runtime
     end subroutine reservoir_face_velocity_correction
 
     module subroutine external_kinetic_face_velocity_correction( &
-      cfg, spec, reservoir_potential_v, access_potential_v, vmin_normal, barrier_normal, &
+      cfg, spec, access_potential_v, vmin_normal, barrier_normal, &
       mesh, snapshot, warn_face_variation, face_potential, face_potential_ready &
       )
       type(app_config), intent(in) :: cfg
       type(particle_species_spec), intent(in) :: spec
-      real(dp), intent(in) :: reservoir_potential_v, access_potential_v
+      real(dp), intent(in) :: access_potential_v
       real(dp), intent(out) :: vmin_normal, barrier_normal
       type(mesh_type), intent(in), optional :: mesh
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
@@ -220,22 +203,14 @@ contains
 
   !> 設定とMPI配置だけに依存する粒子 source の導出値を構築する。
   !! 乱数、残差、mesh/snapshot依存の障壁は扱わず、run中に不変な値だけを保持する。
-  subroutine build_particle_source_plan( &
-    cfg, plan, mpi_rank, mpi_size, mpi, kinetic_inflow_active, kinetic_reservoir_potential_v, &
-    kinetic_access_potential_v, kinetic_inflow_face, number_flux_override_active, number_flux_override_m2_s, &
-    kinetic_reservoir_density_m3 &
-    )
+  !! closure を渡すと、その流入写像を reservoir 面の注入に使う。省略時は流入写像なし。
+  subroutine build_particle_source_plan(cfg, plan, mpi_rank, mpi_size, mpi, closure)
     type(app_config), intent(in) :: cfg
     type(particle_source_plan_type), intent(out) :: plan
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
     type(mpi_context), intent(in), optional :: mpi
-    logical, intent(in), optional :: kinetic_inflow_active(:)
-    real(dp), intent(in), optional :: kinetic_reservoir_potential_v(:), kinetic_access_potential_v(:)
-    integer(i32), intent(in), optional :: kinetic_inflow_face(:)
-    logical, intent(in), optional :: number_flux_override_active(:)
-    real(dp), intent(in), optional :: number_flux_override_m2_s(:)
-    !> 流入写像の面だけで使う貯留部密度。0以下の要素は species 設定の密度を使う。
-    real(dp), intent(in), optional :: kinetic_reservoir_density_m3(:)
+    !> 外部 closure。species 配列の大きさは cfg の粒子種数。
+    type(surface_closure_contract_type), intent(in), optional :: closure
 
     integer(i32) :: s, local_rank, n_ranks
     logical :: has_enabled_reservoir
@@ -255,142 +230,32 @@ contains
 
     allocate (plan%source_kind(cfg%n_particle_species))
     plan%source_kind = slot_kind_none
-    allocate (plan%effective_density_m3(cfg%n_particle_species))
-    allocate (plan%effective_particle_flux_m2_s(cfg%n_particle_species))
-    allocate (plan%number_flux_override_active(cfg%n_particle_species))
-    allocate (plan%effective_temperature_k(cfg%n_particle_species))
-    allocate (plan%effective_drift_velocity(3, cfg%n_particle_species))
-    allocate (plan%effective_weight(cfg%n_particle_species))
-    allocate (plan%photo_emit_current_density(cfg%n_particle_species))
-    allocate (plan%photo_normal_drift_speed(cfg%n_particle_species))
-    allocate (plan%kinetic_inflow_active(cfg%n_particle_species))
-    allocate (plan%kinetic_reservoir_potential_v(cfg%n_particle_species))
-    allocate (plan%kinetic_access_potential_v(cfg%n_particle_species))
-    allocate (plan%kinetic_reservoir_density_m3(cfg%n_particle_species))
-    allocate (plan%kinetic_inflow_face(cfg%n_particle_species))
-    plan%effective_density_m3 = 0.0_dp
-    plan%effective_particle_flux_m2_s = 0.0_dp
-    plan%number_flux_override_active = .false.
-    plan%effective_temperature_k = 0.0_dp
-    plan%effective_drift_velocity = 0.0_dp
-    plan%effective_weight = 0.0_dp
-    plan%photo_emit_current_density = 0.0_dp
-    plan%photo_normal_drift_speed = 0.0_dp
-    plan%kinetic_inflow_active = .false.
-    plan%kinetic_reservoir_potential_v = 0.0_dp
-    plan%kinetic_access_potential_v = 0.0_dp
-    plan%kinetic_reservoir_density_m3 = 0.0_dp
-    plan%kinetic_inflow_face = 0_i32
-
-    ! Runtime callers hand over the closure's kinetic map and number-flux override; their shapes and values are
-    ! checked here, while the TOML physics conditions belong to the parser preflight.
-    call apply_kinetic_map_arguments( &
-      plan, cfg%n_particle_species, kinetic_inflow_active, kinetic_reservoir_potential_v, kinetic_access_potential_v, &
-      kinetic_inflow_face, kinetic_reservoir_density_m3 &
-      )
-    call apply_number_flux_override_arguments( &
-      plan, cfg%n_particle_species, number_flux_override_active, number_flux_override_m2_s &
-      )
+    if (present(closure)) then
+      ! 貯留部密度は外部根から来る。経路電位は使う所（external_kinetic_face_velocity_correction）が確かめる。
+      if (.not. all(ieee_is_finite(closure%species%inflow_reservoir_density_m3))) then
+        error stop 'particle source kinetic reservoir densities must be finite.'
+      end if
+      plan%closure = closure
+    else
+      allocate (plan%closure%species(cfg%n_particle_species))
+    end if
 
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
       select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
       case ('volume_seed')
         plan%source_kind(s) = slot_kind_volume
-        plan%effective_weight(s) = cfg%particle_species(s)%w_particle
-        plan%effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
-        plan%effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
-        if (has_boundary_inflow(cfg%particle_species(s))) then
-          plan%effective_density_m3(s) = species_number_density_m3(cfg%particle_species(s))
-        end if
       case ('photo_raycast')
         plan%source_kind(s) = slot_kind_photo_ray
-        plan%photo_emit_current_density(s) = cfg%particle_species(s)%emit_current_density_a_m2
-        plan%photo_normal_drift_speed(s) = cfg%particle_species(s)%normal_drift_speed
       case ('secondary_emission')
         continue
       case default
         error stop 'Unknown '//species_config_path(int(s))//'.source.mode.'
       end select
-      if (plan%number_flux_override_active(s)) then
-        plan%effective_particle_flux_m2_s(s) = number_flux_override_m2_s(s)
-      end if
     end do
 
     plan%ready = .true.
   end subroutine build_particle_source_plan
-
-  !> 外部 closure の kinetic 写像（有効フラグ・貯留部/access 電位・面・貯留部密度）を検査して plan へ写す。
-  subroutine apply_kinetic_map_arguments( &
-    plan, nspecies, kinetic_inflow_active, kinetic_reservoir_potential_v, kinetic_access_potential_v, &
-    kinetic_inflow_face, kinetic_reservoir_density_m3 &
-    )
-    type(particle_source_plan_type), intent(inout) :: plan
-    integer(i32), intent(in) :: nspecies
-    logical, intent(in), optional :: kinetic_inflow_active(:)
-    real(dp), intent(in), optional :: kinetic_reservoir_potential_v(:), kinetic_access_potential_v(:)
-    integer(i32), intent(in), optional :: kinetic_inflow_face(:)
-    real(dp), intent(in), optional :: kinetic_reservoir_density_m3(:)
-
-    if (present(kinetic_inflow_active) .or. present(kinetic_reservoir_potential_v) .or. &
-        present(kinetic_access_potential_v) .or. present(kinetic_inflow_face)) then
-      if (.not. present(kinetic_inflow_active) .or. .not. present(kinetic_reservoir_potential_v) .or. &
-          .not. present(kinetic_access_potential_v) .or. .not. present(kinetic_inflow_face)) then
-        error stop 'particle source kinetic map requires active, reservoir, access, and face arrays together.'
-      end if
-      if (size(kinetic_inflow_active) /= nspecies .or. &
-          size(kinetic_reservoir_potential_v) /= nspecies .or. &
-          size(kinetic_access_potential_v) /= nspecies .or. &
-          size(kinetic_inflow_face) /= nspecies) then
-        error stop 'particle source kinetic map species count mismatch.'
-      end if
-      if (.not. all(ieee_is_finite(kinetic_reservoir_potential_v)) .or. &
-          .not. all(ieee_is_finite(kinetic_access_potential_v))) then
-        error stop 'particle source kinetic map potentials must be finite.'
-      end if
-      plan%kinetic_inflow_active = kinetic_inflow_active
-      plan%kinetic_reservoir_potential_v = kinetic_reservoir_potential_v
-      plan%kinetic_access_potential_v = kinetic_access_potential_v
-      plan%kinetic_inflow_face = kinetic_inflow_face
-      if (any(plan%kinetic_inflow_active .and. &
-              (plan%kinetic_inflow_face < 1_i32 .or. plan%kinetic_inflow_face > 6_i32))) then
-        error stop 'active particle source kinetic map face must be in [1, 6].'
-      end if
-    end if
-
-    if (present(kinetic_reservoir_density_m3)) then
-      if (size(kinetic_reservoir_density_m3) /= nspecies) then
-        error stop 'particle source kinetic reservoir density species count mismatch.'
-      end if
-      if (.not. all(ieee_is_finite(kinetic_reservoir_density_m3))) then
-        error stop 'particle source kinetic reservoir densities must be finite.'
-      end if
-      plan%kinetic_reservoir_density_m3 = max(0.0_dp, kinetic_reservoir_density_m3)
-    end if
-  end subroutine apply_kinetic_map_arguments
-
-  !> 外部 closure の number-flux override の有効フラグを検査して plan へ写す（flux 値は種の解決時に使う）。
-  subroutine apply_number_flux_override_arguments(plan, nspecies, number_flux_override_active, number_flux_override_m2_s)
-    type(particle_source_plan_type), intent(inout) :: plan
-    integer(i32), intent(in) :: nspecies
-    logical, intent(in), optional :: number_flux_override_active(:)
-    real(dp), intent(in), optional :: number_flux_override_m2_s(:)
-
-    if (present(number_flux_override_active) .or. present(number_flux_override_m2_s)) then
-      if (.not. present(number_flux_override_active) .or. .not. present(number_flux_override_m2_s)) then
-        error stop 'particle source number-flux override requires active and flux arrays together.'
-      end if
-      if (size(number_flux_override_active) /= nspecies .or. &
-          size(number_flux_override_m2_s) /= nspecies) then
-        error stop 'particle source number-flux override species count mismatch.'
-      end if
-      if (any(number_flux_override_active .and. &
-              (.not. ieee_is_finite(number_flux_override_m2_s) .or. number_flux_override_m2_s < 0.0_dp))) then
-        error stop 'active particle source number-flux overrides must be finite and nonnegative.'
-      end if
-      plan%number_flux_override_active = number_flux_override_active
-    end if
-  end subroutine apply_number_flux_override_arguments
 
   !> source plan がこの rank/size と mpi 引数の有無で構築されたかを返す。
   !! rank、size、mpi 引数の有無はそれぞれ独立に一致する必要がある。
@@ -451,13 +316,8 @@ contains
   !! @param[out] count 今バッチで生成するマクロ粒子数。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
   !! @param[in] number_density_override 数密度の上書き値 [1/m^3]。
-  !! @param[in] particle_flux_override 粒子数 flux の上書き値 [1/m^2/s]。
-  !! @param[in] w_particle_override マクロ粒子重みの上書き値。
-  !! @param[in] temperature_k_override 温度の上書き値 [K]。
-  !! @param[in] drift_velocity_override ドリフト速度の上書き値 [m/s]。
   subroutine compute_macro_particles_for_species( &
-    sim, spec, residual, count, vmin_normal, number_density_override, w_particle_override, &
-    temperature_k_override, drift_velocity_override, particle_flux_override, use_particle_flux_override &
+    sim, spec, residual, count, vmin_normal, number_density_override &
     )
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
@@ -465,36 +325,16 @@ contains
     integer(i32), intent(out) :: count
     real(dp), intent(in), optional :: vmin_normal
     real(dp), intent(in), optional :: number_density_override
-    real(dp), intent(in), optional :: w_particle_override
-    real(dp), intent(in), optional :: temperature_k_override
-    real(dp), intent(in), optional :: drift_velocity_override(3)
-    real(dp), intent(in), optional :: particle_flux_override
-    logical, intent(in), optional :: use_particle_flux_override
 
     real(dp) :: number_density_m3, effective_batch_duration, w_particle, temperature_k_local
     real(dp) :: drift_velocity_local(3)
-    logical :: direct_flux
 
     number_density_m3 = species_number_density_m3(spec)
     if (present(number_density_override)) number_density_m3 = number_density_override
     w_particle = spec%w_particle
-    if (present(w_particle_override)) w_particle = w_particle_override
     temperature_k_local = species_temperature_k(spec)
-    if (present(temperature_k_override)) temperature_k_local = temperature_k_override
     drift_velocity_local = spec%drift_velocity
-    if (present(drift_velocity_override)) drift_velocity_local = drift_velocity_override
     effective_batch_duration = sim%batch_duration
-    direct_flux = .false.
-    if (present(use_particle_flux_override) .and. present(particle_flux_override)) then
-      direct_flux = use_particle_flux_override
-    end if
-    if (direct_flux) then
-      call compute_macro_particles_from_flux( &
-        particle_flux_override, spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, w_particle, residual, &
-        count &
-        )
-      return
-    end if
     if (present(vmin_normal)) then
       call compute_macro_particles_for_batch( &
         number_density_m3, temperature_k_local, spec%m_particle, drift_velocity_local, sim%box_min, sim%box_max, &

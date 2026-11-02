@@ -226,13 +226,13 @@ contains
   integer :: u, ios, pos, columns
   integer(i32) :: nspecies, batch_count, row_batch, species_idx, loaded
   integer(i64) :: count_values(5)
-  real(dp) :: charge_values(18), fixed_charge_values(13), legacy_charge_values(8), stock_values(6)
+  real(dp) :: charge_values(18), fixed_charge_values(13), legacy_charge_values(8), stock_values(2)
   character(len=512) :: line
   character(len=2048) :: header
   character(len=2048) :: record
   character(len=96) :: key
   character(len=256) :: value
-  logical :: found_nspecies, found_batch, found_stocks(6), has_fixed_current_columns, has_current_budget_columns
+  logical :: found_nspecies, found_batch, found_stocks(2), has_fixed_current_columns, has_current_budget_columns
   logical, allocatable :: seen(:)
 
   nspecies = 0_i32
@@ -263,18 +263,6 @@ contains
     case ('charge_ledger_surface_charge_after_C')
       read (value, *, iostat=ios) stock_values(2)
       found_stocks(2) = ios == 0
-    case ('charge_ledger_local_flight_charge_before_C')
-      read (value, *, iostat=ios) stock_values(3)
-      found_stocks(3) = ios == 0
-    case ('charge_ledger_local_flight_charge_after_C')
-      read (value, *, iostat=ios) stock_values(4)
-      found_stocks(4) = ios == 0
-    case ('charge_ledger_unresolved_stock_before_C')
-      read (value, *, iostat=ios) stock_values(5)
-      found_stocks(5) = ios == 0
-    case ('charge_ledger_unresolved_stock_after_C')
-      read (value, *, iostat=ios) stock_values(6)
-      found_stocks(6) = ios == 0
     end select
   end do
   close (u)
@@ -292,10 +280,6 @@ contains
   ledger%batch_count = batch_count
   ledger%surface_charge_before = stock_values(1)
   ledger%surface_charge_after = stock_values(2)
-  ledger%local_flight_charge_before = stock_values(3)
-  ledger%local_flight_charge_after = stock_values(4)
-  ledger%unresolved_stock_before = stock_values(5)
-  ledger%unresolved_stock_after = stock_values(6)
   allocate (seen(nspecies))
   seen = .false.
   loaded = 0_i32
@@ -427,15 +411,20 @@ contains
     if (stats%matching_plane%state_valid) then
       if (.not. all(ieee_is_finite([ &
                                    stats%matching_plane%displacement_c_m2, stats%matching_plane%phi_v, &
-                                   stats%matching_plane%response, stats%matching_plane%feedback, &
+                                   stats%matching_plane%electron_inward_flux_m2_s, stats%matching_plane%ion_inward_flux_m2_s, &
+                                   stats%matching_plane%electron_access_potential_v, &
+                                   stats%matching_plane%photoelectron_outward_flux_m2_s, &
+                                   stats%matching_plane%photoelectron_mean_normal_energy_ev, &
+                                   stats%matching_plane%electron_outward_flux_m2_s, &
                                    stats%matching_plane%photoelectron_return_flux_m2_s, &
                                    stats%matching_plane%photoelectron_escape_flux_m2_s, stats%matching_plane%residual, &
                                    stats%matching_plane%secondary_share, stats%matching_plane%secondary_budget_residual_a_m2 &
                                    ]))) then
         error stop 'Resume checkpoint matching-plane state must be finite.'
       end if
-      if (any(stats%matching_plane%feedback < 0.0_dp) .or. &
-          any(stats%matching_plane%response(2:3) < 0.0_dp) .or. &
+      if (any([stats%matching_plane%photoelectron_outward_flux_m2_s, stats%matching_plane%photoelectron_mean_normal_energy_ev, &
+               stats%matching_plane%electron_outward_flux_m2_s, stats%matching_plane%electron_inward_flux_m2_s, &
+               stats%matching_plane%ion_inward_flux_m2_s] < 0.0_dp) .or. &
           stats%matching_plane%photoelectron_return_flux_m2_s < 0.0_dp .or. &
           stats%matching_plane%photoelectron_escape_flux_m2_s < 0.0_dp .or. &
           stats%matching_plane%iterations <= 0_i32 .or. stats%matching_plane%residual < 0.0_dp .or. &
@@ -443,12 +432,12 @@ contains
         error stop 'Resume checkpoint matching-plane state is outside its physical range.'
       end if
       matching_budget_scale = max( &
-                              1.0_dp, stats%matching_plane%feedback(1), &
+                              1.0_dp, stats%matching_plane%photoelectron_outward_flux_m2_s, &
                               stats%matching_plane%photoelectron_return_flux_m2_s, &
                               stats%matching_plane%photoelectron_escape_flux_m2_s &
                               )
       if (abs( &
-          stats%matching_plane%feedback(1) - &
+          stats%matching_plane%photoelectron_outward_flux_m2_s - &
           stats%matching_plane%photoelectron_return_flux_m2_s - &
           stats%matching_plane%photoelectron_escape_flux_m2_s &
           ) > sqrt(epsilon(1.0_dp))*matching_budget_scale) then
@@ -459,7 +448,7 @@ contains
         error stop 'Resume checkpoint matching-plane photoelectron spectrum must be finite and >= 0.'
       end if
       if (any(stats%matching_plane%photoelectron_spectrum_m2_s > 0.0_dp) .and. &
-          abs(sum(stats%matching_plane%photoelectron_spectrum_m2_s) - stats%matching_plane%feedback(1)) > &
+          abs(sum(stats%matching_plane%photoelectron_spectrum_m2_s) - stats%matching_plane%photoelectron_outward_flux_m2_s) > &
           sqrt(epsilon(1.0_dp))*matching_budget_scale) then
         error stop 'Resume checkpoint matching-plane photoelectron spectrum does not match its outward flux.'
       end if

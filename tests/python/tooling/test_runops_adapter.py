@@ -69,6 +69,15 @@ def test_detect_status_needs_the_requested_batches(tmp_path: Path) -> None:
     assert adapter.detect_status(run) == "failed"
     summary.write_text("batches=10\n", encoding="utf-8")
     assert adapter.detect_status(run) == "completed"
+    # output.diagnostics.charge_rel_change_threshold ends a run before run.batch_count.
+    summary.write_text(
+        "batches=6\ncharge_rel_change_threshold_reached=T\n", encoding="utf-8"
+    )
+    assert adapter.detect_status(run) == "completed"
+    summary.write_text(
+        "batches=6\ncharge_rel_change_threshold_reached=F\n", encoding="utf-8"
+    )
+    assert adapter.detect_status(run) == "failed"
 
 
 def test_keep_patterns_keep_the_final_checkpoint() -> None:
@@ -96,15 +105,18 @@ def test_keep_patterns_keep_the_final_checkpoint() -> None:
 
 def test_validate_params_flags_unknown_keys() -> None:
     adapter = Adapter()
-    assert adapter.validate_params(
-        {
-            "run.batch_count": 200,
-            "particles.species.0.source.pos_low": [0.0, 0.0, 1.0e-3],
-            "particles.species[1].charge_c": -1.6e-19,
-            "mesh.parts.0.path": "plate.obj",
-            "output.history.stride_batches": 5,
-        }
-    ) == []
+    assert (
+        adapter.validate_params(
+            {
+                "run.batch_count": 200,
+                "particles.species.0.source.pos_low": [0.0, 0.0, 1.0e-3],
+                "particles.species[1].charge_c": -1.6e-19,
+                "mesh.parts.0.path": "plate.obj",
+                "output.history.stride_batches": 5,
+            }
+        )
+        == []
+    )
     warnings = adapter.validate_params({"run.batch_cuont": 200, "sim.batch_count": 3})
     assert len(warnings) == 2
     assert "'run.batch_cuont'" in warnings[0]
@@ -135,12 +147,16 @@ def test_extend_inputs_resumes_from_the_source_checkpoint(tmp_path: Path) -> Non
 
     assert written == ["input/beach.toml", "input/restart_source.txt", "work/restart"]
     link = run / "work" / "restart"
-    assert link.is_symlink() and link.resolve() == (source / "work" / "latest").resolve()
+    assert (
+        link.is_symlink() and link.resolve() == (source / "work" / "latest").resolve()
+    )
     config = tomllib.loads((run / "input" / "beach.toml").read_text(encoding="utf-8"))
     assert config["run"]["restart"]["from"] == "work/restart"
     assert config["output"]["enabled"] is True
     assert config["output"]["dir"] == "work/latest"
-    assert "batches = 10" in (run / "input" / "restart_source.txt").read_text(encoding="utf-8")
+    assert "batches = 10" in (run / "input" / "restart_source.txt").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_extend_inputs_needs_more_batches_and_a_checkpoint(tmp_path: Path) -> None:
@@ -163,7 +179,9 @@ def test_extend_inputs_uses_a_periodic_slot(tmp_path: Path) -> None:
     (slot / "summary.txt").write_text("batches=40\n", encoding="utf-8")
     run = _run_dir(tmp_path, GROUPED.replace("batch_count = 10", "batch_count = 50"))
     Adapter().extend_inputs(source, run, {})
-    assert (run / "work" / "restart").resolve() == (source / "work" / "latest").resolve()
+    assert (run / "work" / "restart").resolve() == (
+        source / "work" / "latest"
+    ).resolve()
 
 
 def test_agent_context_has_plugin_skills() -> None:
@@ -221,7 +239,9 @@ def test_render_inputs_with_runops(tmp_path: Path) -> None:
     assert (run / "input" / "plate.obj").read_text(encoding="utf-8") == "v 1 0 0\n"
 
 
-def test_localize_obj_keeps_an_absolute_path_that_is_already_the_input(tmp_path: Path) -> None:
+def test_localize_obj_keeps_an_absolute_path_that_is_already_the_input(
+    tmp_path: Path,
+) -> None:
     run = _run_dir(tmp_path)
     placed = run / "input" / "shape.obj"
     placed.write_text("v 0 0 0\n", encoding="utf-8")
@@ -230,7 +250,10 @@ def test_localize_obj_keeps_an_absolute_path_that_is_already_the_input(tmp_path:
     # Localizing the same input again gives the same result.
     assert _localize_obj(placed.resolve(), run, 0) == "input/shape.obj"
     assert _localize_obj(Path("input/shape.obj"), run, 0) is None
-    assert sorted(p.name for p in (run / "input").iterdir()) == ["beach.toml", "shape.obj"]
+    assert sorted(p.name for p in (run / "input").iterdir()) == [
+        "beach.toml",
+        "shape.obj",
+    ]
 
 
 def test_localize_obj_keeps_a_symlink_to_the_input(tmp_path: Path) -> None:
@@ -245,7 +268,9 @@ def test_localize_obj_keeps_a_symlink_to_the_input(tmp_path: Path) -> None:
     assert placed.read_text(encoding="utf-8") == "v 0 0 0\n"
 
 
-def test_localize_obj_renames_a_different_obj_with_the_same_basename(tmp_path: Path) -> None:
+def test_localize_obj_renames_a_different_obj_with_the_same_basename(
+    tmp_path: Path,
+) -> None:
     run = _run_dir(tmp_path)
     (run / "input" / "shape.obj").write_text("v 0 0 0\n", encoding="utf-8")
     external = tmp_path / "shared" / "shape.obj"
@@ -254,7 +279,9 @@ def test_localize_obj_renames_a_different_obj_with_the_same_basename(tmp_path: P
 
     assert _localize_obj(external, run, 2) == "input/part2-shape.obj"
     assert (run / "input" / "shape.obj").read_text(encoding="utf-8") == "v 0 0 0\n"
-    assert (run / "input" / "part2-shape.obj").read_text(encoding="utf-8") == "v 1 0 0\n"
+    assert (run / "input" / "part2-shape.obj").read_text(
+        encoding="utf-8"
+    ) == "v 1 0 0\n"
     # The renamed copy given back as an absolute path is already in place.
     assert _localize_obj((run / "input" / "part2-shape.obj").resolve(), run, 2) == (
         "input/part2-shape.obj"
@@ -314,4 +341,6 @@ def test_progress_counts_batches_from_the_resume_point(tmp_path: Path) -> None:
         "start": 104000,
     }
     (run / "work" / "stdout.41.log").write_text("batch 9/10\n", encoding="utf-8")
-    assert adapter.progress(run)["done"] == 104002  # the manifest's job, not the newest file
+    assert (
+        adapter.progress(run)["done"] == 104002
+    )  # the manifest's job, not the newest file

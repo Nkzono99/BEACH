@@ -20,11 +20,12 @@ contains
     integer(i32), intent(in) :: order
     integer(i32) :: idx, alpha_idx, beta_idx, ax, term_idx
     integer(i32) :: sum_exp(3)
+    integer(i32), allocatable :: deriv_degree(:)
 
     plan%ncoef = count_multi_indices(order)
     plan%nderiv = count_multi_indices(2_i32*order)
     call build_multi_index_table(order, plan%alpha, plan%alpha_degree, plan%alpha_factorial, plan%alpha_map)
-    call build_multi_index_table(2_i32*order, plan%deriv_alpha, plan%deriv_degree, plan%deriv_factorial, plan%deriv_map)
+    call build_multi_index_table(2_i32*order, plan%deriv_alpha, deriv_degree, plan%deriv_factorial, plan%deriv_map)
     allocate (plan%alpha_sign(plan%ncoef), plan%alpha_plus_axis(3, plan%ncoef), &
               plan%alpha_beta_deriv_idx(plan%ncoef, plan%ncoef))
     do idx = 1_i32, plan%ncoef

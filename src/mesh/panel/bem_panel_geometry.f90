@@ -1,4 +1,4 @@
-!> Ordered triangle geometry and exact Cartesian surface moments.
+!> Ordered triangle geometry: vertices, centroid, normal, area, and edge data.
 module bem_panel_geometry
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
@@ -16,9 +16,6 @@ module bem_panel_geometry
     real(dp) :: area = 0.0_dp
     real(dp) :: edge_length(3) = 0.0_dp
     real(dp) :: edge_outward(3, 3) = 0.0_dp
-    real(dp) :: moment0 = 0.0_dp
-    real(dp) :: moment1(3) = 0.0_dp
-    real(dp) :: moment2(3, 3) = 0.0_dp
   end type panel_geometry_type
 
   public :: init_panel_geometry
@@ -31,7 +28,6 @@ contains
     type(panel_geometry_type), intent(out) :: geometry
     integer(i32), intent(out) :: status
     real(dp) :: edge1(3), edge2(3), cross12(3), norm_cross, lref
-    real(dp) :: vertex_sum(3)
     integer :: edge, next_edge
 
     geometry = panel_geometry_type()
@@ -60,14 +56,6 @@ contains
       geometry%edge_length(edge) = sqrt(sum(edge1*edge1))
       geometry%edge_outward(:, edge) = cross_product(edge1, geometry%normal)/geometry%edge_length(edge)
     end do
-
-    geometry%moment0 = geometry%area
-    geometry%moment1 = geometry%area*geometry%centroid
-    vertex_sum = v0 + v1 + v2
-    geometry%moment2 = geometry%area/12.0_dp*( &
-                       outer_product(v0, v0) + outer_product(v1, v1) + outer_product(v2, v2) + &
-                       outer_product(vertex_sum, vertex_sum) &
-                       )
     status = panel_geometry_ok
   end subroutine init_panel_geometry
 
@@ -137,17 +125,5 @@ contains
 
     norm = sqrt(sum(vector*vector))
   end function norm2
-
-  pure function outer_product(a, b) result(product)
-    real(dp), intent(in) :: a(3), b(3)
-    real(dp) :: product(3, 3)
-    integer :: i, j
-
-    do j = 1, 3
-      do i = 1, 3
-        product(i, j) = a(i)*b(j)
-      end do
-    end do
-  end function outer_product
 
 end module bem_panel_geometry
