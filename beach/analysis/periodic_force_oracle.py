@@ -535,7 +535,7 @@ def _with_wrench_metadata(
         {
             "finite_shell_image_layers": image_layers,
             "finite_shell_closure": closure,
-            "finite_shell_source_representation": "native_canonical_unwrapped",
+            "finite_shell_source_representation": "box_primary_cell",
         }
     )
     return ObjectWrench(
@@ -563,7 +563,7 @@ def _with_path_metadata(
         {
             "finite_shell_image_layers": image_layers,
             "finite_shell_closure": closure,
-            "finite_shell_source_representation": "native_canonical_unwrapped",
+            "finite_shell_source_representation": "box_primary_cell",
         }
     )
     return ObjectForcePath(

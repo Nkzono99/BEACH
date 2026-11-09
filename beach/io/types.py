@@ -89,7 +89,9 @@ class CoulombInteraction:
     torque_on_a_Nm : numpy.ndarray
         Net torque on group A in newton-meters with shape ``(3,)``.
     torque_on_b_Nm : numpy.ndarray
-        Net torque on group B in newton-meters with shape ``(3,)``.
+        Net torque on group B about ``torque_origin_m`` in newton-meters,
+        shape ``(3,)``. Periodic image forces generally make this different
+        from ``-torque_on_a_Nm``.
     mean_force_on_a_per_element_N : numpy.ndarray
         Mean force per target element in newtons with shape ``(3,)``.
     mean_torque_on_a_per_element_Nm : numpy.ndarray

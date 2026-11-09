@@ -11,7 +11,7 @@ from typing import Iterable, Literal, Mapping, Sequence
 import numpy as np
 
 from beach.io.types import CoulombInteraction, RunResult, MeshSelection
-from beach.native.kernel import FieldKernel
+from beach.native.kernel import FieldKernel, FieldKernelOptions
 
 from ._selection import _coerce_group_selection
 from .context import RunContext
@@ -67,8 +67,9 @@ def calc_coulomb(
         Explicit ``beach.toml`` and native kernel library.
     kernel : FieldKernel or None, default None
         Open kernel built from this run's full mesh, for example
-        ``Beach.kernel()``. During the call its source charges are those of
-        ``source`` alone, and they are restored afterwards; it is not closed.
+        ``Beach.kernel()``. Each integration temporarily enables only the
+        opposite group's source charges and restores them afterwards; the
+        kernel is not closed.
         Its plan is used as given, so ``periodic2`` and ``library_path`` do not
         apply, and its uniform external field is excluded from the result. The
         full-mesh plan agrees with the default source-only plan to FMM accuracy.
@@ -77,7 +78,9 @@ def calc_coulomb(
     Returns
     -------
     CoulombInteraction
-        Force and torque on both groups.
+        Force and torque on both groups about the same origin. In periodic
+        systems the source torque is evaluated separately; image forces need
+        not be central between the two groups in the primary cell.
     """
 
     context = RunContext.from_value(result, config_path=config_path)
@@ -110,24 +113,72 @@ def calc_coulomb(
         )
 
     order = _quadrature_order(quadrature_order)
+    options = _coulomb_options(context, periodic2, kernel)
+    force_target, torque_target = _group_coulomb_wrench(
+        context, sel_target, sel_source, origin, order, options, library_path, kernel
+    )
+    if options.periodic2 is None:
+        torque_source = -torque_target
+    else:
+        _, torque_source = _group_coulomb_wrench(
+            context, sel_source, sel_target, origin, order, options, library_path, kernel
+        )
+
+    target_count = float(sel_target.elem_indices.size)
+    return CoulombInteraction(
+        group_a_mesh_ids=sel_target.mesh_ids,
+        group_b_mesh_ids=sel_source.mesh_ids,
+        step=sel_target.step,
+        torque_origin_m=origin,
+        force_on_a_N=force_target,
+        force_on_b_N=-force_target,
+        torque_on_a_Nm=torque_target,
+        torque_on_b_Nm=torque_source,
+        mean_force_on_a_per_element_N=force_target / target_count,
+        mean_torque_on_a_per_element_Nm=torque_target / target_count,
+    )
+
+
+def _coulomb_options(
+    context: RunContext,
+    periodic2: Mapping[str, object] | None,
+    kernel: FieldKernel | None,
+) -> FieldKernelOptions:
+    if kernel is not None:
+        _require_run_kernel(context, kernel, operation="calc_coulomb")
+        return kernel.options
+    _require_total_field_config(context, operation="calc_coulomb")
+    options = _options_from_result(
+        context.result,
+        periodic2=periodic2,
+        theta=None,
+        leaf_max=None,
+        order=None,
+        config_path=context.requested_config_path,
+        context=context,
+    )
+    _require_total_field_reconstruction(context, options, operation="calc_coulomb")
+    return replace(options, external_e0=(0.0, 0.0, 0.0))
+
+
+def _group_coulomb_wrench(
+    context: RunContext,
+    sel_target: MeshSelection,
+    sel_source: MeshSelection,
+    origin: np.ndarray,
+    order: int,
+    options: FieldKernelOptions,
+    library_path: str | Path | None,
+    kernel: FieldKernel | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Integrate one direction of a pair, also used by force-only matrices."""
+
     target_points, target_weights, _ = panel_target_quadrature(
         sel_target.triangles,
         sel_target.charges,
         order,
     )
     if kernel is None:
-        _require_total_field_config(context, operation="calc_coulomb")
-        options = _options_from_result(
-            resolved,
-            periodic2=periodic2,
-            theta=None,
-            leaf_max=None,
-            order=None,
-            config_path=config_path,
-            context=context,
-        )
-        _require_total_field_reconstruction(context, options, operation="calc_coulomb")
-        options = replace(options, external_e0=(0.0, 0.0, 0.0))
         with FieldKernel(
             sel_source.triangles,
             sel_source.charges,
@@ -140,8 +191,7 @@ def calc_coulomb(
                 origin=origin,
             )
     else:
-        _require_run_kernel(context, kernel, operation="calc_coulomb")
-        source_q = np.zeros(resolved.summary.mesh_nelem, dtype=np.float64)
+        source_q = np.zeros(context.result.summary.mesh_nelem, dtype=np.float64)
         source_q[sel_source.elem_indices] = sel_source.charges
         with _restoring_charges(kernel):
             kernel.update_charges(source_q)
@@ -158,21 +208,27 @@ def calc_coulomb(
             axis=0,
         )
 
-    force_source = -force_target
-    torque_source = -torque_target
-    target_count = float(sel_target.elem_indices.size)
-    return CoulombInteraction(
-        group_a_mesh_ids=sel_target.mesh_ids,
-        group_b_mesh_ids=sel_source.mesh_ids,
-        step=sel_target.step,
-        torque_origin_m=origin,
-        force_on_a_N=force_target,
-        force_on_b_N=force_source,
-        torque_on_a_Nm=torque_target,
-        torque_on_b_Nm=torque_source,
-        mean_force_on_a_per_element_N=force_target / target_count,
-        mean_torque_on_a_per_element_Nm=torque_target / target_count,
+    return force_target, torque_target
+
+
+def _coulomb_matrix_force(
+    context: RunContext,
+    target: int,
+    source: Sequence[int],
+    *,
+    step: int | None,
+    periodic2: Mapping[str, object] | None,
+    library_path: str | Path | None,
+    kernel: FieldKernel | None = None,
+) -> np.ndarray:
+    context.require_triangle_source_model()
+    sel_target = _coerce_group_selection(context.result, target, step=step)
+    sel_source = _coerce_group_selection(context.result, source, step=step)
+    options = _coulomb_options(context, periodic2, kernel)
+    force, _ = _group_coulomb_wrench(
+        context, sel_target, sel_source, np.zeros(3), 7, options, library_path, kernel
     )
+    return force
 
 
 _COULOMB_MATRIX_WORKER_CONTEXT: dict[str, object] = {}
@@ -218,7 +274,7 @@ def _coulomb_force_matrix(
         task: tuple[int, int, int, list[int]],
     ) -> tuple[int, int, float]:
         row_idx, col_idx, target_mesh_id, task_source_ids = task
-        interaction = calc_coulomb(
+        force = _coulomb_matrix_force(
             context,
             target=target_mesh_id,
             source=task_source_ids,
@@ -227,7 +283,7 @@ def _coulomb_force_matrix(
             library_path=library_path,
             kernel=kernel,
         )
-        return row_idx, col_idx, float(interaction.force_on_a_N[component_idx])
+        return row_idx, col_idx, float(force[component_idx])
 
     if workers == 1 or len(tasks) <= 1:
         entries = map(_compute_entry_serial, tasks)
@@ -285,14 +341,16 @@ def _compute_coulomb_matrix_entry_worker(
     task: tuple[int, int, int, list[int]],
 ) -> tuple[int, int, float]:
     row_idx, col_idx, target_mesh_id, source_mesh_ids = task
-    interaction = calc_coulomb(
-        _COULOMB_MATRIX_WORKER_CONTEXT["resolved"],
+    force = _coulomb_matrix_force(
+        RunContext.from_value(
+            _COULOMB_MATRIX_WORKER_CONTEXT["resolved"],
+            config_path=_COULOMB_MATRIX_WORKER_CONTEXT["config_path"],
+        ),
         target=target_mesh_id,
         source=source_mesh_ids,
         step=_COULOMB_MATRIX_WORKER_CONTEXT["step"],
         periodic2=_COULOMB_MATRIX_WORKER_CONTEXT["periodic2"],
-        config_path=_COULOMB_MATRIX_WORKER_CONTEXT["config_path"],
         library_path=_COULOMB_MATRIX_WORKER_CONTEXT["library_path"],
     )
     component_idx = int(_COULOMB_MATRIX_WORKER_CONTEXT["component_idx"])
-    return row_idx, col_idx, float(interaction.force_on_a_N[component_idx])
+    return row_idx, col_idx, float(force[component_idx])

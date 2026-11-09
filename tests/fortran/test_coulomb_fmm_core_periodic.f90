@@ -139,7 +139,7 @@ contains
     split_pos(:, 6) = [0.03_dp, 0.95_dp, -0.50_dp]
     q = [-1.0e-12_dp, 1.1e-12_dp, -0.9e-12_dp, 1.2e-12_dp, -1.3e-12_dp, 1.0e-12_dp]
 
-    ! Same physical lattice as split_pos, explicitly unwrapped at the largest gaps.
+    ! Same physical lattice as split_pos, expressed using different periodic images.
     unwrapped_pos = split_pos
     unwrapped_pos(1, 1) = unwrapped_pos(1, 1) + 1.0_dp
     unwrapped_pos(1, 2) = unwrapped_pos(1, 2) + 1.0_dp
@@ -177,7 +177,7 @@ contains
       call eval_potential_point(split_plan, split_state, queries(:, i), split_phi)
       call eval_potential_point(unwrapped_plan, unwrapped_state, queries(:, i), unwrapped_phi)
       call direct_periodic2( &
-        unwrapped_pos, q, queries(:, i), options%periodic_axes, options%periodic_len, &
+        split_pos, q, queries(:, i), options%periodic_axes, options%periodic_len, &
         options%periodic_image_layers, reference_field, reference_phi &
         )
       call assert_true( &
