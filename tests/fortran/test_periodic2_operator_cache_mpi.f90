@@ -18,6 +18,7 @@ program test_periodic2_operator_cache_mpi
 
   call mpi_initialize(mpi)
   call configure_fixture(src_pos, options)
+  options%mpi = mpi
   cache_nonce = 0_i32
   if (mpi_is_root(mpi)) then
     call system_clock(count=clock_count)
