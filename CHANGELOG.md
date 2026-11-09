@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-11-09
+
 ### Added
 
 - `output.diagnostics.charge_rel_change_threshold` を早期終了条件として実装した。正の値を設定すると、
@@ -56,7 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - periodic zero-mode の state 更新は確保済み配列を再利用し、
   gauge 高さの電荷原始関数を更新時に 1 回だけ計算するようにした（評価点ごとの区間探索をなくした）（#60）。
 - FMM plan 構築で、読まれていなかった遠方 node 一覧を作らず、周期 wrap で動かない panel の幾何を作り直さず、
-  octree 分割の作業配列を固定長にした。finite_images の seam 探索のソートを O(N log N) にした。
+  octree 分割の作業配列を固定長にした。
   結果は変わらない（#60）。
 - cached_kneq0 operator の checksum を target block ごとに計算し、
   operator 全体の byte 複製をなくした（checksum 値と cache 形式は同じ）。
