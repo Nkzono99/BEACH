@@ -134,6 +134,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- 周期境界イベントの適応分割後、異なる kinetic 障壁リターンで同じ面内再配置乱数を使い回す問題を修正した（#106）。
+  分割経路を counter に含めて親・子・兄弟のイベントを区別し、分割しない step の乱数列は維持する。
 - `beach --check-config`（Fortran preflight）が、JSON schema だけが拒否していた
   `particles.tracking.max_steps_per_particle = 0`、`output.enabled = false` での `[run.restart]`、`inflow` を持たない
   `volume_seed` 種の `sampling.target_macro_particles_per_batch` を受理していた。

@@ -17,7 +17,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(31)
+  call test_init(32)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -101,6 +101,10 @@ program test_particle_stepper
 
   call test_begin('advance_nine_periodic_events_subdivides')
   call test_advance_nine_periodic_events_subdivides()
+  call test_end()
+
+  call test_begin('periodic_subdivision_uses_distinct_barrier_return_draws')
+  call test_periodic_subdivision_uses_distinct_barrier_return_draws()
   call test_end()
 
   call test_begin('advance_ninth_box_event_fails')
@@ -805,6 +809,61 @@ contains
     call assert_allclose_1d(result%v, v0, 0.0_dp, 'subdivided periodic velocity mismatch')
     call assert_true(.not. result%absorbed .and. .not. result%escaped_boundary, 'periodic particle should survive')
   end subroutine test_advance_nine_periodic_events_subdivides
+
+  !> With no y velocity, y records the latest barrier redistribution. Different returns within a
+  !! step must not reuse it, including after periodic event overflow subdivides the remainder.
+  subroutine test_periodic_subdivision_uses_distinct_barrier_return_draws()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(external_boundary_contract_type) :: contract
+    type(particle_step_result) :: earlier, later, repeated
+    real(dp) :: x0(3), v0(3), dt_earlier, dt_later
+    integer(i32), parameter :: speeds(2) = [35_i32, 34_i32], earlier_returns(2) = [1_i32, 2_i32]
+    integer(i32) :: scenario
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%rng_seed = 12345
+    sim%bc_low(1:2) = bc_periodic
+    sim%bc_high(1:2) = bc_periodic
+    sim%bc_low(3) = bc_reflect
+    contract = external_boundary_contract_type()
+    contract%barrier_override_high(3) = .true.
+    contract%barrier_potential_high_v(3) = -1.0_dp
+    contract%barrier_redistribute_high(3) = .true.
+    x0 = [0.2_dp, 0.2_dp, 0.9_dp]
+
+    do scenario = 1, 2
+      v0 = [real(speeds(scenario), dp), 0.0_dp, 1.0_dp]
+      dt_earlier = 0.10001_dp + 2.0_dp*real(earlier_returns(scenario) - 1, dp)
+      dt_later = dt_earlier + 2.0_dp
+      call advance_particle_step( &
+        mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, -1.0_dp, 1.0_dp, dt_earlier, earlier, &
+        boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64], &
+        cell=irradiation_cell_contract_type() &
+        )
+      call advance_particle_step( &
+        mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, -1.0_dp, 1.0_dp, dt_later, later, &
+        boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64], &
+        cell=irradiation_cell_contract_type() &
+        )
+      call assert_true(earlier%status == particle_step_ok .and. later%status == particle_step_ok, &
+                       'subdivided barrier-return trajectory must complete')
+      call assert_true(earlier%outer_barrier_return_count == earlier_returns(scenario), 'earlier return count')
+      call assert_true(later%outer_barrier_return_count == earlier_returns(scenario) + 1, 'later return count')
+      call assert_true(abs(later%x(2) - earlier%x(2)) > 1.0e-8_dp, 'distinct returns must not reuse the same draw')
+      call assert_close_dp(sum(later%v*later%v), sum(v0*v0), 1.0e-10_dp, 'returns must conserve kinetic energy')
+      if (scenario == 1) then
+        call assert_close_dp(earlier%x(2), 0.45699982546050605_dp, 1.0e-14_dp, 'unsplit RNG sequence must be preserved')
+      end if
+      call advance_particle_step( &
+        mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, -1.0_dp, 1.0_dp, dt_later, repeated, &
+        boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64], &
+        cell=irradiation_cell_contract_type() &
+        )
+      call assert_allclose_1d(repeated%x, later%x, 0.0_dp, 'subdivided return must be counter deterministic')
+    end do
+  end subroutine test_periodic_subdivision_uses_distinct_barrier_return_draws
 
   subroutine test_advance_ninth_box_event_fails()
     type(mesh_type) :: mesh
