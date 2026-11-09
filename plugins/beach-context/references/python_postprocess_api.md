@@ -150,8 +150,10 @@ with Beach("outputs/latest", config_path="beach.toml") as run:
 
 `periodic2=None` は保存された `field_reconstruction_*` 情報を使い、情報のない出力では近傍の `beach.toml` を探します。
 有限画像を明示する例は `{"axes": [0, 1], "lengths": [0.01, 0.01], "image_layers": 2}` です。
-軸は 0-based、長さと原点は m、画像数は各軸で `[-N, N]` です。全設定型は
+軸は 0-based、長さと原点は m、画像数は各軸で `[-N, N]` です。ソースの重心を box 基準の主セルへ
+折り返してから画像を作るため、中性パネルの追加やソース群の選択で画像和の基準は変わりません。全設定型は
 [`Periodic2Config`](https://nkzono99.github.io/BEACH/python/advanced.html#beach.native.periodic2.Periodic2Config)にあります。
+有限画像検証の `numerical_metadata["finite_shell_source_representation"]` は `"box_primary_cell"` です。
 
 実際の solver が `direct` なら非周期の直接評価、`fmm` なら記録された展開次数を使います。
 `treecode`、`panel_spectral_reference`、未合成の `cached_kneq0` を別の全電場へ置き換えることはありません。
@@ -160,8 +162,12 @@ with Beach("outputs/latest", config_path="beach.toml") as run:
 
 ## 物体の力と離脱
 
-`calc_coulomb` は選択した source から target への力・トルク、`calc_object_forces_kernel` は物体別合力を返します。
-後者は target 自身の周期画像も除外します。target の primary 自己場だけを除き、自身の周期画像を残す場合は
+`calc_coulomb` は選択した 2 群の相互作用による力・トルクを、同じ `torque_origin_m` に関して返します。
+周期系の `torque_on_b_Nm` は B 側で別途積分します。周期画像からの力が群間の中心力にならないため、
+A・B のトルクの和は一般に 0 にはなりません。力行列は必要な方向だけを評価します。
+
+`calc_object_forces_kernel` は物体別合力を返し、target 自身の周期画像も除外します。
+target の primary 自己場だけを除き、自身の周期画像を残す場合は
 `ObjectInteractionSnapshot.object_probe` を使います。`periodic_model="infinite_physical"` は x/y 周期の
 `cached_kneq0` と物理的な平均場を合成します。
 

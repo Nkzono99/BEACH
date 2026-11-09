@@ -292,21 +292,6 @@ def _install_fake_shell_paths(
     )
 
 
-def _canonical_periodic_sources(points: np.ndarray, length: float) -> np.ndarray:
-    result = np.mod(points, length)
-    for axis in (0, 1):
-        ordered = np.sort(result[:, axis])
-        gaps = np.diff(ordered)
-        wrap_gap = ordered[0] + length - ordered[-1]
-        if gaps.size and np.max(gaps) >= wrap_gap:
-            index = int(np.argmax(gaps))
-            origin = ordered[index] + 0.5 * gaps[index]
-        else:
-            origin = np.mod(ordered[-1] + 0.5 * wrap_gap, length)
-        result[result[:, axis] < origin, axis] += length
-    return result
-
-
 def test_identity_rigid_transform_preserves_panel_center_bits_about_nonzero_origin() -> None:
     points = np.mean(_plane_triangles(4), axis=1)
     transformed = RigidTransform.identity().apply(
@@ -502,14 +487,13 @@ def test_finite_shell_m1_matches_explicit_replicated_direct_sum(
         torque_origin = np.array(probe.geometric_area_centroid_m, copy=True)
 
     base = np.array([[0.5, 0.5, 0.0], [1.5, 0.5, 0.3]])
-    canonical = _canonical_periodic_sources(base.copy(), 2.0)
     replicated_pos: list[np.ndarray] = []
     replicated_q: list[float] = []
     for ix in range(-1, 2):
         for iy in range(-1, 2):
             shift = np.array([2.0 * ix, 2.0 * iy, 0.0])
             for source in range(2):
-                position = canonical[source] + shift
+                position = base[source] + shift
                 if source == 0 and np.array_equal(position, base[0]):
                     continue
                 replicated_pos.append(position)

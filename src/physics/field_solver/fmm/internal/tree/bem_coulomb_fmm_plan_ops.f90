@@ -3,7 +3,6 @@ module bem_coulomb_fmm_plan_ops
   use, intrinsic :: ieee_arithmetic, only: ieee_class, ieee_negative_zero, operator(==)
   use bem_filesystem, only: default_periodic_cache_directory
   use bem_kinds, only: dp, sp, i32
-  use bem_sorting, only: sort_real_ascending
   use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, fmm_tree_type, reset_fmm_plan, &
                                    periodic_source_proxy_half_size, periodic_operator_source_radius_ratio, &
                                    periodic_operator_target_radius_ratio
@@ -140,7 +139,9 @@ contains
       end do
     end if
 
-    if (options%use_periodic2 .and. nsrc > 0_i32) call build_canonical_src_pos(plan)
+    ! A finite image sum must keep the same representatives when neutral sources are added or
+    ! a subset is evaluated. Use the box-based primary cell for every periodic plan.
+    if (options%use_periodic2 .and. nsrc > 0_i32) call wrap_src_pos_to_primary_cell(plan)
     if (plan%panel_source) then
       do idx = 1_i32, nsrc
         shift = plan%src_pos(:, idx) - original_centroid(:, idx)
@@ -1441,61 +1442,5 @@ contains
     rhs = (theta_eff*theta_eff)*sum(d*d)
     nodes_well_separated_shifted = (lhs < rhs)
   end function nodes_well_separated_shifted
-
-  !> ソース位置を primary cell へ wrap した上で、各 periodic 軸の
-  !! 最大空白 (largest gap) に seam を配置し、seam をまたぐ点群を
-  !! periodic-unwrap した canonical source set を構成する。
-  !! @param[inout] plan FMM 計画（`plan%src_pos` が変更される）。
-  subroutine build_canonical_src_pos(plan)
-    type(fmm_plan_type), intent(inout) :: plan
-    integer(i32) :: i, k, axis, nsrc, j
-    real(dp) :: len_k, lo, gap_size, max_gap, new_origin
-    real(dp), allocatable :: pos_sorted(:)
-
-    call wrap_src_pos_to_primary_cell(plan)
-    ! The cached residual and finite shell must use the same box-based source representatives.
-    if (use_periodic2_cached_kneq0(plan)) return
-
-    nsrc = plan%nsrc
-    if (nsrc <= 1_i32) return
-
-    do k = 1_i32, 2_i32
-      axis = plan%options%periodic_axes(k)
-      len_k = plan%options%periodic_len(k)
-      lo = plan%options%target_box_min(axis)
-
-      allocate (pos_sorted(nsrc))
-      do i = 1_i32, nsrc
-        pos_sorted(i) = plan%src_pos(axis, i) - lo
-      end do
-      call sort_real_ascending(pos_sorted)
-
-      max_gap = 0.0d0
-      new_origin = lo
-
-      do j = 1_i32, nsrc - 1_i32
-        gap_size = pos_sorted(j + 1_i32) - pos_sorted(j)
-        if (gap_size > max_gap) then
-          max_gap = gap_size
-          new_origin = lo + pos_sorted(j) + 0.5d0*gap_size
-        end if
-      end do
-
-      gap_size = pos_sorted(1_i32) + len_k - pos_sorted(nsrc)
-      if (gap_size > max_gap) then
-        max_gap = gap_size
-        new_origin = lo + modulo(pos_sorted(nsrc) + 0.5d0*gap_size, len_k)
-      end if
-
-      deallocate (pos_sorted)
-
-      if (new_origin <= lo) cycle
-      do i = 1_i32, nsrc
-        if (plan%src_pos(axis, i) < new_origin) then
-          plan%src_pos(axis, i) = plan%src_pos(axis, i) + len_k
-        end if
-      end do
-    end do
-  end subroutine build_canonical_src_pos
 
 end module bem_coulomb_fmm_plan_ops
