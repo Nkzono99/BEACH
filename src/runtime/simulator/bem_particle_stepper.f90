@@ -48,6 +48,8 @@ module bem_particle_stepper
     logical :: has_boundary_rng_counter = .false.
     logical :: use_upper_panel_fourier = .false.
     integer(i32) :: adaptive_depth = 0_i32
+    !> Binary-tree path: root=1, first/second half=2*parent/2*parent+1 (depth <= 12).
+    integer(i32) :: adaptive_branch = 1_i32
     type(irradiation_cell_contract_type) :: cell
   end type particle_step_context
 
@@ -417,7 +419,7 @@ contains
           return
         end if
         call generate_redistribution_uniform( &
-          sim%rng_seed, ctx%boundary_rng_counter, event_count, redistribution_uniform &
+          sim%rng_seed, ctx%boundary_rng_counter, event_count, ctx%adaptive_branch, redistribution_uniform &
           )
       end if
       dt_remaining = (1.0_dp - event%fraction)*dt_segment
@@ -500,6 +502,7 @@ contains
     prior_wall_energy = result%wall_outward_normal_kinetic_energy_j_sum
     half_ctx = ctx
     half_ctx%adaptive_depth = ctx%adaptive_depth + 1_i32
+    half_ctx%adaptive_branch = 2_i32*ctx%adaptive_branch
     call advance_particle_step_impl(mesh, sim, snapshot, half_ctx, x0, v0, 0.5_dp*dt, first_half, field_available)
     if (.not. field_available) then
       result = first_half
@@ -515,6 +518,7 @@ contains
       return
     end if
 
+    half_ctx%adaptive_branch = 2_i32*ctx%adaptive_branch + 1_i32
     call advance_particle_step_impl( &
       mesh, sim, snapshot, half_ctx, first_half%x, first_half%v, 0.5_dp*dt, second_half, field_available &
       )
@@ -530,7 +534,8 @@ contains
                                                       second_half%wall_outward_normal_kinetic_energy_j_sum
   end subroutine advance_periodic_substeps
 
-  !> eventの全faceがperiodicで、適応分割中に乱数境界へ入らない場合だけ再試行する。
+  !> eventの全faceがperiodicで、通常の再分布反射面を持たない場合に再試行する。
+  !! kinetic障壁リターンの面内再配置は、分割経路を含むcounterで区別する。
   pure logical function periodic_event_can_subdivide(sim, event) result(can_subdivide)
     class(particle_domain_config), intent(in) :: sim
     type(boundary_event_type), intent(in) :: event
@@ -845,12 +850,17 @@ contains
   end function event_requires_redistribution_counter
 
   !> 粒子event識別子からOpenMP実行順序に依存しない一様乱数を構築する（PCG64 counter-based）。
-  subroutine generate_redistribution_uniform(seed, counter, event_index, uniform)
-    integer(i32), intent(in) :: seed, event_index
+  subroutine generate_redistribution_uniform(seed, counter, event_index, adaptive_branch, uniform)
+    integer(i32), intent(in) :: seed, event_index, adaptive_branch
     integer(i64), intent(in) :: counter(4)
     real(dp), intent(out) :: uniform(3)
 
-    call counter_uniforms(seed, [counter, int(event_index, i64), 1009_i64], 1_i64, uniform)
+    if (adaptive_branch == 1_i32) then
+      ! Preserve the sequence of steps that do not subdivide.
+      call counter_uniforms(seed, [counter, int(event_index, i64), 1009_i64], 1_i64, uniform)
+    else
+      call counter_uniforms(seed, [counter, int(event_index, i64), 1009_i64, int(adaptive_branch, i64)], 1_i64, uniform)
+    end if
   end subroutine generate_redistribution_uniform
 
   !> Candidate endpointがboxの全faceからstrictly interiorかを返すfast-path判定。

@@ -133,9 +133,11 @@ edge / cornerの同時eventでmaskに`redistributed_reflect`が含まれる場�
 一様再標本化します。event軸は再標本化せず、対応する面の内側guardへ置きます。このためcornerでは
 再配置する軸はなく、edgeでは残る1軸だけを再配置します。
 
-面内標本は共有乱数streamではなく、`run.rng_seed`とbatch、rank、particle、step、event、axisのcounterから
-生成します。同じMPI layoutとseedではOpenMP scheduleに依存せず再現できますが、rank分割を変えた同一軌道の
-一致は保証しません。
+面内標本は共有乱数streamではなく、`run.rng_seed` と batch、generation、粒子の RNG ID、step、event の
+counter から生成します。同じ counter と seed では OpenMP schedule に依存せず再現できます。
+周期境界イベントの適応分割後は、二分木の分割経路も counter に含めます。親 step、前半、後半で
+ローカルの event 番号が一致しても、kinetic 障壁リターンの再配置には別の乱数を使います。
+分割しない step の乱数列は変わりません。
 
 `[particles.species.boundary]` は同じ 6 面を species ごとに `inherit`、`open`、`reflect`、
 `redistributed_reflect` で上書きします。

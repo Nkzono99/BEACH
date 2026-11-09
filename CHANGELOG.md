@@ -140,6 +140,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `particles.tracking.max_steps_per_particle = 0`、`output.enabled = false` での `[run.restart]`、`inflow` を持たない
   `volume_seed` 種の `sampling.target_macro_particles_per_batch` を受理していた。
   preflight でも公開キー名を示して停止する。
+- 周期境界イベントの適応分割後、異なる kinetic 障壁リターンで同じ面内再配置乱数を使い回す問題を修正した（#106）。
+  分割経路を counter に含めて親・子・兄弟のイベントを区別し、分割しない step の乱数列は維持する。
 - periodic2 FMM の点評価で、周期下端の半 ulp 未満だけ下の点が `modulo` の丸めで上端 `lo+L` に写り、
   leaf 探索で再度折り返されて反対端の leaf が選ばれていた。この点の電場・電位は 1 周期離れた位置の展開で評価され、
   桁違いに誤っていた。評価点と source を `[lo, lo+L)` へ一度だけ折り返す（#60）。
