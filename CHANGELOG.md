@@ -134,10 +134,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
-- 周期系の `calc_coulomb` が B 側トルクを A 側の符号反転で返していた問題を修正した。
-  周期系では同じ基準点に対して B 側も積分する。力行列は従来どおり片方向だけを評価する（#107）。
-  あわせて、有限周期画像のソースを box 基準の主セルへ統一した。ソース群ごとに最大の隙間で折り返す処理を除き、
-  中性パネルの追加や kernel の再利用によって有限画像和が変わらないようにした。
 - `beach --check-config`（Fortran preflight）が、JSON schema だけが拒否していた
   `particles.tracking.max_steps_per_particle = 0`、`output.enabled = false` での `[run.restart]`、`inflow` を持たない
   `volume_seed` 種の `sampling.target_macro_particles_per_batch` を受理していた。
@@ -152,6 +148,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   次回の refresh と restart の再構成がずれていた。
 - 周期物体検証ツールの stage / probe-periodic-oracles が途中で失敗したとき、その試行の生成物を消すようにした（#59）。
   receipt のない作業域が次の試行を止めることがなくなった。
+- 周期系の `calc_coulomb` が B 側トルクを A 側の符号反転で返していた問題を修正した。
+  周期系では同じ基準点に対して B 側も積分する。力行列は従来どおり片方向だけを評価する（#107）。
+  あわせて、有限周期画像のソースを box 基準の主セルへ統一した。ソース群ごとに最大の隙間で折り返す処理を除き、
+  中性パネルの追加や kernel の再利用によって有限画像和が変わらないようにした。
 
 ## [4.1.0] - 2026-10-30
 
