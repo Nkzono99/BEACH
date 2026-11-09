@@ -897,6 +897,14 @@ contains
         plan%source_tree, check_root_extent=.not. plan%options%use_periodic2, r_eval=r_eval, leaf_node=leaf_node, &
         leaf_center=leaf_center &
         )
+      ! Source leaves bound the sources, not every point routed to their octant. M2L separation
+      ! only guarantees the local expansion inside those bounds; use the direct path outside.
+      if (leaf_node > 0_i32) then
+        if (any(abs(r_eval - leaf_center) > plan%source_tree%node_half_size(:, leaf_node))) then
+          leaf_node = 0_i32
+          leaf_center = 0.0_dp
+        end if
+      end if
     end if
   end subroutine locate_target_leaf
 

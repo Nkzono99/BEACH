@@ -19,10 +19,10 @@ from beach.io.constants import K_COULOMB
 from beach.io.types import RunField, RunMesh, RunSummary
 
 
-def _uniform_triangle_field(
+def _uniform_triangle_field_and_potential(
     vertices: np.ndarray, charge_C: float, target: np.ndarray
-) -> np.ndarray:
-    """Field of a uniformly charged triangle by tensor Gauss-Legendre on the Duffy square."""
+) -> tuple[np.ndarray, float]:
+    """Independent surface quadrature of a uniformly charged triangle's E and phi."""
 
     nodes, weights = np.polynomial.legendre.leggauss(64)
     s = 0.5 * (nodes + 1.0)
@@ -40,7 +40,52 @@ def _uniform_triangle_field(
     distance = np.linalg.norm(separation, axis=2)
     density = charge_C / (0.5 * twice_area)
     integrand = separation / distance[:, :, None] ** 3
-    return K_COULOMB * density * np.sum(weight[:, :, None] * integrand, axis=(0, 1))
+    field = K_COULOMB * density * np.sum(weight[:, :, None] * integrand, axis=(0, 1))
+    potential = K_COULOMB * density * float(np.sum(weight / distance))
+    return field, potential
+
+
+@pytest.mark.parametrize("explicit_box", [False, True], ids=["default-box", "explicit-box"])
+def test_free_space_fmm_between_source_leaves_matches_surface_quadrature(
+    field_kernel_library: Path, explicit_box: bool,
+) -> None:
+    # Seventeen panels split the default source tree. Only the panel at x=.001 is charged.
+    # Points near x=0 are inside the root but outside the selected source leaf's bounds.
+    radius = 1.0e-4
+    panel = radius * np.array([
+        [0.0, 1.0, 0.0],
+        [0.0, -0.5, np.sqrt(3.0) / 2.0],
+        [0.0, -0.5, -np.sqrt(3.0) / 2.0],
+    ])
+    centers = np.zeros((17, 3))
+    centers[:, 0] = [-1.0, 0.001, *np.linspace(0.1, 1.0, 15)]
+    triangles = panel[None, :, :] + centers[:, None, :]
+    charges = np.zeros(17)
+    charges[1] = 1.0e-12
+    targets = np.array([
+        [-0.001, 0.0, 0.0],
+        [-1.0e-10, 0.0, 0.0],
+        [1.0e-10, 0.0, 0.0],
+        [-0.001, -2.0e-5, -2.0e-5],  # Empty octant: descent picks the nearest child.
+    ])
+    expected = [
+        _uniform_triangle_field_and_potential(triangles[1], charges[1], point)
+        for point in targets
+    ]
+    options = FieldKernelOptions()
+    if explicit_box:
+        options = FieldKernelOptions(
+            box_min=(-1.1, -0.01, -0.01), box_max=(1.1, 0.01, 0.01),
+        )
+    with FieldKernel(
+        triangles, charges, options=options, library_path=field_kernel_library,
+    ) as kernel:
+        np.testing.assert_allclose(
+            kernel.eval_e(targets), [item[0] for item in expected], rtol=1.0e-10, atol=1.0e-9,
+        )
+        np.testing.assert_allclose(
+            kernel.eval_phi(targets), [item[1] for item in expected], rtol=1.0e-10,
+        )
 
 
 @pytest.mark.parametrize("edge_m", [1.0e-6, 1.0e-9])
@@ -166,7 +211,7 @@ def test_field_kernel_from_result_uses_triangle_geometry(
     np.testing.assert_allclose(panel_field, direct_field, rtol=2.0e-14, atol=1.0e-14)
     # Both paths share the factory geometry, so the saved triangle is also checked against an
     # independent quadrature of the uniformly charged surface.
-    expected = _uniform_triangle_field(triangles[0], charges[0], target[0])
+    expected, _ = _uniform_triangle_field_and_potential(triangles[0], charges[0], target[0])
     np.testing.assert_allclose(panel_field[0], expected, rtol=1.0e-9)
 
 

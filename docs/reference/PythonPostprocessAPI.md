@@ -112,6 +112,8 @@ export BEACH_FIELD_KERNEL_LIB=/path/to/BEACH/build/libbeach_field_kernel.so
 
 `FieldKernelOptions` に `box_min` と `box_max` を指定する場合は、両方とも有限な 3 成分の座標にします。
 周期計算でも、長さが違う配列や片方だけの指定は、共有ライブラリへ渡す前に `ValueError` になります。
+自由空間で両方を省略した場合、選ばれたソース葉の範囲外にある評価点では、全三角形の直接和で電場・電位を求めます。
+離れた位置を多数評価する場合は、評価範囲を覆う `box_min` と `box_max` を指定すると FMM の局所展開を利用できます。
 
 `kernel=` を受け付ける関数に渡した kernel は、その plan と電荷を使い、閉じません。plan を決める
 `periodic2`、`theta`、`leaf_max`、`order`、`library_path` は kernel の作成時に指定してください。

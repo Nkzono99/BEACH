@@ -134,6 +134,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- 自由空間 FMM で評価範囲の box を省略したとき、選ばれたソース葉の範囲外でも局所展開を使い、
+  電場・電位を誤っていた問題を修正した。範囲外では既存の全ソース直接和を使う（#114）。
 - `beach --check-config`（Fortran preflight）が、JSON schema だけが拒否していた
   `particles.tracking.max_steps_per_particle = 0`、`output.enabled = false` での `[run.restart]`、`inflow` を持たない
   `volume_seed` 種の `sampling.target_macro_particles_per_batch` を受理していた。
