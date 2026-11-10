@@ -8,7 +8,7 @@ program test_panel_kernel
   use bem_panel_kernel, only: panel_potential_field, panel_potential_field_translated, panel_field_sum_translated, &
                               panel_potential_sum_translated, panel_field_sum_translated_sp, &
                               panel_potential_sum_translated_sp, panel_side_principal_value, panel_side_normal_plus, &
-                              panel_side_normal_minus
+                              panel_side_normal_minus, vector_log_sp, vector_atan2_sp
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_equal_i32, assert_close_dp, &
                           assert_allclose_1d, assert_true
   implicit none
@@ -38,6 +38,8 @@ program test_panel_kernel
   real(dp) :: leaf_center(3), sp_ex, sp_ey, sp_ez, sp_phi, field_scale, potential_scale
   real(dp), parameter :: scales(5) = [1.0e-9_dp, 1.0e-6_dp, 1.0_dp, 1.0e3_dp, 1.0e6_dp]
   real(dp), parameter :: offsets(3) = [0.0_dp, 1.0e3_dp, 1.0e6_dp]
+  real(sp) :: x_sp, y_sp
+  real(dp) :: max_rel_err, angle, radius, reference
 
   v0 = [0.0_dp, 0.0_dp, 0.0_dp]
   v1 = [1.0_dp, 0.0_dp, 0.0_dp]
@@ -321,6 +323,39 @@ program test_panel_kernel
     call assert_close_dp(sp_phi, ref_phi, 1.0e-5_dp*potential_scale, &
                          'single-precision potential sum differs from the double kernel by more than 1e-5')
   end do
+  call test_end()
+
+  call test_begin('single_precision_vector_log_and_atan2_match_libm')
+  ! The single-precision sums use these instead of logf/atan2f so the loops vectorize; they must stay
+  ! within a few float ulps of the double-precision reference over the whole range the sums use.
+  call assert_true(vector_log_sp(1.0_sp) == 0.0_sp, 'vector_log_sp(1) is not exactly 0')
+  max_rel_err = 0.0_dp
+  x_sp = 1.0_sp
+  do while (x_sp < 1.0e6_sp)
+    max_rel_err = max(max_rel_err, abs(real(vector_log_sp(x_sp), dp) - log(real(x_sp, dp)))/log(real(x_sp, dp)))
+    x_sp = merge(nearest(x_sp, 2.0_sp), x_sp*1.00003_sp, x_sp < 1.001_sp)
+  end do
+  call assert_true(max_rel_err < 2.0e-7_dp, 'vector_log_sp relative error is 2e-7 or more')
+  max_rel_err = 0.0_dp
+  do trial = 0, 200000
+    angle = -3.14159265358979_dp + 6.28318530717959_dp*real(trial, dp)/200000.0_dp
+    radius = 10.0_dp**(-6.0_dp + 12.0_dp*modulo(0.6180339887_dp*real(trial, dp), 1.0_dp))
+    y_sp = real(radius*sin(angle), sp)
+    x_sp = real(radius*cos(angle), sp)
+    reference = atan2(real(y_sp, dp), real(x_sp, dp))
+    if (reference == 0.0_dp) cycle
+    max_rel_err = max(max_rel_err, abs(real(vector_atan2_sp(y_sp, x_sp), dp) - reference)/abs(reference))
+  end do
+  do trial = 1, 300
+    y_sp = real(10.0_dp**(-0.1_dp*real(trial, dp)), sp)
+    max_rel_err = max(max_rel_err, abs(real(vector_atan2_sp(y_sp, 1.0_sp), dp) - atan2(real(y_sp, dp), 1.0_dp)) &
+                      /atan2(real(y_sp, dp), 1.0_dp))
+  end do
+  call assert_true(max_rel_err < 3.0e-7_dp, 'vector_atan2_sp relative error is 3e-7 or more')
+  call assert_true(vector_atan2_sp(0.0_sp, 1.0_sp) == 0.0_sp .and. vector_atan2_sp(0.0_sp, 0.0_sp) == 0.0_sp, &
+                   'vector_atan2_sp of a zero numerator is not 0')
+  call assert_close_dp(real(vector_atan2_sp(0.0_sp, -1.0_sp), dp), acos(-1.0_dp), 3.0e-7_dp, &
+                       'vector_atan2_sp(0, -1) is not pi')
   call test_end()
 
   call test_summary()
