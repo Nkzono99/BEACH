@@ -54,7 +54,6 @@ program test_mpi_hybrid
   type(fmm_state_type) :: replicated_state, distributed_state
   real(dp) :: grid_v0(3, grid_nsrc), grid_v1(3, grid_nsrc), grid_v2(3, grid_nsrc), grid_q(grid_nsrc)
   real(dp) :: replicated_field(3), distributed_field(3), probe(3)
-  integer(i32) :: node_idx, coeff_idx, mismatches
   character(len=1024) :: periodic_rng_path, resolved_checkpoint_dir
   !> reservoir 継続 fixture の macro 粒子 1 個の電荷の大きさ [C]。
   real(dp), parameter :: reservoir_macro_charge = 1.0e-13_dp
@@ -363,20 +362,20 @@ program test_mpi_hybrid
   call update_state(fmm_plan, replicated_state, grid_q)
   call update_state(fmm_plan, distributed_state, grid_q, mpi)
   call assert_true(fmm_plan%m2l_pair_count > 0_i32, 'MPI M2L test needs a plan with M2L pairs')
-  mismatches = 0_i32
-  do node_idx = 1_i32, size(replicated_state%local, 2)
-    if (distributed_state%local_active(node_idx) /= replicated_state%local_active(node_idx)) mismatches = mismatches + 1_i32
-    do coeff_idx = 1_i32, size(replicated_state%local, 1)
-      if (distributed_state%local(coeff_idx, node_idx) /= replicated_state%local(coeff_idx, node_idx)) then
-        mismatches = mismatches + 1_i32
-      end if
-    end do
-  end do
-  call assert_equal_i32(mismatches, 0_i32, 'distributed M2L local expansions differ from the replicated ones')
+  call assert_equal_i32(local_expansion_mismatches(distributed_state, replicated_state), 0_i32, &
+                        'distributed M2L local expansions differ from the replicated ones')
   probe = [0.42_dp, 0.31_dp, 0.45_dp]
   call eval_point(fmm_plan, replicated_state, probe, replicated_field)
   call eval_point(fmm_plan, distributed_state, probe, distributed_field)
   call assert_true(all(distributed_field == replicated_field), 'distributed M2L field differs from the replicated one')
+  ! Uncharged panels leave source multipoles inactive. The ranks then split the targets by the pairs with an
+  ! active source, which differs from an even split of all pairs, and must still gather the replicated result.
+  where (grid_v0(1, :) < 0.0_dp) grid_q = 0.0_dp
+  call update_state(fmm_plan, replicated_state, grid_q)
+  call update_state(fmm_plan, distributed_state, grid_q, mpi)
+  call assert_true(any(replicated_state%multipole_active == 0_i32), 'uncharged panels must leave an inactive multipole')
+  call assert_equal_i32(local_expansion_mismatches(distributed_state, replicated_state), 0_i32, &
+                        'distributed M2L with inactive sources differs from the replicated update')
   call destroy_state(replicated_state)
   call destroy_state(distributed_state)
   call destroy_plan(fmm_plan)
@@ -425,6 +424,18 @@ contains
     call mpi_allreduce_sum_i32_array(ctx, empty_i32)
     call mpi_allreduce_sum_i64_array(ctx, empty_i64)
   end subroutine check_array_reductions
+
+  !> Number of local-expansion coefficients and activity flags that differ between two FMM states.
+  integer(i32) function local_expansion_mismatches(a, b) result(mismatches)
+    type(fmm_state_type), intent(in) :: a, b
+    integer(i32) :: node_idx
+
+    mismatches = 0_i32
+    do node_idx = 1_i32, size(b%local, 2)
+      if (a%local_active(node_idx) /= b%local_active(node_idx)) mismatches = mismatches + 1_i32
+      mismatches = mismatches + count(a%local(:, node_idx) /= b%local(:, node_idx), kind=i32)
+    end do
+  end function local_expansion_mismatches
 
   !> Two triangles per cell on a square grid in z=0, with smoothly varying charges.
   subroutine make_mpi_panel_grid(v0_out, v1_out, v2_out, q_out)

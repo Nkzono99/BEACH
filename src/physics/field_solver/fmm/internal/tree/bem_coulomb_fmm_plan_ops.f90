@@ -889,7 +889,7 @@ contains
       plan%m2l_shift_idx2(1:pair_used) = m2l_shift_idx2_buf(1:pair_used)
     end if
     plan%m2l_pair_count = pair_used
-    call build_target_pair_index(plan, n_target_nodes)
+    call sort_pairs_by_target(plan, n_target_nodes)
 
     deallocate (near_work, near_buf, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf)
   end subroutine build_interaction_lists
@@ -1183,37 +1183,44 @@ contains
     shift_idx2_buf(pair_used) = shift_idx2
   end subroutine append_m2l_pair
 
-  subroutine build_target_pair_index(plan, n_target_nodes)
+  !> M2L の組を target node 順に並べ替え、target ごとの先頭位置 `m2l_target_start` を作る。
+  !! 同じ target の組は列挙順のまま残す（安定な並べ替え）。M2L はこの順に足すので、和の順番は列挙順と同じで、
+  !! 1 つの target の組と微分表が連続した領域に並ぶ。
+  subroutine sort_pairs_by_target(plan, n_target_nodes)
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32), intent(in) :: n_target_nodes
-    integer(i32) :: pair_idx, target_node, pos
-    integer(i32), allocatable :: counts(:), cursor(:)
+    integer(i32) :: pair_idx, target_node
+    integer(i32), allocatable :: counts(:), cursor(:), sorted_pos(:), buffer(:)
 
     allocate (plan%m2l_target_start(n_target_nodes + 1_i32))
-    allocate (plan%m2l_pair_order(max(1_i32, plan%m2l_pair_count)))
     plan%m2l_target_start = 1_i32
-    plan%m2l_pair_order = 0_i32
     if (plan%m2l_pair_count <= 0_i32) return
 
-    allocate (counts(n_target_nodes), cursor(n_target_nodes))
+    allocate (counts(n_target_nodes), cursor(n_target_nodes), sorted_pos(plan%m2l_pair_count))
     counts = 0_i32
     do pair_idx = 1_i32, plan%m2l_pair_count
       target_node = plan%m2l_target_nodes(pair_idx)
       counts(target_node) = counts(target_node) + 1_i32
     end do
-    plan%m2l_target_start(1) = 1_i32
     do target_node = 1_i32, n_target_nodes
       plan%m2l_target_start(target_node + 1_i32) = plan%m2l_target_start(target_node) + counts(target_node)
     end do
     cursor = plan%m2l_target_start(1:n_target_nodes)
     do pair_idx = 1_i32, plan%m2l_pair_count
       target_node = plan%m2l_target_nodes(pair_idx)
-      pos = cursor(target_node)
-      plan%m2l_pair_order(pos) = pair_idx
-      cursor(target_node) = pos + 1_i32
+      sorted_pos(pair_idx) = cursor(target_node)
+      cursor(target_node) = cursor(target_node) + 1_i32
     end do
-    deallocate (counts, cursor)
-  end subroutine build_target_pair_index
+    allocate (buffer(plan%m2l_pair_count))
+    buffer = plan%m2l_target_nodes(1:plan%m2l_pair_count)
+    plan%m2l_target_nodes(sorted_pos) = buffer
+    buffer = plan%m2l_source_nodes(1:plan%m2l_pair_count)
+    plan%m2l_source_nodes(sorted_pos) = buffer
+    buffer = plan%m2l_shift_idx1(1:plan%m2l_pair_count)
+    plan%m2l_shift_idx1(sorted_pos) = buffer
+    buffer = plan%m2l_shift_idx2(1:plan%m2l_pair_count)
+    plan%m2l_shift_idx2(sorted_pos) = buffer
+  end subroutine sort_pairs_by_target
 
   subroutine precompute_translation_operators(plan)
     type(fmm_plan_type), intent(inout) :: plan
