@@ -25,7 +25,7 @@ contains
     real(dp), intent(in) :: src_q(:)
     type(mpi_context), intent(in), optional :: mpi
     integer(i32) :: n_target_nodes, source_idx, cell, rank, rank_count, block_begin, block_end
-    integer(i32), allocatable :: block_counts(:), block_offsets(:)
+    integer(i32), allocatable :: block_counts(:), block_offsets(:), node_cost(:)
     real(dp) :: total_charge, e_bottom, phi_gauge, z_gauge
 
     if (.not. plan%built) error stop 'FMM plan is not built.'
@@ -79,10 +79,11 @@ contains
     rank = 0_i32
     rank_count = 1_i32
     if (present(mpi)) call mpi_get_rank_size(rank, rank_count, mpi)
-    call m2l_rank_blocks(plan, n_target_nodes, rank_count, block_counts, block_offsets)
-    block_begin = block_offsets(rank + 1_i32) + 1_i32
-    block_end = block_offsets(rank + 1_i32) + block_counts(rank + 1_i32)
-    !$omp parallel default(none) shared(plan, state, src_q, n_target_nodes, block_begin, block_end)
+    allocate (block_counts(rank_count), block_offsets(rank_count), node_cost(n_target_nodes))
+    node_cost = 0_i32
+    !$omp parallel default(none) &
+    !$omp shared(plan, state, src_q, n_target_nodes, rank, rank_count, block_begin, block_end) &
+    !$omp shared(block_counts, block_offsets, node_cost)
     if (associated(state%multipole_active)) then
       !$omp workshare
       state%multipole_active = 0_i32
@@ -111,6 +112,15 @@ contains
 
     call p2m_leaf_moments(plan, state)
     call m2m_upward_pass(plan, state)
+    ! 各 rank は同じ電荷から同じ multipole を作るので、どの rank でも同じ分担になる。
+    if (rank_count > 1_i32 .and. plan%m2l_pair_count > 0_i32) then
+      call count_active_m2l_pairs(plan, state, n_target_nodes, node_cost)
+    end if
+    !$omp single
+    call m2l_rank_blocks(node_cost, rank_count, block_counts, block_offsets)
+    block_begin = block_offsets(rank + 1_i32) + 1_i32
+    block_end = block_offsets(rank + 1_i32) + block_counts(rank + 1_i32)
+    !$omp end single
     if (n_target_nodes > 0_i32) call m2l_accumulate(plan, state, block_begin, block_end)
     !$omp end parallel
 
@@ -259,48 +269,72 @@ contains
     end do
   end subroutine m2m_upward_pass
 
-  !> M2L の target node を rank 数で分け、各 rank の node 数と先頭 offset を返す。組の数がほぼ等しくなる
-  !! 連続ブロックにする。組がなければ全 node を rank 0 に置く。
-  subroutine m2l_rank_blocks(plan, n_target_nodes, rank_count, block_counts, block_offsets)
+  !> target node ごとに、multipole が有効な source との M2L 組の数を数える。M2L の手間はこの数に比例する
+  !! （無効な source の組は飛ばす）。
+  subroutine count_active_m2l_pairs(plan, state, n_target_nodes, node_cost)
     type(fmm_plan_type), intent(in) :: plan
-    integer(i32), intent(in) :: n_target_nodes, rank_count
-    integer(i32), allocatable, intent(out) :: block_counts(:), block_offsets(:)
-    integer(i32) :: t_node, owner, pairs_before
-    integer(i64) :: pair_total
+    type(fmm_state_type), intent(in) :: state
+    integer(i32), intent(in) :: n_target_nodes
+    integer(i32), intent(out) :: node_cost(:)
+    integer(i32) :: t_node, pair_idx, active_pairs
 
-    allocate (block_counts(rank_count), block_offsets(rank_count))
+    !$omp do schedule(static)
+    do t_node = 1_i32, n_target_nodes
+      active_pairs = 0_i32
+      do pair_idx = plan%m2l_target_start(t_node), plan%m2l_target_start(t_node + 1_i32) - 1_i32
+        if (state%multipole_active(plan%m2l_source_nodes(pair_idx)) /= 0_i32) active_pairs = active_pairs + 1_i32
+      end do
+      node_cost(t_node) = active_pairs
+    end do
+    !$omp end do
+  end subroutine count_active_m2l_pairs
+
+  !> M2L の target node を rank 数で分け、各 rank の node 数と先頭 offset を返す。`node_cost` の和がほぼ
+  !! 等しくなる連続ブロックにする。rank が 1 つのとき `node_cost` は読まない。手間がなければ全 node を rank 0 に置く。
+  subroutine m2l_rank_blocks(node_cost, rank_count, block_counts, block_offsets)
+    integer(i32), intent(in) :: node_cost(:)
+    integer(i32), intent(in) :: rank_count
+    integer(i32), intent(out) :: block_counts(:), block_offsets(:)
+    integer(i32) :: t_node, owner
+    integer(i64) :: cost_total, cost_before
+
     block_counts = 0_i32
     block_offsets = 0_i32
-    pair_total = int(plan%m2l_pair_count, i64)
-    do t_node = 1_i32, n_target_nodes
+    if (rank_count <= 1_i32) then
+      block_counts(1) = size(node_cost, kind=i32)
+      return
+    end if
+    cost_total = sum(int(node_cost, i64))
+    cost_before = 0_i64
+    do t_node = 1_i32, size(node_cost, kind=i32)
       owner = 0_i32
-      if (rank_count > 1_i32 .and. pair_total > 0_i64 .and. allocated(plan%m2l_target_start)) then
-        pairs_before = plan%m2l_target_start(t_node) - 1_i32
-        owner = int(min(int(rank_count - 1_i32, i64), (int(pairs_before, i64)*int(rank_count, i64))/pair_total), i32)
+      if (cost_total > 0_i64) then
+        owner = int(min(int(rank_count - 1_i32, i64), (cost_before*int(rank_count, i64))/cost_total), i32)
       end if
       block_counts(owner + 1_i32) = block_counts(owner + 1_i32) + 1_i32
+      cost_before = cost_before + int(node_cost(t_node), i64)
     end do
     do owner = 2_i32, rank_count
       block_offsets(owner) = block_offsets(owner - 1_i32) + block_counts(owner - 1_i32)
     end do
   end subroutine m2l_rank_blocks
 
-  !> target node `t_begin` から `t_end` の局所展開を M2L で求める。
+  !> target node `t_begin` から `t_end` の局所展開を M2L で求める。node ごとの組の数は大きく違うので
+  !! thread へは動的に配る。各 node は 1 つの thread が組の順に足すので、結果は配り方によらない。
   subroutine m2l_accumulate(plan, state, t_begin, t_end)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
     integer(i32), intent(in) :: t_begin, t_end
-    integer(i32) :: t_node, pair_pos, pair_idx, s_node, alpha_idx, beta_idx, deriv_idx
+    integer(i32) :: t_node, pair_idx, s_node, alpha_idx, beta_idx, deriv_idx
     real(dp) :: local_acc(plan%ncoef), source_coeff
     logical :: local_active
 
     if (plan%m2l_pair_count <= 0_i32) return
-    !$omp do schedule(static)
+    !$omp do schedule(dynamic, 4)
     do t_node = t_begin, t_end
       local_acc = 0.0d0
       local_active = .false.
-      do pair_pos = plan%m2l_target_start(t_node), plan%m2l_target_start(t_node + 1_i32) - 1_i32
-        pair_idx = plan%m2l_pair_order(pair_pos)
+      do pair_idx = plan%m2l_target_start(t_node), plan%m2l_target_start(t_node + 1_i32) - 1_i32
         s_node = plan%m2l_source_nodes(pair_idx)
         if (state%multipole_active(s_node) == 0_i32) cycle
         do beta_idx = 1_i32, plan%ncoef

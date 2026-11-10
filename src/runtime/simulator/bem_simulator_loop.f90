@@ -29,6 +29,8 @@ contains
   integer :: hist_unit, pot_hist_unit, top_ref_hist_unit, matching_hist_unit, fixed_hist_unit, spectrum_hist_unit
   integer :: secondary_hist_unit
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
+  ! potential_history_enabled は root だけが真。場の更新は全 rank で行うので、全 rank で同じ値の判定を別に持つ。
+  logical :: potential_history_on_root, potential_history_due
   logical :: ledger_enabled, adaptive_nonzero_mode, omp_dynamic_before
   logical :: replay_active, matching_history_enabled, outflow_refreshed, fixed_history_enabled
   logical :: spectrum_history_enabled, secondary_history_enabled
@@ -85,6 +87,9 @@ contains
     call commit_accepted_batch()
 
     call perf_region_begin(perf_region_history_write, t0)
+    potential_history_due = potential_history_on_root .and. mod(stats%batches - 1_i32, hist_stride) == 0_i32
+    ! 電位 history の場は全 rank で更新して M2L を分担する。root だけで更新すると M2L 全体を 1 rank が担う。
+    if (potential_history_due) call snapshot%refresh(mesh, mpi_ctx)
     if (mpi_is_root(mpi_ctx)) then
       call write_batch_history()
       ! 再開できる batch 以下の history 行を、checkpoint の完了 manifest より先にファイルへ出す。
@@ -184,7 +189,7 @@ contains
   !> 出力先の unit と間隔を取り出す。unit=-1 の history は書かない。間隔が 0 以下なら matching-plane・spectrum・
   !! 固定電流 history を止め、電荷・要素電位 history は毎 batch 扱いにする。
   subroutine resolve_history_outputs()
-    integer(i32) :: history_stride
+    integer(i32) :: history_stride, potential_history_flag
 
     hist_unit = -1
     pot_hist_unit = -1
@@ -213,6 +218,9 @@ contains
     fixed_history_enabled = fixed_hist_unit /= -1 .and. history_stride > 0_i32
     secondary_history_enabled = secondary_hist_unit /= -1
     hist_stride = max(1_i32, history_stride)
+    potential_history_flag = merge(1_i32, 0_i32, potential_history_enabled)
+    call mpi_allreduce_max_i32_scalar(mpi_ctx, potential_history_flag)
+    potential_history_on_root = potential_history_flag /= 0_i32
     allocate ( &
       fixed_window_tracked(3, app%n_particle_species), fixed_window_target(3, app%n_particle_species), &
       fixed_window_active(3, app%n_particle_species) &
@@ -568,10 +576,9 @@ contains
         )
       call reset_fixed_current_window()
     end if
-    if (potential_history_enabled) then
-      call maybe_write_potential_history_snapshot( &
-        potential_history_enabled, pot_hist_unit, hist_stride, stats, snapshot, mesh, app%sim, potential_buf, &
-        top_reference_history_enabled, top_ref_hist_unit, &
+    if (potential_history_due) then
+      call write_potential_history_outputs( &
+        pot_hist_unit, stats, snapshot, mesh, app%sim, potential_buf, top_reference_history_enabled, top_ref_hist_unit, &
         cell=cell &
         )
     end if

@@ -5,6 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- FMM の M2L を rank と thread に均等に配るようにした。rank へは、組の総数ではなく multipole が有効な
+  source との組の数が等しくなるように target node を分ける（電荷 0 の source の組は飛ばすので、組の総数で分けると
+  一部の rank だけが遅れる）。thread へは `schedule(dynamic, 4)` で配る（node ごとの組の数は 0 から約 1800 と大きく
+  違い、静的な分割では 1 thread に偏った）。M2L の組と微分表は build 時に target node 順へ並べ、1 つの target の
+  組を連続して読む。どの node の展開も 1 つの thread が従来と同じ順に足すので、計算結果はビット一致する。
+- 電位 history を書く batch では、場の更新を root だけでなく全 rank で行って M2L を分担するようにした。
+  cached_kneq0 と panel spectral 参照のメッシュ電位は OpenMP で並列に評価する。電荷・電位 history の 1 batch 分は
+  行を並列に整形して 1 回の WRITE で書く（Intel Fortran の既定は無バッファで、要素ごとの WRITE が 1 回ずつ
+  書き込み要求になっていた）。ファイルの内容は変わらない。
+- 周期 regolith の本番入力（10,880 panel、8 rank × 14 thread、600 batch）で、1 batch あたり 0.190 s から
+  0.116 s（1.64 倍）になった。600 batch の場の更新は 58.6 s から 14.2 s、history 出力は 8.6 s から 0.87 s（いずれも最も遅い rank）。
+
 ## [4.2.0] - 2026-11-09
 
 ### Added

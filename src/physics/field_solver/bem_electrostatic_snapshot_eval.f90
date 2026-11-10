@@ -138,9 +138,12 @@ contains
 
   if (size(potential) /= mesh%nelem) error stop 'snapshot mesh-potential size mismatch.'
   if (self%use_panel_spectral_reference .or. self%use_cached_kneq0) then
+    ! 点ごとの評価は state を読むだけなので、粒子ループの電場評価と同じく thread で分けられる。
+    !$omp parallel do default(none) schedule(dynamic, 64) shared(self, mesh, sim, potential)
     do element = 1, mesh%nelem
       call self%eval_local_phi(mesh, sim, mesh%centers(:, element), potential(element))
     end do
+    !$omp end parallel do
   else
     call self%nonzero_solver%compute_mesh_potential(mesh, sim, potential)
     do element = 1, mesh%nelem

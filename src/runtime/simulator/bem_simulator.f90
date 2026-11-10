@@ -223,15 +223,12 @@ module bem_simulator
       real(dp), intent(in) :: rel_change, q_elem(:)
     end subroutine write_history_snapshot
 
-    module subroutine maybe_write_potential_history_snapshot( &
-      potential_history_enabled, pot_hist_unit, hist_stride, stats, snapshot, mesh, sim, potential_buf, &
-      top_reference_history_enabled, top_reference_history_unit, &
+    module subroutine write_potential_history_outputs( &
+      pot_hist_unit, stats, snapshot, mesh, sim, potential_buf, top_reference_history_enabled, top_reference_history_unit, &
       cell &
       )
       type(irradiation_cell_contract_type), intent(in) :: cell
-      logical, intent(in) :: potential_history_enabled
       integer, intent(in) :: pot_hist_unit
-      integer(i32), intent(in) :: hist_stride
       type(sim_stats), intent(in) :: stats
       type(electrostatic_snapshot_type), intent(inout) :: snapshot
       type(mesh_type), intent(inout) :: mesh
@@ -239,7 +236,7 @@ module bem_simulator
       real(dp), intent(inout) :: potential_buf(:)
       logical, intent(in) :: top_reference_history_enabled
       integer, intent(in) :: top_reference_history_unit
-    end subroutine maybe_write_potential_history_snapshot
+    end subroutine write_potential_history_outputs
 
     module subroutine write_potential_history_snapshot(unit_id, batch_idx, potential_v)
       integer, intent(in) :: unit_id

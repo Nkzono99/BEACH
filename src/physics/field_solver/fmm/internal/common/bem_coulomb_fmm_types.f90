@@ -194,7 +194,8 @@ module bem_coulomb_fmm_types
     integer(i32) :: m2l_pair_count = 0_i32
     integer(i32), allocatable :: m2l_target_nodes(:), m2l_source_nodes(:)
     integer(i32), allocatable :: m2l_shift_idx1(:), m2l_shift_idx2(:)
-    integer(i32), allocatable :: m2l_target_start(:), m2l_pair_order(:)
+    !> 組は target node 順に並び、target `t` の組は `m2l_target_start(t)` から `m2l_target_start(t+1)-1`。
+    integer(i32), allocatable :: m2l_target_start(:)
     integer(i32), allocatable :: m2m_term_count(:)
     integer(i32), allocatable :: m2m_alpha_list(:, :)
     integer(i32), allocatable :: m2m_delta_list(:, :)

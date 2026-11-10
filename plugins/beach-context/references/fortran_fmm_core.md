@@ -406,6 +406,7 @@ update_state(plan, state, src_q):
   clear multipole/local only when the tree has no source leaves or no M2L pairs
   P2M on source leaves
   M2M bottom-up
+  count pairs with an active source per target node (mpi only)
   M2L on cached pairs (this rank's block of target nodes when mpi is given)
   allgather local expansions and active flags across ranks (mpi only)
   periodic far correction on anchors
@@ -413,10 +414,11 @@ update_state(plan, state, src_q):
   mark state ready
 ```
 
-`mpi` を与えた場合、target node は組数がほぼ等しい連続ブロックに rank 順で分けられ（`m2l_rank_blocks`）、
-各 node の展開は 1 つの rank が従来と同じループで求める。通常精度の同一ビルドでは計算を分担しても結果は同じで、
-M2L の組の評価を rank に分配できる。通信と組数の偏りがあるため、所要時間が rank 数に反比例するとは限らない。
-演算子と plan の保存領域は引き続き各 rank が保持する。
+`mpi` を与えた場合、target node は手間がほぼ等しい連続ブロックに rank 順で分けられる（`m2l_rank_blocks`）。
+手間は、multipole が有効な source との組の数で数える（`count_active_m2l_pairs`）。電荷が 0 の source の組は
+M2L で飛ばすので、組の総数で分けると、電荷のない領域を多く受け持つ rank だけが早く終わる。multipole は全 rank が
+同じ電荷から同じ値に作るので、分担は rank 間で一致する。各 node の展開は 1 つの rank が従来と同じループで求め、
+通常精度の同一ビルドでは計算を分担しても結果は同じになる。演算子と plan の保存領域は引き続き各 rank が保持する。
 
 ### 6.2 OpenMP並列化
 
@@ -425,7 +427,8 @@ M2L の組の評価を rank に分配できる。通信と組数の偏りがあ�
 - `update_state`全体を1つのparallel regionで囲み、その内側で`src_q`のコピーとactive flagの初期化を行う
 - `P2M`: source leaf ごとのループ
 - `M2M`: 同一 depth の node ループ
-- `M2L`: target node ごとのループ
+- `M2L`: target node ごとのループ。node ごとの組の数が大きく違う（周期 regolith mesh では 0 から約 1800）ため
+  `schedule(dynamic, 4)` で配る。node の展開は 1 thread が組の順に足すので、配り方で結果は変わらない
 - `L2L`: 同一 depth の node ループ
 - `build_plan` 時の translation / M2L 微分前計算
 
@@ -441,6 +444,8 @@ M2L の組の評価を rank に分配できる。通信と組数の偏りがあ�
 - `M2M/L2L` の有効な `(alpha, delta)` 項だけを圧縮して持ち、無効項を走査しない
 - `M2L`ではsource nodeのactive flagを調べ、zero-nodeのpairを早期にskipする
 - `M2L`ではtarget node列を繰り返し更新せず、thread-localな`local_acc`へ蓄積してから書き戻す
+- M2L の組と微分表（`m2l_deriv`）を build 時に target node 順へ並べ替え、1 つの target の組を連続した領域で読む
+  （同じ target 内は列挙順のままなので、和の順番は変わらない）
 - panel plan では各葉の近接 panel を像シフト込みの成分配列（`near_panels%vx` … `near_panels%area`）として build 時に保存し、
   点評価は葉の区間を 64 panel ずつ SIMD ループで評価して、リスト順に合算する（`panel_field_sum_translated`）
 - 近接 panel の成分表には、像と葉による重複を含む近接リストの 1 エントリにつき約 200 byte を各 rank で追加保持する
