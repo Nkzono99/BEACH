@@ -17,6 +17,7 @@ module bem_panel_kernel
   public :: panel_potential_sum_translated
   public :: panel_field_sum_translated_sp
   public :: panel_potential_sum_translated_sp
+  public :: vector_log_sp, vector_atan2_sp
 
   !> Panels gathered per SIMD pass of the near-field sums.
   integer(i32), parameter :: panel_chunk = 64_i32
@@ -384,13 +385,13 @@ contains
         fallback(k) = active(k) .and. (abs(height) <= 64.0_sp*epsilon(1.0_sp)*max(edge(1, m), edge(2, m), edge(3, m)) &
                                        .or. max(l1, l2, l3) >= near_edge_single_limit)
         evaluate_lane = active(k) .and. .not. fallback(k)
-        omega = -2.0_sp*atan2(merge(numerator, 0.0_sp, evaluate_lane), merge(denominator, 1.0_sp, evaluate_lane))
+        omega = -2.0_sp*vector_atan2_sp(merge(numerator, 0.0_sp, evaluate_lane), merge(denominator, 1.0_sp, evaluate_lane))
         l1 = merge(l1, 0.0_sp, evaluate_lane)
         l2 = merge(l2, 0.0_sp, evaluate_lane)
         l3 = merge(l3, 0.0_sp, evaluate_lane)
-        l1 = log((1.0_sp + l1)/(1.0_sp - l1))
-        l2 = log((1.0_sp + l2)/(1.0_sp - l2))
-        l3 = log((1.0_sp + l3)/(1.0_sp - l3))
+        l1 = vector_log_sp((1.0_sp + l1)/(1.0_sp - l1))
+        l2 = vector_log_sp((1.0_sp + l2)/(1.0_sp - l2))
+        l3 = vector_log_sp((1.0_sp + l3)/(1.0_sp - l3))
         fx = nx(m)*omega + ox(1, m)*l1 + ox(2, m)*l2 + ox(3, m)*l3
         fy = ny(m)*omega + oy(1, m)*l1 + oy(2, m)*l2 + oy(3, m)*l3
         fz = nz(m)*omega + oz(1, m)*l1 + oz(2, m)*l2 + oz(3, m)*l3
@@ -476,13 +477,13 @@ contains
         fallback(k) = active(k) .and. (abs(height) <= 64.0_sp*epsilon(1.0_sp)*max(edge(1, m), edge(2, m), edge(3, m)) &
                                        .or. max(l1, l2, l3) >= near_edge_single_limit)
         evaluate_lane = active(k) .and. .not. fallback(k)
-        omega = -2.0_sp*atan2(merge(numerator, 0.0_sp, evaluate_lane), merge(denominator, 1.0_sp, evaluate_lane))
+        omega = -2.0_sp*vector_atan2_sp(merge(numerator, 0.0_sp, evaluate_lane), merge(denominator, 1.0_sp, evaluate_lane))
         l1 = merge(l1, 0.0_sp, evaluate_lane)
         l2 = merge(l2, 0.0_sp, evaluate_lane)
         l3 = merge(l3, 0.0_sp, evaluate_lane)
-        l1 = log((1.0_sp + l1)/(1.0_sp - l1))
-        l2 = log((1.0_sp + l2)/(1.0_sp - l2))
-        l3 = log((1.0_sp + l3)/(1.0_sp - l3))
+        l1 = vector_log_sp((1.0_sp + l1)/(1.0_sp - l1))
+        l2 = vector_log_sp((1.0_sp + l2)/(1.0_sp - l2))
+        l3 = vector_log_sp((1.0_sp + l3)/(1.0_sp - l3))
         d1 = (vx(1, m) - px)*ox(1, m) + (vy(1, m) - py)*oy(1, m) + (vz(1, m) - pz)*oz(1, m)
         d2 = (vx(2, m) - px)*ox(2, m) + (vy(2, m) - py)*oy(2, m) + (vz(2, m) - pz)*oz(2, m)
         d3 = (vx(3, m) - px)*ox(3, m) + (vy(3, m) - py)*oy(3, m) + (vz(3, m) - pz)*oz(3, m)
@@ -505,6 +506,69 @@ contains
       end do
     end do
   end subroutine panel_potential_sum_translated_sp
+
+  !> Natural logarithm of a positive normal single-precision `x`, written with arithmetic and bit operations only
+  !! so the single-precision near-field SIMD loops vectorize it: under the precise floating-point model the
+  !! compilers call the scalar `logf` once per lane instead. Cephes `logf` reduction and polynomial; the
+  !! relative error stays below 2e-7 (tested on 1 <= x <= 1e6).
+  elemental real(sp) function vector_log_sp(x) result(y)
+    !$omp declare simd(vector_log_sp)
+    real(sp), intent(in) :: x
+    integer(i32) :: bits, exponent_value
+    real(sp) :: mantissa, f, z, p, e
+    logical :: upper
+
+    bits = transfer(x, bits)
+    exponent_value = ishft(bits, -23) - 127_i32
+    ! Mantissa in [1, 2), then folded into [sqrt(1/2), sqrt(2)) so f = mantissa - 1 stays small.
+    mantissa = transfer(ior(iand(bits, 8388607_i32), 1065353216_i32), mantissa)
+    upper = mantissa > 1.41421356_sp
+    mantissa = merge(0.5_sp*mantissa, mantissa, upper)
+    exponent_value = merge(exponent_value + 1_i32, exponent_value, upper)
+    f = mantissa - 1.0_sp
+    z = f*f
+    p = 7.0376836292e-2_sp
+    p = p*f - 1.1514610310e-1_sp
+    p = p*f + 1.1676998740e-1_sp
+    p = p*f - 1.2420140846e-1_sp
+    p = p*f + 1.4249322787e-1_sp
+    p = p*f - 1.6668057665e-1_sp
+    p = p*f + 2.0000714765e-1_sp
+    p = p*f - 2.4999993993e-1_sp
+    p = p*f + 3.3333331174e-1_sp
+    e = real(exponent_value, sp)
+    ! log(2) is split into 0.693359375 (exact in a few bits) and -2.12194440e-4 to keep e*log(2) exact.
+    y = f*z*p
+    y = y - 2.12194440e-4_sp*e
+    y = y - 0.5_sp*z
+    y = y + f
+    y = y + 0.693359375_sp*e
+  end function vector_log_sp
+
+  !> `atan2(y, x)` in single precision with arithmetic and selects only, for the same reason as
+  !! `vector_log_sp`. The ratio min/max of |y| and |x| is reduced to |t| <= tan(pi/8) and evaluated
+  !! with the Cephes `atanf` polynomial; the quadrant follows from the signs and which of |y|, |x| is
+  !! larger. Relative error below 3e-7 (tested over the full circle). For y = x = 0 it returns 0.
+  elemental real(sp) function vector_atan2_sp(y, x) result(angle)
+    !$omp declare simd(vector_atan2_sp)
+    real(sp), intent(in) :: y, x
+    real(sp), parameter :: pi = 3.14159265358979324_sp
+    real(sp) :: ay, ax, t, z, offset
+    logical :: reduced
+
+    ay = abs(y)
+    ax = abs(x)
+    t = min(ay, ax)/max(ay, ax, tiny(1.0_sp))
+    reduced = t > 0.414213562_sp
+    offset = merge(0.25_sp*pi, 0.0_sp, reduced)
+    t = merge((t - 1.0_sp)/(t + 1.0_sp), t, reduced)
+    z = t*t
+    angle = (((8.05374449538e-2_sp*z - 1.38776856032e-1_sp)*z + 1.99777106478e-1_sp)*z - 3.33329491539e-1_sp)*z*t + t
+    angle = angle + offset
+    angle = merge(0.5_sp*pi - angle, angle, ay > ax)
+    angle = merge(pi - angle, angle, x < 0.0_sp)
+    angle = merge(-angle, angle, y < 0.0_sp)
+  end function vector_atan2_sp
 
   !> On-plane fallback of the component-array sums: the general kernel on a copy of `geometry` whose
   !! vertices are the translated ones. The kernel never reads the centroid, so it is left untranslated.
