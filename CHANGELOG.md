@@ -18,6 +18,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   書き込み要求になっていた）。ファイルの内容は変わらない。
 - 周期 regolith の本番入力（10,880 panel、8 rank × 14 thread、600 batch）で、1 batch あたり 0.190 s から
   0.116 s（1.64 倍）になった。600 batch の場の更新は 58.6 s から 14.2 s、history 出力は 8.6 s から 0.87 s（いずれも最も遅い rank）。
+- sheath-model を v0.2.1 に上げた。外部 Zhao 根の更新で、電荷密度の積分点（4 区間 × 16 点）を OpenMP で並列に
+  評価する（和は点の順に取るので、根はスレッド数によらずビット一致する）。本番入力（8 rank × 14 thread）で 50 batch
+  ごとの外部根の更新が 1 回約 0.2 s から約 0.02 s になり、600 batch で 2.6 s 短くなった。間の v0.2.0 の変更
+  （E_H 指定の closure の drifting A/C 根、プロファイルの帯の余白の設定）は BEACH の zero_current 経路を変えない
+  （golden 3 ケースはビット一致）。
 
 ## [4.2.0] - 2026-11-09
 
