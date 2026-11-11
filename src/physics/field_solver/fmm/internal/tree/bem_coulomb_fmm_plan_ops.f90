@@ -5,7 +5,7 @@ module bem_coulomb_fmm_plan_ops
   use bem_kinds, only: dp, sp, i32
   use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, fmm_tree_type, reset_fmm_plan, &
                                    periodic_source_proxy_half_size, periodic_operator_source_radius_ratio, &
-                                   periodic_operator_target_radius_ratio
+                                   periodic_operator_target_radius_ratio, m2l_lane_width
   use bem_coulomb_fmm_basis, only: initialize_basis_tables, build_axis_powers, compute_laplace_derivatives
   use bem_coulomb_fmm_periodic, only: has_valid_target_box, build_periodic_shift_values, distance_to_source_bbox, &
                                       distance_to_source_bbox_periodic, wrap_src_pos_to_primary_cell, &
@@ -890,6 +890,7 @@ contains
     end if
     plan%m2l_pair_count = pair_used
     call sort_pairs_by_target(plan, n_target_nodes)
+    call group_targets_for_lanes(plan, n_target_nodes)
 
     deallocate (near_work, near_buf, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf)
   end subroutine build_interaction_lists
@@ -1222,6 +1223,67 @@ contains
     plan%m2l_shift_idx2(sorted_pos) = buffer
   end subroutine sort_pairs_by_target
 
+  !> target node を組の多い順（同数は node 番号順）に並べ、`m2l_lane_width` 個ずつ group にまとめる。
+  !! group の step 数は最初の lane（組が最も多い）の組の数で、組の少ない lane の残りの step は空にする。
+  subroutine group_targets_for_lanes(plan, n_target_nodes)
+    type(fmm_plan_type), intent(inout) :: plan
+    integer(i32), intent(in) :: n_target_nodes
+    integer(i32) :: target_node, pair_count, max_count, position, group, lane, k
+    integer(i32), allocatable :: count_start(:), order(:)
+
+    plan%m2l_group_count = (n_target_nodes + m2l_lane_width - 1_i32)/m2l_lane_width
+    allocate (plan%m2l_group_target(m2l_lane_width, max(1_i32, plan%m2l_group_count)))
+    allocate (plan%m2l_group_start(plan%m2l_group_count + 1_i32))
+    plan%m2l_group_target = 0_i32
+    plan%m2l_group_start = 1_i32
+
+    ! 組の数ごとの数え上げで、多い順・同数は node 番号順の並びを作る。
+    max_count = 0_i32
+    do target_node = 1_i32, n_target_nodes
+      max_count = max(max_count, plan%m2l_target_start(target_node + 1_i32) - plan%m2l_target_start(target_node))
+    end do
+    allocate (count_start(0:max_count + 1_i32), order(max(1_i32, n_target_nodes)))
+    count_start = 0_i32
+    do target_node = 1_i32, n_target_nodes
+      pair_count = plan%m2l_target_start(target_node + 1_i32) - plan%m2l_target_start(target_node)
+      count_start(pair_count) = count_start(pair_count) + 1_i32
+    end do
+    position = 1_i32
+    do pair_count = max_count, 0_i32, -1_i32
+      k = count_start(pair_count)
+      count_start(pair_count) = position
+      position = position + k
+    end do
+    do target_node = 1_i32, n_target_nodes
+      pair_count = plan%m2l_target_start(target_node + 1_i32) - plan%m2l_target_start(target_node)
+      order(count_start(pair_count)) = target_node
+      count_start(pair_count) = count_start(pair_count) + 1_i32
+    end do
+
+    do group = 1_i32, plan%m2l_group_count
+      do lane = 1_i32, m2l_lane_width
+        position = (group - 1_i32)*m2l_lane_width + lane
+        if (position <= n_target_nodes) plan%m2l_group_target(lane, group) = order(position)
+      end do
+      target_node = plan%m2l_group_target(1, group)
+      plan%m2l_group_start(group + 1_i32) = plan%m2l_group_start(group) + &
+                                            plan%m2l_target_start(target_node + 1_i32) - plan%m2l_target_start(target_node)
+    end do
+
+    allocate (plan%m2l_step_source(m2l_lane_width, max(1_i32, plan%m2l_group_start(plan%m2l_group_count + 1_i32) - 1_i32)))
+    plan%m2l_step_source = 0_i32
+    do group = 1_i32, plan%m2l_group_count
+      do lane = 1_i32, m2l_lane_width
+        target_node = plan%m2l_group_target(lane, group)
+        if (target_node <= 0_i32) cycle
+        do k = 0_i32, plan%m2l_target_start(target_node + 1_i32) - plan%m2l_target_start(target_node) - 1_i32
+          plan%m2l_step_source(lane, plan%m2l_group_start(group) + k) = &
+            plan%m2l_source_nodes(plan%m2l_target_start(target_node) + k)
+        end do
+      end do
+    end do
+  end subroutine group_targets_for_lanes
+
   subroutine precompute_translation_operators(plan)
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32) :: alpha_idx, beta_idx, gamma_idx, term_idx
@@ -1353,18 +1415,24 @@ contains
     end if
   end subroutine precompute_m2l_derivatives
 
-  !> M2L derivatives of every cached pair; target nodes belong to target_tree (plan%target_tree or plan%source_tree).
+  !> M2L derivatives of every cached pair, stored at the pair's lane and step (see `m2l_group_target`);
+  !! target nodes belong to target_tree (plan%target_tree or plan%source_tree).
   subroutine precompute_m2l_derivatives_for(plan, target_tree)
     type(fmm_plan_type), intent(inout) :: plan
     type(fmm_tree_type), intent(in) :: target_tree
-    integer(i32) :: pair_idx, img_i, img_j, nshift
+    integer(i32) :: group, lane, k, pair_idx, img_i, img_j, nshift, step_count
     integer(i32) :: axis1, axis2, s_node, t_node, shift_idx1, shift_idx2
     real(dp) :: base(3), rimg(3)
-    real(dp) :: deriv_tmp(plan%nderiv)
+    real(dp) :: deriv(plan%nderiv), deriv_tmp(plan%nderiv)
 
-    allocate (plan%m2l_deriv(plan%nderiv, max(1_i32, plan%m2l_pair_count)))
+    if (plan%m2l_pair_count <= 0_i32) then
+      allocate (plan%m2l_deriv(m2l_lane_width, plan%nderiv, 1))
+      plan%m2l_deriv = 0.0d0
+      return
+    end if
+    step_count = plan%m2l_group_start(plan%m2l_group_count + 1_i32) - 1_i32
+    allocate (plan%m2l_deriv(m2l_lane_width, plan%nderiv, step_count))
     plan%m2l_deriv = 0.0d0
-    if (plan%m2l_pair_count <= 0_i32) return
 
     axis1 = 0_i32
     axis2 = 0_i32
@@ -1373,32 +1441,40 @@ contains
       axis2 = plan%options%periodic_axes(2)
     end if
     nshift = size(plan%shift_axis1)
-    !$omp parallel do default(none) schedule(static) &
+    !$omp parallel do default(none) schedule(dynamic, 1) &
     !$omp shared(plan, target_tree, axis1, axis2, nshift) &
-    !$omp private(pair_idx, img_i, img_j, s_node, t_node, base, shift_idx1, shift_idx2) &
-    !$omp private(rimg, deriv_tmp)
-    do pair_idx = 1_i32, plan%m2l_pair_count
-      t_node = plan%m2l_target_nodes(pair_idx)
-      s_node = plan%m2l_source_nodes(pair_idx)
-      base = target_tree%node_center(:, t_node) - plan%source_tree%node_center(:, s_node)
-      if (.not. plan%options%use_periodic2) then
-        call compute_laplace_derivatives(plan, base, deriv_tmp)
-        plan%m2l_deriv(:, pair_idx) = plan%m2l_deriv(:, pair_idx) + deriv_tmp
-        cycle
-      end if
-      shift_idx1 = plan%m2l_shift_idx1(pair_idx)
-      shift_idx2 = plan%m2l_shift_idx2(pair_idx)
-      if (shift_idx1 > 0_i32 .and. shift_idx2 > 0_i32) then
-        rimg = periodic_image_offset(base, axis1, axis2, plan%shift_axis1(shift_idx1), plan%shift_axis2(shift_idx2))
-        call compute_laplace_derivatives(plan, rimg, deriv_tmp)
-        plan%m2l_deriv(:, pair_idx) = plan%m2l_deriv(:, pair_idx) + deriv_tmp
-        cycle
-      end if
-      do img_i = 1_i32, nshift
-        do img_j = 1_i32, nshift
-          rimg = periodic_image_offset(base, axis1, axis2, plan%shift_axis1(img_i), plan%shift_axis2(img_j))
-          call compute_laplace_derivatives(plan, rimg, deriv_tmp)
-          plan%m2l_deriv(:, pair_idx) = plan%m2l_deriv(:, pair_idx) + deriv_tmp
+    !$omp private(group, lane, k, pair_idx, img_i, img_j, s_node, t_node, base, shift_idx1, shift_idx2) &
+    !$omp private(rimg, deriv, deriv_tmp)
+    do group = 1_i32, plan%m2l_group_count
+      do lane = 1_i32, m2l_lane_width
+        t_node = plan%m2l_group_target(lane, group)
+        if (t_node <= 0_i32) cycle
+        do k = 0_i32, plan%m2l_target_start(t_node + 1_i32) - plan%m2l_target_start(t_node) - 1_i32
+          pair_idx = plan%m2l_target_start(t_node) + k
+          s_node = plan%m2l_source_nodes(pair_idx)
+          base = target_tree%node_center(:, t_node) - plan%source_tree%node_center(:, s_node)
+          deriv = 0.0d0
+          if (.not. plan%options%use_periodic2) then
+            call compute_laplace_derivatives(plan, base, deriv_tmp)
+            deriv = deriv + deriv_tmp
+          else
+            shift_idx1 = plan%m2l_shift_idx1(pair_idx)
+            shift_idx2 = plan%m2l_shift_idx2(pair_idx)
+            if (shift_idx1 > 0_i32 .and. shift_idx2 > 0_i32) then
+              rimg = periodic_image_offset(base, axis1, axis2, plan%shift_axis1(shift_idx1), plan%shift_axis2(shift_idx2))
+              call compute_laplace_derivatives(plan, rimg, deriv_tmp)
+              deriv = deriv + deriv_tmp
+            else
+              do img_i = 1_i32, nshift
+                do img_j = 1_i32, nshift
+                  rimg = periodic_image_offset(base, axis1, axis2, plan%shift_axis1(img_i), plan%shift_axis2(img_j))
+                  call compute_laplace_derivatives(plan, rimg, deriv_tmp)
+                  deriv = deriv + deriv_tmp
+                end do
+              end do
+            end if
+          end if
+          plan%m2l_deriv(lane, :, plan%m2l_group_start(group) + k) = deriv
         end do
       end do
     end do

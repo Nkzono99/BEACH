@@ -150,6 +150,11 @@ source-dir = "tests/fortran"
 main = "test_laplace_derivatives.f90"
 
 [[test]]
+name = "test_m2l_order4_kernel"
+source-dir = "tests/fortran"
+main = "test_m2l_order4_kernel.f90"
+
+[[test]]
 name = "test_periodic_zero_mode_c"
 source-dir = "tests/fortran"
 main = "test_periodic_zero_mode_c.f90"

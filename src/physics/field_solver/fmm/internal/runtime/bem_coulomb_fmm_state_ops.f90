@@ -2,10 +2,12 @@
 module bem_coulomb_fmm_state_ops
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: eps0
-  use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, fmm_tree_type, initialize_fmm_state, reset_fmm_state
+  use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, fmm_tree_type, initialize_fmm_state, reset_fmm_state, &
+                                   m2l_lane_width
   use bem_periodic_zero_mode_plan, only: refresh_periodic_zero_mode_state
   use bem_periodic_shell_mean, only: refresh_periodic_shell_mean_state
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_allgatherv_inplace_real_dp, mpi_allgatherv_inplace_i32
+  use bem_coulomb_fmm_m2l_order4, only: m2l_lane_step_order4
   implicit none
   private
 
@@ -18,14 +20,14 @@ contains
   !! @param[in] plan 構築済みの FMM 計画。
   !! @param[inout] state 更新対象の state。
   !! @param[in] src_q ソース電荷量。
-  !! @param[in] mpi 与えると M2L の target node を rank で分担し、局所展開を allgather で揃える。
+  !! @param[in] mpi 与えると M2L の target node の group を rank で分担し、局所展開を allgather で揃える。
   subroutine core_update_state_impl(plan, state, src_q, mpi)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
     real(dp), intent(in) :: src_q(:)
     type(mpi_context), intent(in), optional :: mpi
     integer(i32) :: n_target_nodes, source_idx, cell, rank, rank_count, block_begin, block_end
-    integer(i32), allocatable :: block_counts(:), block_offsets(:), node_cost(:)
+    integer(i32), allocatable :: block_counts(:), block_offsets(:), group_cost(:)
     real(dp) :: total_charge, e_bottom, phi_gauge, z_gauge
 
     if (.not. plan%built) error stop 'FMM plan is not built.'
@@ -79,11 +81,11 @@ contains
     rank = 0_i32
     rank_count = 1_i32
     if (present(mpi)) call mpi_get_rank_size(rank, rank_count, mpi)
-    allocate (block_counts(rank_count), block_offsets(rank_count), node_cost(n_target_nodes))
-    node_cost = 0_i32
+    allocate (block_counts(rank_count), block_offsets(rank_count), group_cost(plan%m2l_group_count))
+    group_cost = 0_i32
     !$omp parallel default(none) &
-    !$omp shared(plan, state, src_q, n_target_nodes, rank, rank_count, block_begin, block_end) &
-    !$omp shared(block_counts, block_offsets, node_cost)
+    !$omp shared(plan, state, src_q, rank, rank_count, block_begin, block_end) &
+    !$omp shared(block_counts, block_offsets, group_cost)
     if (associated(state%multipole_active)) then
       !$omp workshare
       state%multipole_active = 0_i32
@@ -114,19 +116,26 @@ contains
     call m2m_upward_pass(plan, state)
     ! 各 rank は同じ電荷から同じ multipole を作るので、どの rank でも同じ分担になる。
     if (rank_count > 1_i32 .and. plan%m2l_pair_count > 0_i32) then
-      call count_active_m2l_pairs(plan, state, n_target_nodes, node_cost)
+      call count_active_m2l_steps(plan, state, group_cost)
     end if
     !$omp single
-    call m2l_rank_blocks(node_cost, rank_count, block_counts, block_offsets)
+    call m2l_rank_blocks(group_cost, rank_count, block_counts, block_offsets)
     block_begin = block_offsets(rank + 1_i32) + 1_i32
     block_end = block_offsets(rank + 1_i32) + block_counts(rank + 1_i32)
     !$omp end single
-    if (n_target_nodes > 0_i32) call m2l_accumulate(plan, state, block_begin, block_end)
+    call m2l_accumulate(plan, state, block_begin, block_end)
     !$omp end parallel
 
-    if (rank_count > 1_i32 .and. n_target_nodes > 0_i32 .and. plan%m2l_pair_count > 0_i32) then
-      call mpi_allgatherv_inplace_real_dp(mpi, state%local, block_counts*plan%ncoef, block_offsets*plan%ncoef)
-      call mpi_allgatherv_inplace_i32(mpi, state%local_active, block_counts, block_offsets)
+    if (plan%m2l_pair_count > 0_i32) then
+      if (rank_count > 1_i32) then
+        call mpi_allgatherv_inplace_real_dp( &
+          mpi, state%m2l_slot_local, block_counts*m2l_lane_width*plan%ncoef, block_offsets*m2l_lane_width*plan%ncoef &
+          )
+        call mpi_allgatherv_inplace_i32( &
+          mpi, state%m2l_slot_active, block_counts*m2l_lane_width, block_offsets*m2l_lane_width &
+          )
+      end if
+      call scatter_m2l_slots(plan, state)
     end if
 
     !$omp parallel default(none) shared(plan, state, n_target_nodes)
@@ -172,6 +181,8 @@ contains
       allocate (state%multipole_active(max(1_i32, plan%source_tree%nnode)))
       allocate (state%local(plan%ncoef, max(1_i32, n_target_nodes)))
       allocate (state%local_active(max(1_i32, n_target_nodes)))
+      allocate (state%m2l_slot_local(plan%ncoef, max(1_i32, m2l_lane_width*plan%m2l_group_count)))
+      allocate (state%m2l_slot_active(max(1_i32, m2l_lane_width*plan%m2l_group_count)))
       return
     end if
 
@@ -201,6 +212,17 @@ contains
       if (size(state%local_active) /= max(1_i32, n_target_nodes)) deallocate (state%local_active)
     end if
     if (.not. associated(state%local_active)) allocate (state%local_active(max(1_i32, n_target_nodes)))
+
+    if (allocated(state%m2l_slot_local)) then
+      if (size(state%m2l_slot_local, 1) /= plan%ncoef .or. &
+          size(state%m2l_slot_local, 2) /= max(1_i32, m2l_lane_width*plan%m2l_group_count)) then
+        deallocate (state%m2l_slot_local, state%m2l_slot_active)
+      end if
+    end if
+    if (.not. allocated(state%m2l_slot_local)) then
+      allocate (state%m2l_slot_local(plan%ncoef, max(1_i32, m2l_lane_width*plan%m2l_group_count)))
+      allocate (state%m2l_slot_active(max(1_i32, m2l_lane_width*plan%m2l_group_count)))
+    end if
   end subroutine ensure_state_capacity
 
   subroutine p2m_leaf_moments(plan, state)
@@ -269,89 +291,131 @@ contains
     end do
   end subroutine m2m_upward_pass
 
-  !> target node ごとに、multipole が有効な source との M2L 組の数を数える。M2L の手間はこの数に比例する
-  !! （無効な source の組は飛ばす）。
-  subroutine count_active_m2l_pairs(plan, state, n_target_nodes, node_cost)
+  !> group ごとに、どれかの lane の source の multipole が有効な step の数を数える。M2L の手間はこの数に
+  !! 比例する（全 lane が無効な step は飛ばす）。
+  subroutine count_active_m2l_steps(plan, state, group_cost)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
-    integer(i32), intent(in) :: n_target_nodes
-    integer(i32), intent(out) :: node_cost(:)
-    integer(i32) :: t_node, pair_idx, active_pairs
+    integer(i32), intent(out) :: group_cost(:)
+    integer(i32) :: group, step, lane, s_node, active_steps
 
     !$omp do schedule(static)
-    do t_node = 1_i32, n_target_nodes
-      active_pairs = 0_i32
-      do pair_idx = plan%m2l_target_start(t_node), plan%m2l_target_start(t_node + 1_i32) - 1_i32
-        if (state%multipole_active(plan%m2l_source_nodes(pair_idx)) /= 0_i32) active_pairs = active_pairs + 1_i32
+    do group = 1_i32, plan%m2l_group_count
+      active_steps = 0_i32
+      do step = plan%m2l_group_start(group), plan%m2l_group_start(group + 1_i32) - 1_i32
+        do lane = 1_i32, m2l_lane_width
+          s_node = plan%m2l_step_source(lane, step)
+          if (s_node <= 0_i32) cycle
+          if (state%multipole_active(s_node) == 0_i32) cycle
+          active_steps = active_steps + 1_i32
+          exit
+        end do
       end do
-      node_cost(t_node) = active_pairs
+      group_cost(group) = active_steps
     end do
     !$omp end do
-  end subroutine count_active_m2l_pairs
+  end subroutine count_active_m2l_steps
 
-  !> M2L の target node を rank 数で分け、各 rank の node 数と先頭 offset を返す。`node_cost` の和がほぼ
-  !! 等しくなる連続ブロックにする。rank が 1 つのとき `node_cost` は読まない。手間がなければ全 node を rank 0 に置く。
-  subroutine m2l_rank_blocks(node_cost, rank_count, block_counts, block_offsets)
-    integer(i32), intent(in) :: node_cost(:)
+  !> M2L の group を rank 数で分け、各 rank の group 数と先頭 offset を返す。`group_cost` の和がほぼ
+  !! 等しくなる連続ブロックにする。rank が 1 つのとき `group_cost` は読まない。手間がなければ全 group を rank 0 に置く。
+  subroutine m2l_rank_blocks(group_cost, rank_count, block_counts, block_offsets)
+    integer(i32), intent(in) :: group_cost(:)
     integer(i32), intent(in) :: rank_count
     integer(i32), intent(out) :: block_counts(:), block_offsets(:)
-    integer(i32) :: t_node, owner
+    integer(i32) :: group, owner
     integer(i64) :: cost_total, cost_before
 
     block_counts = 0_i32
     block_offsets = 0_i32
     if (rank_count <= 1_i32) then
-      block_counts(1) = size(node_cost, kind=i32)
+      block_counts(1) = size(group_cost, kind=i32)
       return
     end if
-    cost_total = sum(int(node_cost, i64))
+    cost_total = sum(int(group_cost, i64))
     cost_before = 0_i64
-    do t_node = 1_i32, size(node_cost, kind=i32)
+    do group = 1_i32, size(group_cost, kind=i32)
       owner = 0_i32
       if (cost_total > 0_i64) then
         owner = int(min(int(rank_count - 1_i32, i64), (cost_before*int(rank_count, i64))/cost_total), i32)
       end if
       block_counts(owner + 1_i32) = block_counts(owner + 1_i32) + 1_i32
-      cost_before = cost_before + int(node_cost(t_node), i64)
+      cost_before = cost_before + int(group_cost(group), i64)
     end do
     do owner = 2_i32, rank_count
       block_offsets(owner) = block_offsets(owner - 1_i32) + block_counts(owner - 1_i32)
     end do
   end subroutine m2l_rank_blocks
 
-  !> target node `t_begin` から `t_end` の局所展開を M2L で求める。node ごとの組の数は大きく違うので
-  !! thread へは動的に配る。各 node は 1 つの thread が組の順に足すので、結果は配り方によらない。
-  subroutine m2l_accumulate(plan, state, t_begin, t_end)
+  !> group `g_begin` から `g_end` の target node の局所展開を M2L で求め、`m2l_slot_local` に置く。
+  !! lane ごとに 1 つの target node を受け持ち、その node の組を列挙順に、組の中では source 係数の順に足す。
+  !! node ごとの足し算の順は 1 node ずつ計算した場合と同じなので、結果は lane への載せ方や thread・rank の
+  !! 分け方によらない。無効な source と大きさ tiny 以下の係数は 0 として掛ける（足しても値は変わらない）。
+  !! 展開次数 4 では添字を定数に展開した生成カーネル（`m2l_lane_step_order4`、同じ順に足す）を使う。
+  !! group ごとの step 数は大きく違うので thread へは動的に配る。
+  subroutine m2l_accumulate(plan, state, g_begin, g_end)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
-    integer(i32), intent(in) :: t_begin, t_end
-    integer(i32) :: t_node, pair_idx, s_node, alpha_idx, beta_idx, deriv_idx
-    real(dp) :: local_acc(plan%ncoef), source_coeff
-    logical :: local_active
+    integer(i32), intent(in) :: g_begin, g_end
+    integer(i32) :: group, step, lane, s_node, alpha_idx, beta_idx, slot
+    real(dp) :: local_acc(m2l_lane_width, plan%ncoef), source_coeff(m2l_lane_width, plan%ncoef)
+    logical :: step_active
 
     if (plan%m2l_pair_count <= 0_i32) return
-    !$omp do schedule(dynamic, 4)
-    do t_node = t_begin, t_end
+    !$omp do schedule(dynamic, 1)
+    do group = g_begin, g_end
       local_acc = 0.0d0
-      local_active = .false.
-      do pair_idx = plan%m2l_target_start(t_node), plan%m2l_target_start(t_node + 1_i32) - 1_i32
-        s_node = plan%m2l_source_nodes(pair_idx)
-        if (state%multipole_active(s_node) == 0_i32) cycle
+      do step = plan%m2l_group_start(group), plan%m2l_group_start(group + 1_i32) - 1_i32
+        step_active = .false.
+        do lane = 1_i32, m2l_lane_width
+          source_coeff(lane, :) = 0.0d0
+          s_node = plan%m2l_step_source(lane, step)
+          if (s_node <= 0_i32) cycle
+          if (state%multipole_active(s_node) == 0_i32) cycle
+          step_active = .true.
+          do beta_idx = 1_i32, plan%ncoef
+            source_coeff(lane, beta_idx) = plan%alpha_sign(beta_idx)*state%multipole(beta_idx, s_node)
+            if (abs(source_coeff(lane, beta_idx)) <= tiny(1.0d0)) source_coeff(lane, beta_idx) = 0.0d0
+          end do
+        end do
+        if (.not. step_active) cycle
+        if (plan%ncoef == 35_i32 .and. m2l_lane_width == 4_i32) then
+          call m2l_lane_step_order4(source_coeff, plan%m2l_deriv(:, :, step), local_acc)
+          cycle
+        end if
         do beta_idx = 1_i32, plan%ncoef
-          source_coeff = plan%alpha_sign(beta_idx)*state%multipole(beta_idx, s_node)
-          if (abs(source_coeff) <= tiny(1.0d0)) cycle
           do alpha_idx = 1_i32, plan%ncoef
-            deriv_idx = plan%alpha_beta_deriv_idx(alpha_idx, beta_idx)
-            local_acc(alpha_idx) = local_acc(alpha_idx) + source_coeff*plan%m2l_deriv(deriv_idx, pair_idx)
+            local_acc(:, alpha_idx) = local_acc(:, alpha_idx) + source_coeff(:, beta_idx)* &
+                                      plan%m2l_deriv(:, plan%alpha_beta_deriv_idx(alpha_idx, beta_idx), step)
           end do
         end do
       end do
-      local_active = coefficient_vector_is_active(local_acc)
-      state%local(:, t_node) = local_acc
-      state%local_active(t_node) = merge(1_i32, 0_i32, local_active)
+      do lane = 1_i32, m2l_lane_width
+        slot = (group - 1_i32)*m2l_lane_width + lane
+        state%m2l_slot_local(:, slot) = local_acc(lane, :)
+        state%m2l_slot_active(slot) = merge(1_i32, 0_i32, coefficient_vector_is_active(local_acc(lane, :)))
+      end do
     end do
     !$omp end do
   end subroutine m2l_accumulate
+
+  !> group の lane 順に並んだ M2L の結果を target node の局所展開へ移す。
+  subroutine scatter_m2l_slots(plan, state)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(inout) :: state
+    integer(i32) :: group, lane, t_node, slot
+
+    !$omp parallel do default(none) schedule(static) shared(plan, state) private(group, lane, t_node, slot)
+    do group = 1_i32, plan%m2l_group_count
+      do lane = 1_i32, m2l_lane_width
+        t_node = plan%m2l_group_target(lane, group)
+        if (t_node <= 0_i32) cycle
+        slot = (group - 1_i32)*m2l_lane_width + lane
+        state%local(:, t_node) = state%m2l_slot_local(:, slot)
+        state%local_active(t_node) = state%m2l_slot_active(slot)
+      end do
+    end do
+    !$omp end parallel do
+  end subroutine scatter_m2l_slots
 
   !> 遠方補正を anchor 格子の局所展開として集計する。点評価で、点を含む anchor の展開を葉の局所展開に加える。
   subroutine apply_periodic_target_correction(plan, state)
