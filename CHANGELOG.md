@@ -31,6 +31,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   （`tools/generate_m2l_order4_kernel.py`）を使う。どの node の展開も 1 つの lane が従来と同じ順に足すので、
   計算結果はビット一致する。rank への分担は group 単位になった。本番入力（600 batch）で場の更新が 14.0 s から
   8.2 s、起動時の微分表の前計算を含む場の初期化が 6.6 s から 5.6 s になった。
+- sheath-model を v0.2.1 に上げた。外部 Zhao 根の更新で、電荷密度の積分点（4 区間 × 16 点）を OpenMP で並列に
+  評価する（和は点の順に取るので、根はスレッド数によらずビット一致する）。本番入力（8 rank × 14 thread）で 50 batch
+  ごとの外部根の更新が 1 回約 0.2 s から約 0.02 s になり、600 batch で 2.6 s 短くなった。間の v0.2.0 の変更
+  （E_H 指定の closure の drifting A/C 根、プロファイルの帯の余白の設定）は BEACH の zero_current 経路を変えない
+  （golden 3 ケースはビット一致）。
 
 ## [4.2.0] - 2026-11-09
 
