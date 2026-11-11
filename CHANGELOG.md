@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-11-11
+
 ### Changed
 
 - FMM の M2L を rank と thread に均等に配るようにした。rank へは、組の総数ではなく multipole が有効な
