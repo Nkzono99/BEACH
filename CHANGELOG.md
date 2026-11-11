@@ -18,6 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   書き込み要求になっていた）。ファイルの内容は変わらない。
 - 周期 regolith の本番入力（10,880 panel、8 rank × 14 thread、600 batch）で、1 batch あたり 0.190 s から
   0.116 s（1.64 倍）になった。600 batch の場の更新は 58.6 s から 14.2 s、history 出力は 8.6 s から 0.87 s（いずれも最も遅い rank）。
+- `fields.solver.near_field_precision = "single"` の近接場の和で、log と atan2 をベクトル化できる単精度の式
+  （Cephes の logf・atanf の多項式、算術・ビット演算・選択だけ）で計算するようにした。precise 浮動小数点モデルでは
+  ifx が SIMD ループの中でレーンごとにスカラーの logf・atan2f を呼び、それが単精度の近接場の時間の
+  半分を超えていた。相対誤差は log が 2×10⁻⁷、atan2 が 3×10⁻⁷ 未満（libm と数 ulp の差）。周期 regolith の
+  本番入力（10,880 panel、8 rank × 14 thread、600 batch）で粒子追跡が 43.5 s から 31.0 s（倍精度は 61.0 s）、
+  1 batch あたり 0.116 s から 0.093 s になった。600k checkpoint の電荷から求めたメッシュ電位の倍精度との差は
+  変わらない（最大 1.9×10⁻⁴ V、rms 2.7×10⁻⁵ V）。倍精度の近接場は変わらない。
 - M2L を target node 4 個ずつ AVX2 の 4 lane に載せて計算するようにした。build 時に node を組の多い順に並べて
   4 個ずつ group にまとめ、微分表を `m2l_deriv(lane, :, step)` の順に持つ。1 つの組を係数方向にベクトル化すると
   微分表の gather が律速になっていた。展開次数 4 では添字を定数に展開した生成カーネル
