@@ -171,7 +171,8 @@ BEACH の adapter は現状 `order = 4` を使いますが、コア自体は1以
 - target 葉一覧 `leaf_nodes`
 - 近傍 list `near_start/near_nodes`
 - panel plan の近接 panel 成分表 `near_panels`（`near_field_single` では単精度の `near_panels_sp`）
-- M2L pair cache `m2l_target_nodes/m2l_source_nodes`
+- M2L pair cache `m2l_target_nodes/m2l_source_nodes` と、target node を 4 個ずつまとめた lane group
+  （`m2l_group_target/m2l_group_start/m2l_step_source`）
 - periodic image shift 配列
 - M2L 微分表 `m2l_deriv`
 - P2M 基底表 `source_p2m_basis`
@@ -285,8 +286,8 @@ $$
 で更新します。
 
 ここで $D^\gamma$ は multi-index 微分です。
-現行実装では、$D^{\alpha+\beta} G(R)$をpairごとに前計算し、
-`m2l_deriv(:, pair)`へ保存します。
+現行実装では、$D^{\alpha+\beta} G(R)$をpairごとに前計算し、pair の target node が載る lane と step の位置
+`m2l_deriv(lane, :, step)`へ保存します（6.3 参照）。
 
 ### 4.6 L2L
 
@@ -357,6 +358,7 @@ $$
 `periodic2` では $\mathbf{d}$ に minimum-image 補正を入れます。
 
 その後、dual-tree再帰によってM2L pair cacheを作り、target nodeごとの索引配列を準備します。
+さらに target node を組の多い順に 4 個ずつ lane group にまとめます（6.3 参照）。
 
 ### 5.4 build時の前計算
 
@@ -406,19 +408,21 @@ update_state(plan, state, src_q):
   clear multipole/local only when the tree has no source leaves or no M2L pairs
   P2M on source leaves
   M2M bottom-up
-  count pairs with an active source per target node (mpi only)
-  M2L on cached pairs (this rank's block of target nodes when mpi is given)
-  allgather local expansions and active flags across ranks (mpi only)
+  count steps with an active source per lane group (mpi only)
+  M2L on lane groups (this rank's block of groups when mpi is given)
+  allgather the group results across ranks (mpi only) and move them to the target nodes
   periodic far correction on anchors
   L2L top-down
   mark state ready
 ```
 
-`mpi` を与えた場合、target node は手間がほぼ等しい連続ブロックに rank 順で分けられる（`m2l_rank_blocks`）。
-手間は、multipole が有効な source との組の数で数える（`count_active_m2l_pairs`）。電荷が 0 の source の組は
-M2L で飛ばすので、組の総数で分けると、電荷のない領域を多く受け持つ rank だけが早く終わる。multipole は全 rank が
-同じ電荷から同じ値に作るので、分担は rank 間で一致する。各 node の展開は 1 つの rank が従来と同じループで求め、
-通常精度の同一ビルドでは計算を分担しても結果は同じになる。演算子と plan の保存領域は引き続き各 rank が保持する。
+`mpi` を与えた場合、lane group は手間がほぼ等しい連続ブロックに rank 順で分けられる（`m2l_rank_blocks`）。
+手間は、どれかの lane の source の multipole が有効な step の数で数える（`count_active_m2l_steps`）。電荷が 0 の
+source の組は M2L で飛ばすので、組の総数で分けると、電荷のない領域を多く受け持つ rank だけが早く終わる。multipole は
+全 rank が同じ電荷から同じ値に作るので、分担は rank 間で一致する。各 rank は group の結果を lane 順の作業領域
+（`m2l_slot_local`）に置いて allgather し、全 rank がそれを target node の局所展開へ移す。各 node の展開は 1 つの
+lane が 1 node ずつ計算する場合と同じ順に足すので、通常精度の同一ビルドでは計算を分担しても結果は同じになる。
+演算子と plan の保存領域は引き続き各 rank が保持する。
 
 ### 6.2 OpenMP並列化
 
@@ -427,8 +431,8 @@ M2L で飛ばすので、組の総数で分けると、電荷のない領域を�
 - `update_state`全体を1つのparallel regionで囲み、その内側で`src_q`のコピーとactive flagの初期化を行う
 - `P2M`: source leaf ごとのループ
 - `M2M`: 同一 depth の node ループ
-- `M2L`: target node ごとのループ。node ごとの組の数が大きく違う（周期 regolith mesh では 0 から約 1800）ため
-  `schedule(dynamic, 4)` で配る。node の展開は 1 thread が組の順に足すので、配り方で結果は変わらない
+- `M2L`: lane group ごとのループ。group の step 数が大きく違う（周期 regolith mesh では 0 から約 1800）ため
+  `schedule(dynamic, 1)` で配る。node の展開は 1 つの lane が組の順に足すので、配り方で結果は変わらない
 - `L2L`: 同一 depth の node ループ
 - `build_plan` 時の translation / M2L 微分前計算
 
@@ -444,8 +448,14 @@ M2L で飛ばすので、組の総数で分けると、電荷のない領域を�
 - `M2M/L2L` の有効な `(alpha, delta)` 項だけを圧縮して持ち、無効項を走査しない
 - `M2L`ではsource nodeのactive flagを調べ、zero-nodeのpairを早期にskipする
 - `M2L`ではtarget node列を繰り返し更新せず、thread-localな`local_acc`へ蓄積してから書き戻す
-- M2L の組と微分表（`m2l_deriv`）を build 時に target node 順へ並べ替え、1 つの target の組を連続した領域で読む
-  （同じ target 内は列挙順のままなので、和の順番は変わらない）
+- M2L は target node 4 個を AVX2 の 4 lane に載せて同時に計算する。build 時に node を組の多い順（同数は node 番号順）
+  に並べて 4 個ずつ lane group にまとめ、group の k 番目の step に各 lane の node の k 番目の組を置く。微分表は
+  `m2l_deriv(lane, :, step)` の順に持つので、$L_\alpha \mathrel{+}= c_\beta D^{\alpha+\beta}$ の 4 lane 分を連続した
+  4 要素の読み込み 1 回で得る（1 つの組を α 方向にベクトル化すると $D^{\alpha+\beta}$ の gather になり、それが律速だった）。
+  組の少ない lane の残りの step と、無効な source の lane は係数 0 で計算する。lane ごとの和の順は 1 node ずつ
+  組の列挙順に足す場合と同じで、組の数がそろうので空の step は少ない。展開次数 4 では添字を定数に展開した生成
+  カーネル（`bem_coulomb_fmm_m2l_order4`、`tools/generate_m2l_order4_kernel.py` が作る）が、7 個の α の 4 lane 分を
+  レジスタに置いたまま β を回す（足す順は汎用ループと同じ）
 - panel plan では各葉の近接 panel を像シフト込みの成分配列（`near_panels%vx` … `near_panels%area`）として build 時に保存し、
   点評価は葉の区間を 64 panel ずつ SIMD ループで評価して、リスト順に合算する（`panel_field_sum_translated`）
 - 近接 panel の成分表には、像と葉による重複を含む近接リストの 1 エントリにつき約 200 byte を各 rank で追加保持する
@@ -849,7 +859,9 @@ cold buildでは、再利用可能なoperator行列を初回だけ生成しま�
   （`src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90`）
 - charge refresh:
   `update_state`, `p2m_leaf_moments`, `m2m_upward_pass`, `m2l_accumulate`, `l2l_downward_pass`
-  （`src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90`）
+  （`src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90`）、
+  展開次数 4 の M2L カーネル `m2l_lane_step_order4`
+  （生成ファイル `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_m2l_order4.f90`）
 - 評価:
   `eval_point`, `eval_points`
   （`src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90`）

@@ -25,6 +25,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   本番入力（10,880 panel、8 rank × 14 thread、600 batch）で粒子追跡が 43.5 s から 31.0 s（倍精度は 61.0 s）、
   1 batch あたり 0.116 s から 0.093 s になった。600k checkpoint の電荷から求めたメッシュ電位の倍精度との差は
   変わらない（最大 1.9×10⁻⁴ V、rms 2.7×10⁻⁵ V）。倍精度の近接場は変わらない。
+- M2L を target node 4 個ずつ AVX2 の 4 lane に載せて計算するようにした。build 時に node を組の多い順に並べて
+  4 個ずつ group にまとめ、微分表を `m2l_deriv(lane, :, step)` の順に持つ。1 つの組を係数方向にベクトル化すると
+  微分表の gather が律速になっていた。展開次数 4 では添字を定数に展開した生成カーネル
+  （`tools/generate_m2l_order4_kernel.py`）を使う。どの node の展開も 1 つの lane が従来と同じ順に足すので、
+  計算結果はビット一致する。rank への分担は group 単位になった。本番入力（600 batch）で場の更新が 14.0 s から
+  8.2 s、起動時の微分表の前計算を含む場の初期化が 6.6 s から 5.6 s になった。
 - sheath-model を v0.2.1 に上げた。外部 Zhao 根の更新で、電荷密度の積分点（4 区間 × 16 点）を OpenMP で並列に
   評価する（和は点の順に取るので、根はスレッド数によらずビット一致する）。本番入力（8 rank × 14 thread）で 50 batch
   ごとの外部根の更新が 1 回約 0.2 s から約 0.02 s になり、600 batch で 2.6 s 短くなった。間の v0.2.0 の変更

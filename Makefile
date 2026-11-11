@@ -73,6 +73,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_periodic_shell_mean \
 	test_coulomb_fmm_core_periodic \
 	test_laplace_derivatives \
+	test_m2l_order4_kernel \
 	test_electrostatic_snapshot \
 	test_boundary \
 	test_external_boundary_contract \

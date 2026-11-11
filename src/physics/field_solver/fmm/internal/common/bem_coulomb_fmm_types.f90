@@ -15,6 +15,8 @@ module bem_coulomb_fmm_types
   real(dp), parameter, public :: periodic_operator_proxy_shell_scale = 1.5_dp
   real(dp), parameter, public :: periodic_operator_source_radius_ratio = 0.4_dp
   real(dp), parameter, public :: periodic_operator_target_radius_ratio = 0.5_dp
+  !> M2L で SIMD の lane に載せる target node の数（AVX2 の倍精度 4 要素）。
+  integer(i32), parameter, public :: m2l_lane_width = 4_i32
 
   public :: periodic_source_proxy_half_size
   public :: periodic2_ewald_data_type
@@ -196,6 +198,13 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: m2l_shift_idx1(:), m2l_shift_idx2(:)
     !> 組は target node 順に並び、target `t` の組は `m2l_target_start(t)` から `m2l_target_start(t+1)-1`。
     integer(i32), allocatable :: m2l_target_start(:)
+    !> M2L は target node を `m2l_lane_width` 個ずつの group にまとめ、group の node を SIMD の lane に載せて
+    !! 同時に計算する。node は組の多い順に group へ詰めるので、同じ group の lane の組の数はほぼ等しい。
+    !! group `g` の lane `l` の node は `m2l_group_target(l, g)`（空の lane は 0）で、その k 番目の組は
+    !! step `m2l_group_start(g) + k - 1` の lane `l` に置く。step `s` の lane `l` の source node が
+    !! `m2l_step_source(l, s)`、M2L 微分が `m2l_deriv(l, :, s)`（組のない lane はどちらも 0）。
+    integer(i32) :: m2l_group_count = 0_i32
+    integer(i32), allocatable :: m2l_group_target(:, :), m2l_group_start(:), m2l_step_source(:, :)
     integer(i32), allocatable :: m2m_term_count(:)
     integer(i32), allocatable :: m2m_alpha_list(:, :)
     integer(i32), allocatable :: m2m_delta_list(:, :)
@@ -210,7 +219,7 @@ module bem_coulomb_fmm_types
     type(periodic_zero_mode_plan_type) :: periodic_k0_plan
     !> 有限画像殻の面平均のうち、対称な平均場を除いた滑らかな残り（cached_kneq0 で実行時に引く）。
     type(periodic_shell_mean_plan_type) :: periodic_shell_mean
-    real(dp), allocatable :: m2l_deriv(:, :)
+    real(dp), allocatable :: m2l_deriv(:, :, :)
     real(dp), allocatable :: source_p2m_basis(:, :)
     real(dp), allocatable :: source_shift_monomial(:, :)
     real(dp), allocatable :: target_shift_monomial(:, :)
@@ -228,6 +237,10 @@ module bem_coulomb_fmm_types
     !> 遠方補正の anchor ごとの局所展開。点評価で、点を含む anchor の展開を葉の局所展開に加える。
     real(dp), allocatable :: anchor_local(:, :)
     integer(i32), allocatable :: anchor_local_active(:)
+    !> M2L の結果を group の lane 順（slot = (group-1)*m2l_lane_width + lane）に置く作業領域。rank はここで
+    !! 連続した group の範囲を分担して allgather し、そのあと target node の `local` へ移す。
+    real(dp), allocatable :: m2l_slot_local(:, :)
+    integer(i32), allocatable :: m2l_slot_active(:)
     type(periodic_zero_mode_state_type) :: periodic_k0_state
     type(periodic_shell_mean_state_type) :: periodic_shell_mean_state
   end type fmm_state_type
@@ -274,6 +287,8 @@ contains
     if (allocated(state%periodic_multipole)) deallocate (state%periodic_multipole)
     if (allocated(state%anchor_local)) deallocate (state%anchor_local)
     if (allocated(state%anchor_local_active)) deallocate (state%anchor_local_active)
+    if (allocated(state%m2l_slot_local)) deallocate (state%m2l_slot_local)
+    if (allocated(state%m2l_slot_active)) deallocate (state%m2l_slot_active)
     state%ready = .false.
     state%update_count = 0_i32
     state%periodic_k0_state = periodic_zero_mode_state_type()
