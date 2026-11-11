@@ -68,14 +68,16 @@ program test_periodic2_operator_cache
   call destroy_plan(rebuilt_plan)
   call destroy_plan(recovered_plan)
   call delete_periodic_cache(cache_path)
-  call check_box_mesh_reuse_and_translations()
+  ! Pass the positions explicitly: ifx 2023.2 reads this host array as zeros inside the contained procedure.
+  call check_box_mesh_reuse_and_translations(src_pos)
   call check_zero_root_moments()
   call remove_empty_directory(cache_dir)
   call test_summary()
 
 contains
 
-  subroutine check_box_mesh_reuse_and_translations()
+  subroutine check_box_mesh_reuse_and_translations(positions)
+    real(dp), intent(in) :: positions(:, :)
     type(fmm_plan_type) :: first, second, third
     type(fmm_options_type) :: config
     real(dp) :: a(3, 3), b(3, 3), c(3, 3), center(3)
@@ -87,7 +89,7 @@ contains
     config%periodic_operator_source_cells = 2_i32
     config%periodic_operator_anchor_cells = 2_i32
     do idx = 1_i32, 3_i32
-      center = src_pos(:, idx)
+      center = positions(:, idx)
       a(:, idx) = center + [-0.02_dp, -0.01_dp, 0.0_dp]
       b(:, idx) = center + [0.02_dp, -0.01_dp, 0.0_dp]
       c(:, idx) = center + [0.0_dp, 0.02_dp, 0.0_dp]
