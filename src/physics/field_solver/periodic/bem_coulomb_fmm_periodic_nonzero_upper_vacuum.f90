@@ -111,10 +111,13 @@ contains
     if (size(charge) /= self%nelem) error stop 'upper-vacuum Fourier charge size mismatch.'
     if (any(.not. ieee_is_finite(charge))) error stop 'upper-vacuum Fourier charges must be finite.'
     if (.not. allocated(self%source_real)) allocate (self%source_real(self%nmode), self%source_imag(self%nmode))
+    ! mode ごとの和は互いに独立で、各 mode の中では panel の順に足す。thread 数によらず同じ値になる。
+    !$omp parallel do default(none) schedule(static) shared(self, charge) private(mode)
     do mode = 1, self%nmode
       self%source_real(mode) = dot_product(charge, self%panel_moment_real(:, mode))
       self%source_imag(mode) = dot_product(charge, self%panel_moment_imag(:, mode))
     end do
+    !$omp end parallel do
     self%cached = .true.
   end subroutine refresh_periodic_nonzero_upper_vacuum
 
