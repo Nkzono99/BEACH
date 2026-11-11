@@ -299,7 +299,8 @@ contains
     integer(i32), intent(out) :: group_cost(:)
     integer(i32) :: group, step, lane, s_node, active_steps
 
-    !$omp do schedule(static)
+    ! group は step の多い順に並ぶので、静的に分けると先頭の thread に偏る。
+    !$omp do schedule(dynamic, 8)
     do group = 1_i32, plan%m2l_group_count
       active_steps = 0_i32
       do step = plan%m2l_group_start(group), plan%m2l_group_start(group + 1_i32) - 1_i32

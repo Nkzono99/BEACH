@@ -5,6 +5,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- 周期境界（`cached_kneq0`）の場の更新で直列に計算していた 3 つの項を OpenMP で並列にした。k=0 成分の
+  累積電荷多項式は、panel の寄与を区間ごとの一覧に並べておき、区間ごとに panel の順で足す。上部真空 Fourier は
+  mode ごとの和を、有限画像殻の面平均（shell mean）は高さの格子点ごとの和を並列に求める。どれも足す順は
+  従来と同じで、Intel Fortran では計算結果がビット一致する（golden 3 ケース）。shell mean の高さ表は
+  格子点ごとに連続して読めるよう `(線源, 格子点)` の並びに変え、`matmul` の代わりに格子点ごとの内積で求める。
+  GNU Fortran の最適化なしのビルドでは、ライブラリの `matmul` と丸めが違うため、この項が相対 10⁻¹⁵ 程度変わる。
+- M2L の rank 分担の手間の数え上げを thread へ動的に配るようにした（group は step の多い順に並ぶので、
+  静的な分割では先頭の thread に偏った）。
+- 周期 regolith の本番入力（10,880 panel、8 rank × 14 thread、600 batch）で、場の更新が 8.05 s から 5.14 s、
+  1 batch あたり 0.078 s から 0.072 s になった。
+
 ## [4.3.0] - 2026-11-11
 
 ### Changed

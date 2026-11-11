@@ -35,7 +35,7 @@ module bem_periodic_shell_mean
     real(dp) :: cell_len(2) = 0.0_dp
     integer(i32) :: image_layers = 0_i32
     real(dp) :: soft2 = 0.0_dp
-    !> `(nz, nsrc)`。値と高さ微分。
+    !> `(nsrc, nz)`。値と高さ微分。格子点ごとの列が連続するので、refresh は格子点を並列に回して線源の順に足せる。
     real(dp), allocatable :: value(:, :)
     real(dp), allocatable :: slope(:, :)
   end type periodic_shell_mean_plan_type
@@ -128,7 +128,7 @@ contains
     plan%nz = max(2_i32, int(ceiling((z_max - z_min)/spacing), i32) + 1_i32)
     plan%z0 = z_min
     plan%dz = max(z_max - z_min, tiny(1.0_dp))/real(plan%nz - 1_i32, dp)
-    allocate (plan%value(plan%nz, nsrc), plan%slope(plan%nz, nsrc))
+    allocate (plan%value(nsrc, plan%nz), plan%slope(nsrc, plan%nz))
     plan%value = 0.0_dp
     plan%slope = 0.0_dp
     !$omp parallel do default(shared) private(i, k, q, nq, point, weight, s, dsdh, z, is_point) schedule(static)
@@ -147,8 +147,8 @@ contains
         do k = 1_i32, plan%nz
           z = plan%z0 + real(k - 1_i32, dp)*plan%dz
           call periodic_shell_mean_point_excess(plan, point, z, s, dsdh)
-          plan%value(k, i) = plan%value(k, i) + weight*s
-          plan%slope(k, i) = plan%slope(k, i) + weight*dsdh
+          plan%value(i, k) = plan%value(i, k) + weight*s
+          plan%slope(i, k) = plan%slope(i, k) + weight*dsdh
         end do
       end do
     end do
@@ -161,16 +161,22 @@ contains
     type(periodic_shell_mean_plan_type), intent(in) :: plan
     real(dp), intent(in) :: charge(:)
     type(periodic_shell_mean_state_type), intent(inout) :: state
+    integer(i32) :: k
 
     if (.not. plan%ready) return
-    if (size(charge) /= size(plan%value, 2)) error stop 'periodic shell-mean charge size mismatch.'
+    if (size(charge) /= size(plan%value, 1)) error stop 'periodic shell-mean charge size mismatch.'
     if (.not. allocated(state%value)) allocate (state%value(plan%nz), state%slope(plan%nz))
     if (size(state%value) /= plan%nz) then
       deallocate (state%value, state%slope)
       allocate (state%value(plan%nz), state%slope(plan%nz))
     end if
-    state%value = matmul(plan%value, charge)
-    state%slope = matmul(plan%slope, charge)
+    ! 格子点どうしは独立で、各格子点は線源の順に足す。thread 数によらず同じ値になる。
+    !$omp parallel do default(none) schedule(static) shared(plan, charge, state) private(k)
+    do k = 1_i32, plan%nz
+      state%value(k) = dot_product(plan%value(:, k), charge)
+      state%slope(k) = dot_product(plan%slope(:, k), charge)
+    end do
+    !$omp end parallel do
   end subroutine refresh_periodic_shell_mean_state
 
   !> 3 次 Hermite 補間した `S(z)` と、同じ多項式の微分 `dS/dz`。電場は電位の勾配と一致する。

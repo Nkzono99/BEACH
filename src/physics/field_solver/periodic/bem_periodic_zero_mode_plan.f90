@@ -10,6 +10,13 @@ module bem_periodic_zero_mode_plan
   integer(i32), parameter, public :: periodic_zero_mode_ok = 0_i32
   integer(i32), parameter, public :: periodic_zero_mode_invalid = 1_i32
 
+  ! 1 枚の panel が累積電荷多項式の区間差分へ足す寄与。番号の順が 1 枚の中で足す順。
+  integer(i32), parameter :: zero_mode_term_lower_enter = 1_i32  ! [z0, z1] の多項式を区間 i0+1 から加える
+  integer(i32), parameter :: zero_mode_term_lower_leave = 2_i32  ! 同じ多項式を区間 i1+1 から外す
+  integer(i32), parameter :: zero_mode_term_upper_enter = 3_i32  ! [z1, z2] の多項式を区間 i1+1 から加える
+  integer(i32), parameter :: zero_mode_term_upper_leave = 4_i32  ! 同じ多項式を区間 i2+1 から外す
+  integer(i32), parameter :: zero_mode_term_total = 5_i32        ! panel の全電荷を区間 i2+1 から加える
+
   type :: panel_height_projection_type
     real(dp) :: z(3) = [0.0_dp, 0.0_dp, 0.0_dp]
     integer(i32) :: break_index(3) = [0_i32, 0_i32, 0_i32]
@@ -24,6 +31,9 @@ module bem_periodic_zero_mode_plan
     real(dp) :: height_tolerance = 0.0_dp
     real(dp), allocatable :: break_z(:)
     type(panel_height_projection_type), allocatable :: panel(:)
+    !> 区間ごとの寄与の一覧。区間 k の寄与は `term_start(k)` から `term_start(k+1)-1` で、panel 番号の昇順、
+    !! 同じ panel の中では refresh が足す順に並ぶ。`term_kind` は寄与の種類（zero_mode_term_*）。
+    integer(i32), allocatable :: term_start(:), term_elem(:), term_kind(:)
   end type periodic_zero_mode_plan_type
 
   type, public :: periodic_zero_mode_state_type
@@ -141,8 +151,73 @@ contains
         plan%panel(elem)%break_index(vertex) = nearest_break(plan%break_z, plan%panel(elem)%z(vertex))
       end do
     end do
+    call build_zero_mode_interval_terms(plan)
     status = periodic_zero_mode_ok
   end subroutine build_periodic_zero_mode_height_plan
+
+  !> panel の寄与を区間ごとの一覧に並べる。区間ごとに panel の昇順・panel の中では種類の順なので、
+  !! 一覧の順に足すと、panel を順に回って足した場合と同じ順になる。
+  subroutine build_zero_mode_interval_terms(plan)
+    type(periodic_zero_mode_plan_type), intent(inout) :: plan
+    integer(i32) :: elem, pass, k, nterm, interval, ninterval
+    integer(i32) :: term_interval(5), term_kind(5)
+    integer(i32), allocatable :: fill(:)
+
+    ninterval = plan%nbreak + 1_i32
+    allocate (plan%term_start(ninterval + 1_i32), fill(ninterval))
+    plan%term_start = 0_i32
+    do pass = 1, 2
+      do elem = 1, plan%nelem
+        call panel_interval_terms(plan%panel(elem), nterm, term_interval, term_kind)
+        do k = 1, nterm
+          interval = term_interval(k)
+          if (pass == 1) then
+            plan%term_start(interval + 1_i32) = plan%term_start(interval + 1_i32) + 1_i32
+          else
+            plan%term_elem(fill(interval)) = elem
+            plan%term_kind(fill(interval)) = term_kind(k)
+            fill(interval) = fill(interval) + 1_i32
+          end if
+        end do
+      end do
+      if (pass == 1) then
+        plan%term_start(1) = 1_i32
+        do interval = 1, ninterval
+          plan%term_start(interval + 1_i32) = plan%term_start(interval) + plan%term_start(interval + 1_i32)
+        end do
+        allocate (plan%term_elem(plan%term_start(ninterval + 1_i32) - 1_i32), &
+                  plan%term_kind(plan%term_start(ninterval + 1_i32) - 1_i32))
+        fill = plan%term_start(1:ninterval)
+      end if
+    end do
+  end subroutine build_zero_mode_interval_terms
+
+  !> 1 枚の panel の寄与を、足す順に（区間、種類）で返す。
+  pure subroutine panel_interval_terms(panel, nterm, term_interval, term_kind)
+    type(panel_height_projection_type), intent(in) :: panel
+    integer(i32), intent(out) :: nterm, term_interval(5), term_kind(5)
+    integer(i32) :: i0, i1, i2
+
+    i0 = panel%break_index(1)
+    i1 = panel%break_index(2)
+    i2 = panel%break_index(3)
+    nterm = 0_i32
+    if (.not. panel%horizontal) then
+      if (i1 > i0) then
+        term_interval(nterm + 1:nterm + 2) = [i0 + 1_i32, i1 + 1_i32]
+        term_kind(nterm + 1:nterm + 2) = [zero_mode_term_lower_enter, zero_mode_term_lower_leave]
+        nterm = nterm + 2_i32
+      end if
+      if (i2 > i1) then
+        term_interval(nterm + 1:nterm + 2) = [i1 + 1_i32, i2 + 1_i32]
+        term_kind(nterm + 1:nterm + 2) = [zero_mode_term_upper_enter, zero_mode_term_upper_leave]
+        nterm = nterm + 2_i32
+      end if
+    end if
+    nterm = nterm + 1_i32
+    term_interval(nterm) = i2 + 1_i32
+    term_kind(nterm) = zero_mode_term_total
+  end subroutine panel_interval_terms
 
   subroutine refresh_periodic_zero_mode_state(plan, charge, e_bottom, z_gauge, phi_gauge, state)
     type(periodic_zero_mode_plan_type), intent(in) :: plan
@@ -150,8 +225,8 @@ contains
     real(dp), intent(in) :: e_bottom, z_gauge, phi_gauge
     !> Arrays already sized for this plan are reused; every component is overwritten.
     type(periodic_zero_mode_state_type), intent(inout) :: state
-    real(dp) :: z0, z1, z2, denominator, offset, shift
-    integer(i32) :: elem, interval, ninterval, i0, i1, i2, gauge_interval, gauge_breakpoint
+    real(dp) :: z0, z1, z2, denominator, offset, shift, interval_sum(3)
+    integer(i32) :: elem, interval, ninterval, i0, term, gauge_interval, gauge_breakpoint
 
     if (size(charge) /= plan%nelem) error stop 'periodic zero-mode charge size mismatch.'
     if (any(.not. ieee_is_finite(charge))) error stop 'periodic zero-mode charges must be finite.'
@@ -162,60 +237,69 @@ contains
     if (.not. allocated(state%cumulative_charge_coeff)) allocate (state%cumulative_charge_coeff(3, ninterval))
     call size_break_array(state%primitive_at_break, plan%nbreak)
     call size_break_array(state%sheet_charge, plan%nbreak)
-    ! The per-interval differences accumulate in cumulative_charge_coeff and become prefix sums in place.
-    state%cumulative_charge_coeff = 0.0_dp
+    ! The per-interval differences are stored in cumulative_charge_coeff and become prefix sums in place.
     state%sheet_charge = 0.0_dp
     state%e_bottom = e_bottom
     state%z_gauge = z_gauge
     state%phi_gauge = phi_gauge
     state%total_charge = sum(charge)
 
-    associate (difference => state%cumulative_charge_coeff)
-      ! 傾斜 panel の寄与は、加える区間と外す区間それぞれの局所原点で表す。係数は panel 自身の高さ幅だけで
-      ! 決まり、絶対 z に依らない（平行移動で値が変わらない）。
-      do elem = 1, plan%nelem
+    do elem = 1, plan%nelem
+      if (plan%panel(elem)%horizontal) then
+        i0 = plan%panel(elem)%break_index(1)
+        state%sheet_charge(i0) = state%sheet_charge(i0) + charge(elem)
+      end if
+    end do
+
+    ! 傾斜 panel の寄与は、加える区間と外す区間それぞれの局所原点で表す。係数は panel 自身の高さ幅だけで
+    ! 決まり、絶対 z に依らない（平行移動で値が変わらない）。
+    ! 区間ごとに、その区間への寄与を panel の順に足す（plan の一覧の順）。区間どうしは独立なので並列に求められ、
+    ! 足す順は panel を順に回る場合と同じなので、値は thread 数によらない。
+    !$omp parallel do default(none) schedule(static) shared(plan, charge, state, ninterval) &
+    !$omp private(interval, term, elem, z0, z1, z2, denominator, offset, interval_sum)
+    do interval = 1, ninterval
+      interval_sum = 0.0_dp
+      do term = plan%term_start(interval), plan%term_start(interval + 1_i32) - 1_i32
+        elem = plan%term_elem(term)
         z0 = plan%panel(elem)%z(1)
         z1 = plan%panel(elem)%z(2)
         z2 = plan%panel(elem)%z(3)
-        i0 = plan%panel(elem)%break_index(1)
-        i1 = plan%panel(elem)%break_index(2)
-        i2 = plan%panel(elem)%break_index(3)
-        if (plan%panel(elem)%horizontal) then
-          state%sheet_charge(i0) = state%sheet_charge(i0) + charge(elem)
-        else
-          if (i1 > i0) then
-            ! [z0, z1]: q*(z-z0)^2/denominator。原点 a では z-z0 = t+offset, offset=a-z0。
-            denominator = (z1 - z0)*(z2 - z0)
-            offset = plan%break_z(i0) - z0
-            difference(:, i0 + 1_i32) = difference(:, i0 + 1_i32) + &
-                                        charge(elem)*[offset*offset, 2.0_dp*offset, 1.0_dp]/denominator
-            offset = plan%break_z(i1) - z0
-            difference(:, i1 + 1_i32) = difference(:, i1 + 1_i32) - &
-                                        charge(elem)*[offset*offset, 2.0_dp*offset, 1.0_dp]/denominator
-          end if
-          if (i2 > i1) then
-            ! [z1, z2]: q*(1-(z2-z)^2/denominator)。原点 a では z2-z = offset-t, offset=z2-a。
-            denominator = (z2 - z0)*(z2 - z1)
-            offset = z2 - plan%break_z(i1)
-            difference(:, i1 + 1_i32) = difference(:, i1 + 1_i32) + charge(elem)*[ &
-                                        1.0_dp - offset*offset/denominator, 2.0_dp*offset/denominator, &
-                                        -1.0_dp/denominator]
-            offset = z2 - plan%break_z(i2)
-            difference(:, i2 + 1_i32) = difference(:, i2 + 1_i32) - charge(elem)*[ &
-                                        1.0_dp - offset*offset/denominator, 2.0_dp*offset/denominator, &
-                                        -1.0_dp/denominator]
-          end if
-        end if
-        difference(1, i2 + 1_i32) = difference(1, i2 + 1_i32) + charge(elem)
+        select case (plan%term_kind(term))
+        case (zero_mode_term_lower_enter)
+          ! [z0, z1]: q*(z-z0)^2/denominator。原点 a では z-z0 = t+offset, offset=a-z0。
+          denominator = (z1 - z0)*(z2 - z0)
+          offset = plan%break_z(plan%panel(elem)%break_index(1)) - z0
+          interval_sum = interval_sum + charge(elem)*[offset*offset, 2.0_dp*offset, 1.0_dp]/denominator
+        case (zero_mode_term_lower_leave)
+          denominator = (z1 - z0)*(z2 - z0)
+          offset = plan%break_z(plan%panel(elem)%break_index(2)) - z0
+          interval_sum = interval_sum - charge(elem)*[offset*offset, 2.0_dp*offset, 1.0_dp]/denominator
+        case (zero_mode_term_upper_enter)
+          ! [z1, z2]: q*(1-(z2-z)^2/denominator)。原点 a では z2-z = offset-t, offset=z2-a。
+          denominator = (z2 - z0)*(z2 - z1)
+          offset = z2 - plan%break_z(plan%panel(elem)%break_index(2))
+          interval_sum = interval_sum + charge(elem)*[ &
+                         1.0_dp - offset*offset/denominator, 2.0_dp*offset/denominator, -1.0_dp/denominator]
+        case (zero_mode_term_upper_leave)
+          denominator = (z2 - z0)*(z2 - z1)
+          offset = z2 - plan%break_z(plan%panel(elem)%break_index(3))
+          interval_sum = interval_sum - charge(elem)*[ &
+                         1.0_dp - offset*offset/denominator, 2.0_dp*offset/denominator, -1.0_dp/denominator]
+        case (zero_mode_term_total)
+          interval_sum(1) = interval_sum(1) + charge(elem)
+        end select
       end do
+      state%cumulative_charge_coeff(:, interval) = interval_sum
+    end do
+    !$omp end parallel do
 
-      ! 前の区間の多項式を次の区間の原点へ移してから差分を足す。移す量は隣接 break の間隔だけ。
-      do interval = 2, ninterval
-        shift = zero_mode_interval_origin(plan%break_z, interval) - &
-                zero_mode_interval_origin(plan%break_z, interval - 1_i32)
-        difference(:, interval) = shift_polynomial(difference(:, interval - 1), shift) + difference(:, interval)
-      end do
-    end associate
+    ! 前の区間の多項式を次の区間の原点へ移してから差分を足す。移す量は隣接 break の間隔だけ。
+    do interval = 2, ninterval
+      shift = zero_mode_interval_origin(plan%break_z, interval) - &
+              zero_mode_interval_origin(plan%break_z, interval - 1_i32)
+      state%cumulative_charge_coeff(:, interval) = &
+        shift_polynomial(state%cumulative_charge_coeff(:, interval - 1), shift) + state%cumulative_charge_coeff(:, interval)
+    end do
     ! Outside the source slab the integrated charge is known exactly. Do not
     ! extrapolate cancellation residue from the inclined-panel polynomials.
     state%cumulative_charge_coeff(:, 1) = 0.0_dp
