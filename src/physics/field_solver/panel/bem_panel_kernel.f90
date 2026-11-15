@@ -3,7 +3,7 @@ module bem_panel_kernel
   use bem_kinds, only: dp, sp, i32
   use bem_constants, only: eps0, k_coulomb
   use bem_panel_geometry, only: panel_geometry_type
-  use bem_panel_self_terms, only: panel_on_surface_integrals
+  use bem_panel_self_terms, only: panel_on_surface_integrals, panel_edge_line_integral, panel_edge_ratio_limit
   implicit none
   private
 
@@ -32,19 +32,36 @@ contains
     integer(i32), intent(in) :: side
     real(dp), intent(out) :: potential, field(3)
     real(dp) :: projection(3), height, potential_integral, field_integral(3), omega
-    real(dp) :: endpoint_a(3), endpoint_b(3), radius_a, radius_b, line_integral, distance, ratio
-    real(dp) :: relative_vertex(3, 3), numerator, denominator, scale, plane_tolerance
+    real(dp) :: endpoint_a(3), radius_a, radius_b, line_integral, distance, ratio
+    real(dp) :: relative_vertex(3, 3), radius(3), numerator, denominator, scale, plane_tolerance
     integer :: edge, next_edge
-    logical :: on_surface
+    logical :: on_surface, near_edge
 
     if (side < panel_side_normal_minus .or. side > panel_side_normal_plus) then
       error stop 'invalid panel evaluation side.'
     end if
+    potential = 0.0_dp
+    field = 0.0_dp
+    if (charge == 0.0_dp) return
     height = dot_product(target - geometry%vertex(:, 1), geometry%normal)
     projection = target - height*geometry%normal
     scale = maxval(geometry%edge_length)
     plane_tolerance = 64.0_dp*epsilon(1.0_dp)*scale
     on_surface = abs(height) <= plane_tolerance
+
+    ! Do not project a finite-height near-edge target onto a singular edge. The plane
+    ! tolerance still resolves the principal value and side jump away from edges.
+    if (on_surface .and. height /= 0.0_dp) then
+      do edge = 1, 3
+        next_edge = merge(edge + 1, 1, edge < 3)
+        radius_a = norm2(target - geometry%vertex(:, edge))
+        radius_b = norm2(target - geometry%vertex(:, next_edge))
+        if (geometry%edge_length(edge)/(radius_a + radius_b) >= panel_edge_ratio_limit) then
+          on_surface = .false.
+          exit
+        end if
+      end do
+    end if
 
     if (on_surface) then
       call panel_on_surface_integrals(geometry, projection, potential_integral, field_integral)
@@ -59,26 +76,34 @@ contains
     omega = 0.0_dp
     do edge = 1, 3
       relative_vertex(:, edge) = geometry%vertex(:, edge) - target
+      radius(edge) = norm2(relative_vertex(:, edge))
+    end do
+    near_edge = .false.
+    do edge = 1, 3
+      next_edge = merge(edge + 1, 1, edge < 3)
+      near_edge = near_edge .or. geometry%edge_length(edge)/(radius(edge) + radius(next_edge)) >= panel_edge_ratio_limit
     end do
     numerator = dot_product(relative_vertex(:, 1), &
                             cross_product(relative_vertex(:, 2), relative_vertex(:, 3)))
-    denominator = product_norms(relative_vertex) + &
-                  dot_product(relative_vertex(:, 1), relative_vertex(:, 2))*norm2(relative_vertex(:, 3)) + &
-                  dot_product(relative_vertex(:, 2), relative_vertex(:, 3))*norm2(relative_vertex(:, 1)) + &
-                  dot_product(relative_vertex(:, 3), relative_vertex(:, 1))*norm2(relative_vertex(:, 2))
-    omega = -2.0_dp*atan2(numerator, denominator)
+    denominator = radius(1)*radius(2)*radius(3) + &
+                  dot_product(relative_vertex(:, 1), relative_vertex(:, 2))*radius(3) + &
+                  dot_product(relative_vertex(:, 2), relative_vertex(:, 3))*radius(1) + &
+                  dot_product(relative_vertex(:, 3), relative_vertex(:, 1))*radius(2)
+    if (near_edge) then
+      omega = near_edge_solid_angle(geometry, target, projection, height)
+    else
+      omega = -2.0_dp*atan2(numerator, denominator)
+    end if
 
     potential_integral = -height*omega
     field_integral = geometry%normal*omega
     do edge = 1, 3
       next_edge = merge(edge + 1, 1, edge < 3)
       endpoint_a = geometry%vertex(:, edge)
-      endpoint_b = geometry%vertex(:, next_edge)
-      radius_a = norm2(target - endpoint_a)
-      radius_b = norm2(target - endpoint_b)
+      radius_a = radius(edge)
+      radius_b = radius(next_edge)
       ratio = geometry%edge_length(edge)/(radius_a + radius_b)
-      if (ratio >= 1.0_dp) error stop 'panel target lies on an edge or vertex.'
-      line_integral = log((1.0_dp + ratio)/(1.0_dp - ratio))
+      line_integral = panel_edge_line_integral(geometry, target, edge, ratio)
       distance = dot_product(endpoint_a - projection, geometry%edge_outward(:, edge))
       potential_integral = potential_integral + distance*line_integral
       field_integral = field_integral + geometry%edge_outward(:, edge)*line_integral
@@ -101,6 +126,9 @@ contains
     real(dp) :: line_integral, distance, ratio, numerator, denominator, scale, plane_tolerance
     integer :: edge, next_edge
 
+    potential = 0.0_dp
+    field = 0.0_dp
+    if (charge == 0.0_dp) return
     vertex = geometry%vertex + spread(shift, 2, 3)
     height = dot_product(target - vertex(:, 1), geometry%normal)
     projection = target - height*geometry%normal
@@ -128,7 +156,10 @@ contains
     do edge = 1, 3
       next_edge = merge(edge + 1, 1, edge < 3)
       ratio = geometry%edge_length(edge)/(radius(edge) + radius(next_edge))
-      if (ratio >= 1.0_dp) error stop 'panel target lies on an edge or vertex.'
+      if (ratio >= panel_edge_ratio_limit) then
+        call panel_potential_field_on_translated_surface(geometry, vertex, shift, charge, target, potential, field)
+        return
+      end if
       line_integral = log((1.0_dp + ratio)/(1.0_dp - ratio))
       distance = dot_product(vertex(:, edge) - projection, geometry%edge_outward(:, edge))
       potential_integral = potential_integral + distance*line_integral
@@ -158,24 +189,22 @@ contains
     real(dp), intent(in) :: target(3)
     real(dp), intent(inout) :: ex, ey, ez
     real(dp) :: outx(panel_chunk), outy(panel_chunk), outz(panel_chunk)
-    logical :: active(panel_chunk), on_plane(panel_chunk)
+    logical :: active(panel_chunk), fallback(panel_chunk)
     real(dp) :: ax, ay, az, bx, by, bz, cx, cy, cz, ra, rb, rc, height, numerator, denominator, omega
     real(dp) :: l1, l2, l3, fx, fy, fz, scale, potential, field(3)
-    logical :: edge_hit, evaluate_lane
+    logical :: evaluate_lane
     integer(i32) :: chunk_start, chunk_size, k, m, idx
 
     do chunk_start = 1_i32, count, panel_chunk
       chunk_size = min(panel_chunk, count - chunk_start + 1_i32)
-      edge_hit = .false.
       !$omp simd private(m, ax, ay, az, bx, by, bz, cx, cy, cz, ra, rb, rc, height, numerator, denominator) &
-      !$omp   private(omega, l1, l2, l3, fx, fy, fz, scale, evaluate_lane) reduction(.or.:edge_hit)
+      !$omp   private(omega, l1, l2, l3, fx, fy, fz, scale, evaluate_lane)
       do k = 1_i32, chunk_size
         m = chunk_start + k - 1_i32
         active(k) = abs(charge(index(m))) > tiny(1.0_dp)
         scale = k_coulomb*charge(index(m))/area(m)
         height = (target(1) - vx(1, m))*nx(m) + (target(2) - vy(1, m))*ny(m) + (target(3) - vz(1, m))*nz(m)
-        on_plane(k) = abs(height) <= 64.0_dp*epsilon(1.0_dp)*max(edge(1, m), edge(2, m), edge(3, m))
-        evaluate_lane = active(k) .and. .not. on_plane(k)
+        fallback(k) = abs(height) <= 64.0_dp*epsilon(1.0_dp)*max(edge(1, m), edge(2, m), edge(3, m))
         ax = vx(1, m) - target(1)
         ay = vy(1, m) - target(2)
         az = vz(1, m) - target(3)
@@ -191,15 +220,16 @@ contains
         numerator = ax*(by*cz - bz*cy) + ay*(bz*cx - bx*cz) + az*(bx*cy - by*cx)
         denominator = ra*rb*rc + (ax*bx + ay*by + az*bz)*rc + (bx*cx + by*cy + bz*cz)*ra + &
                       (cx*ax + cy*ay + cz*az)*rb
-        ! Keep unused lanes non-singular without branching around the vector math calls.
-        omega = -2.0_dp*atan2(merge(numerator, 0.0_dp, evaluate_lane), merge(denominator, 1.0_dp, evaluate_lane))
         l1 = edge(1, m)/(ra + rb)
         l2 = edge(2, m)/(rb + rc)
         l3 = edge(3, m)/(rc + ra)
-        edge_hit = edge_hit .or. (evaluate_lane .and. max(l1, l2, l3) >= 1.0_dp)
-        l1 = merge(l1, 0.0_dp, evaluate_lane .and. l1 < 1.0_dp)
-        l2 = merge(l2, 0.0_dp, evaluate_lane .and. l2 < 1.0_dp)
-        l3 = merge(l3, 0.0_dp, evaluate_lane .and. l3 < 1.0_dp)
+        fallback(k) = fallback(k) .or. max(l1, l2, l3) >= panel_edge_ratio_limit
+        evaluate_lane = active(k) .and. .not. fallback(k)
+        ! Near-edge lanes use the stable scalar integral; keep their vector math regular.
+        omega = -2.0_dp*atan2(merge(numerator, 0.0_dp, evaluate_lane), merge(denominator, 1.0_dp, evaluate_lane))
+        l1 = merge(l1, 0.0_dp, evaluate_lane)
+        l2 = merge(l2, 0.0_dp, evaluate_lane)
+        l3 = merge(l3, 0.0_dp, evaluate_lane)
         l1 = log((1.0_dp + l1)/(1.0_dp - l1))
         l2 = log((1.0_dp + l2)/(1.0_dp - l2))
         l3 = log((1.0_dp + l3)/(1.0_dp - l3))
@@ -219,10 +249,9 @@ contains
         outy(k) = scale*fy
         outz(k) = scale*fz
       end do
-      if (edge_hit) error stop 'panel target lies on an edge or vertex.'
       do k = 1_i32, chunk_size
         if (.not. active(k)) cycle
-        if (on_plane(k)) then
+        if (fallback(k)) then
           m = chunk_start + k - 1_i32
           idx = index(m)
           call panel_potential_field_on_vertices( &
@@ -253,17 +282,16 @@ contains
     real(dp), intent(in) :: target(3)
     real(dp), intent(inout) :: phi
     real(dp) :: out(panel_chunk)
-    logical :: active(panel_chunk), on_plane(panel_chunk)
+    logical :: active(panel_chunk), fallback(panel_chunk)
     real(dp) :: ax, ay, az, bx, by, bz, cx, cy, cz, ra, rb, rc, height, numerator, denominator, omega
     real(dp) :: px, py, pz, l1, l2, l3, d1, d2, d3, integral, scale, potential, field(3)
-    logical :: edge_hit, evaluate_lane
+    logical :: evaluate_lane
     integer(i32) :: chunk_start, chunk_size, k, m, idx
 
     do chunk_start = 1_i32, count, panel_chunk
       chunk_size = min(panel_chunk, count - chunk_start + 1_i32)
-      edge_hit = .false.
       !$omp simd private(m, ax, ay, az, bx, by, bz, cx, cy, cz, ra, rb, rc, height, numerator, denominator) &
-      !$omp   private(omega, px, py, pz, l1, l2, l3, d1, d2, d3, integral, scale, evaluate_lane) reduction(.or.:edge_hit)
+      !$omp   private(omega, px, py, pz, l1, l2, l3, d1, d2, d3, integral, scale, evaluate_lane)
       do k = 1_i32, chunk_size
         m = chunk_start + k - 1_i32
         active(k) = abs(charge(index(m))) > tiny(1.0_dp)
@@ -272,8 +300,7 @@ contains
         px = target(1) - height*nx(m)
         py = target(2) - height*ny(m)
         pz = target(3) - height*nz(m)
-        on_plane(k) = abs(height) <= 64.0_dp*epsilon(1.0_dp)*max(edge(1, m), edge(2, m), edge(3, m))
-        evaluate_lane = active(k) .and. .not. on_plane(k)
+        fallback(k) = abs(height) <= 64.0_dp*epsilon(1.0_dp)*max(edge(1, m), edge(2, m), edge(3, m))
         ax = vx(1, m) - target(1)
         ay = vy(1, m) - target(2)
         az = vz(1, m) - target(3)
@@ -289,14 +316,15 @@ contains
         numerator = ax*(by*cz - bz*cy) + ay*(bz*cx - bx*cz) + az*(bx*cy - by*cx)
         denominator = ra*rb*rc + (ax*bx + ay*by + az*bz)*rc + (bx*cx + by*cy + bz*cz)*ra + &
                       (cx*ax + cy*ay + cz*az)*rb
-        omega = -2.0_dp*atan2(merge(numerator, 0.0_dp, evaluate_lane), merge(denominator, 1.0_dp, evaluate_lane))
         l1 = edge(1, m)/(ra + rb)
         l2 = edge(2, m)/(rb + rc)
         l3 = edge(3, m)/(rc + ra)
-        edge_hit = edge_hit .or. (evaluate_lane .and. max(l1, l2, l3) >= 1.0_dp)
-        l1 = merge(l1, 0.0_dp, evaluate_lane .and. l1 < 1.0_dp)
-        l2 = merge(l2, 0.0_dp, evaluate_lane .and. l2 < 1.0_dp)
-        l3 = merge(l3, 0.0_dp, evaluate_lane .and. l3 < 1.0_dp)
+        fallback(k) = fallback(k) .or. max(l1, l2, l3) >= panel_edge_ratio_limit
+        evaluate_lane = active(k) .and. .not. fallback(k)
+        omega = -2.0_dp*atan2(merge(numerator, 0.0_dp, evaluate_lane), merge(denominator, 1.0_dp, evaluate_lane))
+        l1 = merge(l1, 0.0_dp, evaluate_lane)
+        l2 = merge(l2, 0.0_dp, evaluate_lane)
+        l3 = merge(l3, 0.0_dp, evaluate_lane)
         l1 = log((1.0_dp + l1)/(1.0_dp - l1))
         l2 = log((1.0_dp + l2)/(1.0_dp - l2))
         l3 = log((1.0_dp + l3)/(1.0_dp - l3))
@@ -309,10 +337,9 @@ contains
         integral = integral + d3*l3
         out(k) = scale*integral
       end do
-      if (edge_hit) error stop 'panel target lies on an edge or vertex.'
       do k = 1_i32, chunk_size
         if (.not. active(k)) cycle
-        if (on_plane(k)) then
+        if (fallback(k)) then
           m = chunk_start + k - 1_i32
           idx = index(m)
           call panel_potential_field_on_vertices( &
@@ -599,6 +626,36 @@ contains
     call panel_potential_field(translated, charge, target, panel_side_principal_value, potential, field)
   end subroutine panel_potential_field_on_translated_surface
 
+  !> Sum the oriented solid angles of the triangles formed by the target's projection
+  !! and each edge. Unlike the three-vertex formula, their denominators do not subtract
+  !! nearly equal O(L**3) terms as the target approaches an edge at finite height.
+  real(dp) function near_edge_solid_angle(geometry, target, projection, height) result(omega)
+    type(panel_geometry_type), intent(in) :: geometry
+    real(dp), intent(in) :: target(3), projection(3), height
+    real(dp) :: a(3), b(3), crossed(3), ra, rb, ab, radial_sum, oriented_area, denominator
+    integer :: edge, next_edge
+
+    omega = 0.0_dp
+    do edge = 1, 3
+      next_edge = merge(edge + 1, 1, edge < 3)
+      a = geometry%vertex(:, edge) - target
+      b = geometry%vertex(:, next_edge) - target
+      ra = norm2(a)
+      rb = norm2(b)
+      ab = dot_product(a, b)
+      if (ab < 0.0_dp) then
+        crossed = cross_product(a, b)
+        radial_sum = sum(crossed*crossed)/(ra*rb - ab)
+      else
+        radial_sum = ra*rb + ab
+      end if
+      oriented_area = geometry%edge_length(edge)* &
+                      dot_product(geometry%vertex(:, edge) - projection, geometry%edge_outward(:, edge))
+      denominator = radial_sum + abs(height)*(ra + rb)
+      omega = omega + 2.0_dp*atan2(sign(1.0_dp, height)*oriented_area, denominator)
+    end do
+  end function near_edge_solid_angle
+
   pure logical function point_in_triangle(geometry, point) result(inside)
     type(panel_geometry_type), intent(in) :: geometry
     real(dp), intent(in) :: point(3)
@@ -618,12 +675,6 @@ contains
       end if
     end do
   end function point_in_triangle
-
-  pure real(dp) function product_norms(vectors) result(product_value)
-    real(dp), intent(in) :: vectors(3, 3)
-
-    product_value = norm2(vectors(:, 1))*norm2(vectors(:, 2))*norm2(vectors(:, 3))
-  end function product_norms
 
   pure real(dp) function norm2(vector) result(norm)
     real(dp), intent(in) :: vector(3)

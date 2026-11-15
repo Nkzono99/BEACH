@@ -36,12 +36,9 @@ $$
 電場評価では、要素電荷が作る場、`fields.external.electric_v_m`、選択したperiodic zero mode、outer profileを一度ずつ合成します。
 同じbatchの粒子は、batch開始時の要素電荷から構成した同じ電場・電位の空間分布を使います。[<sup>1</sup>](../guide/FieldSolvers.md)
 
-`use_box=true`では、場の評価位置だけをsolverの有効領域へ写します。
-
-| 軸 | $\mathbf{x}_\mathrm{mid}$の処理 |
-| --- | --- |
-| low/highの両方がperiodic | primary boxへ`modulo`でwrap |
-| その他 | `box_min`から`box_max`へclamp |
+予測中点までの線分が非周期の box 面に達する場合、現在位置から最初の交点までの線分の中点で
+電場を評価します。複数の面を越える場合も最初の交点を使い、各座標を別々の面へ押し付けて
+メッシュの辺や頂点に評価点を作ることを避けます。周期軸の評価座標は `modulo` で基本セルへ戻します。
 
 候補軌道の端点は物理座標のまま保持します。これにより、後段で三角形との衝突とbox境界の通過を
 時間順に比較できます。

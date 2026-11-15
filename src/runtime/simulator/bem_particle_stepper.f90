@@ -94,7 +94,7 @@ contains
     logical :: available, use_upper
 
     x_mid = x0 + 0.5d0*v0*dt
-    call project_field_sample_to_box(sim, x_mid)
+    call project_field_sample_to_box(sim, x0, x_mid)
     use_upper = .false.
     if (present(use_upper_panel_fourier)) use_upper = use_upper_panel_fourier
     available = .true.
@@ -114,14 +114,30 @@ contains
     if (present(sampled_electric_field)) sampled_electric_field = e_mid
   end subroutine build_particle_step_candidate
 
-  !> 境界を越えるcandidateでも、場評価点はsolverのprimitive target box内に保つ。
-  pure subroutine project_field_sample_to_box(sim, position)
+  !> 非周期面を越える予測中点は、現在位置から最初のbox交差までの線分の中点に戻す。
+  !! 各座標をbox面へ押し付けてmeshの辺や頂点に場評価点を作らない。周期軸は通常通りwrapする。
+  pure subroutine project_field_sample_to_box(sim, origin, position)
     class(particle_domain_config), intent(in) :: sim
+    real(dp), intent(in) :: origin(3)
     real(dp), intent(inout) :: position(3)
     integer(i32) :: axis
-    real(dp) :: span
+    real(dp) :: span, fraction
+    logical :: crosses_boundary
 
     if (.not. sim%use_box) return
+    fraction = 1.0_dp
+    crosses_boundary = .false.
+    do axis = 1_i32, 3_i32
+      if (sim%bc_low(axis) == bc_periodic .and. sim%bc_high(axis) == bc_periodic) cycle
+      if (position(axis) <= sim%box_min(axis) .and. position(axis) < origin(axis)) then
+        fraction = min(fraction, max(0.0_dp, (sim%box_min(axis) - origin(axis))/(position(axis) - origin(axis))))
+        crosses_boundary = .true.
+      else if (position(axis) >= sim%box_max(axis) .and. position(axis) > origin(axis)) then
+        fraction = min(fraction, max(0.0_dp, (sim%box_max(axis) - origin(axis))/(position(axis) - origin(axis))))
+        crosses_boundary = .true.
+      end if
+    end do
+    if (crosses_boundary) position = origin + (0.5_dp*fraction)*(position - origin)
     do axis = 1_i32, 3_i32
       if (.not. ieee_is_finite(sim%box_min(axis)) .or. .not. ieee_is_finite(sim%box_max(axis))) cycle
       span = sim%box_max(axis) - sim%box_min(axis)
@@ -297,7 +313,7 @@ contains
       active_electric_field = sampled_electric_field
     else
       x_mid = x0 + 0.5_dp*v0*dt
-      call project_field_sample_to_box(sim, x_mid)
+      call project_field_sample_to_box(sim, x0, x_mid)
       call snapshot%eval_local_e(mesh, x_mid, active_electric_field)
     end if
     if (.not. all(ieee_is_finite(active_electric_field))) then
