@@ -46,7 +46,21 @@ program test_panel_kernel
   v2 = [0.0_dp, 1.0_dp, 0.0_dp]
   call init_panel_geometry(v0, v1, v2, geom, status)
 
-  call test_init(9)
+  call test_init(12)
+
+  call test_begin('zero_charge_is_zero_at_panel_vertices_and_edges')
+  call panel_potential_field(geom, 0.0_dp, v0, panel_side_normal_plus, phi, field)
+  call assert_close_dp(phi, 0.0_dp, 0.0_dp, 'uncharged vertex potential must be zero')
+  call assert_allclose_1d(field, 0.0_dp*v0, 0.0_dp, 'uncharged vertex field must be zero')
+  shift = [0.013_dp, -0.017_dp, 0.0_dp]
+  call panel_potential_field_translated(geom, shift, 0.0_dp, shift + 0.5_dp*(v0 + v1), phi, field)
+  call assert_close_dp(phi, 0.0_dp, 0.0_dp, 'uncharged translated edge potential must be zero')
+  call assert_allclose_1d(field, 0.0_dp*v0, 0.0_dp, 'uncharged translated edge field must be zero')
+  call test_end()
+
+  call test_begin('finite_near_edge_rectangle_matches_analytic_limits')
+  call test_near_edge_rectangle()
+  call test_end()
 
   call test_begin('off_surface_analytic_matches_oracle')
   call assert_equal_i32(status, panel_geometry_ok, 'valid geometry status mismatch')
@@ -361,6 +375,107 @@ program test_panel_kernel
   call test_summary()
 
 contains
+
+  !> Two equally charged triangles form a square. Its analytic center potential and normal
+  !! field are independent oracles even when the individual near-edge logarithms round to infinity.
+  subroutine test_near_edge_rectangle()
+    type(panel_geometry_type) :: panels(2)
+    real(dp), parameter :: a = 0.001_dp, q = -1.0e-15_dp
+    real(dp) :: vertices(3, 3, 2), vx(3, 2), vy(3, 2), vz(3, 2), n(3, 2), edges(3, 2)
+    real(dp) :: ox(3, 2), oy(3, 2), oz(3, 2), areas(2), charges(2), shifts(2)
+    real(dp) :: position(3), displacement(3), p, e(3), p_sum, e_sum(3), h
+    real(dp) :: expected_p, expected_e(3), density_scale
+    integer(i32) :: indices(2), axes(2), geometry_status
+    integer :: case_idx, panel, mode
+    character(len=40) :: context
+
+    vertices(:, 1, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
+    vertices(:, 2, 1) = [2*a, 0.0_dp, 0.0_dp]
+    vertices(:, 3, 1) = [2*a, 2*a, 0.0_dp]
+    vertices(:, 1, 2) = vertices(:, 1, 1)
+    vertices(:, 2, 2) = vertices(:, 3, 1)
+    vertices(:, 3, 2) = [0.0_dp, 2*a, 0.0_dp]
+    do panel = 1, 2
+      call init_panel_geometry(vertices(:, 1, panel), vertices(:, 2, panel), vertices(:, 3, panel), &
+                               panels(panel), geometry_status)
+      call assert_equal_i32(geometry_status, panel_geometry_ok, 'square triangle must be valid')
+      vx(:, panel) = vertices(1, :, panel)
+      vy(:, panel) = vertices(2, :, panel)
+      vz(:, panel) = vertices(3, :, panel)
+      n(:, panel) = panels(panel)%normal
+      edges(:, panel) = panels(panel)%edge_length
+      ox(:, panel) = panels(panel)%edge_outward(1, :)
+      oy(:, panel) = panels(panel)%edge_outward(2, :)
+      oz(:, panel) = panels(panel)%edge_outward(3, :)
+      areas(panel) = panels(panel)%area
+    end do
+    indices = [1_i32, 2_i32]
+    axes = [1_i32, 2_i32]
+    shifts = 0.0_dp
+    charges = q
+    density_scale = k_coulomb*q/(2*a*a)
+    do case_idx = 1, 5
+      position = [a, a, 0.0_dp]
+      if (case_idx == 1) then
+        position(2) = a + 1.0e-12_dp
+      else if (case_idx == 2) then
+        position(3) = 1.0e-12_dp
+      else if (case_idx == 3) then
+        position(3) = 1.0e-20_dp
+      else if (case_idx == 4) then
+        position(3) = -1.0e-12_dp
+      else
+        position(3) = -1.0e-20_dp
+      end if
+      h = position(3)
+      expected_p = density_scale*8*a*asinh(a/sqrt(a*a + h*h))
+      expected_e = 0.0_dp
+      if (h /= 0.0_dp) then
+        expected_e(3) = density_scale*sign(1.0_dp, h)*4*atan2(a*a, abs(h)*sqrt(2*a*a + h*h))
+        expected_p = expected_p - h*expected_e(3)
+      end if
+      do mode = 1, 4
+        p_sum = 0.0_dp
+        e_sum = 0.0_dp
+        if (mode <= 2) then
+          displacement = 0.0_dp
+          if (mode == 2) displacement = [0.013_dp, -0.017_dp, 0.0_dp]
+          do panel = 1, 2
+            if (mode == 1) then
+              call panel_potential_field(panels(panel), q, position, panel_side_principal_value, p, e)
+            else
+              call panel_potential_field_translated(panels(panel), displacement, q, position + displacement, p, e)
+            end if
+            p_sum = p_sum + p
+            e_sum = e_sum + e
+          end do
+        else if (mode == 3) then
+          call panel_field_sum_translated(2_i32, vx, vy, vz, n(1, :), n(2, :), n(3, :), edges, ox, oy, oz, &
+                                          areas, indices, charges, panels, position, e_sum(1), e_sum(2), e_sum(3))
+          call panel_potential_sum_translated(2_i32, vx, vy, vz, n(1, :), n(2, :), n(3, :), edges, ox, oy, oz, &
+                                              areas, indices, charges, panels, position, p_sum)
+          p_sum = p_sum*k_coulomb
+          e_sum = e_sum*k_coulomb
+        else
+          call panel_field_sum_translated_sp(2_i32, real(vx, sp), real(vy, sp), real(vz, sp), &
+                                             real(n(1, :), sp), real(n(2, :), sp), real(n(3, :), sp), real(edges, sp), &
+                                             real(ox, sp), real(oy, sp), real(oz, sp), real(areas, sp), indices, &
+                                             charges, panels, axes, shifts, shifts, position, position, &
+                                             e_sum(1), e_sum(2), e_sum(3))
+          call panel_potential_sum_translated_sp(2_i32, real(vx, sp), real(vy, sp), real(vz, sp), &
+                                                 real(n(1, :), sp), real(n(2, :), sp), real(n(3, :), sp), &
+                                                 real(edges, sp), real(ox, sp), real(oy, sp), real(oz, sp), &
+                                                 real(areas, sp), indices, charges, panels, axes, shifts, shifts, &
+                                                 position, position, p_sum)
+          p_sum = p_sum*k_coulomb
+          e_sum = e_sum*k_coulomb
+        end if
+        write (context, '(a,i0,a,i0)') ' case=', case_idx, ' mode=', mode
+        call assert_close_dp(p_sum, expected_p, 1.0e-12_dp, 'near-edge square potential mismatch'//trim(context))
+        call assert_allclose_1d(e_sum, expected_e, 2.0e-5_dp, 'near-edge square field mismatch'//trim(context))
+      end do
+    end do
+  end subroutine test_near_edge_rectangle
 
   !> Deterministic uniform deviate in [0, 1) from a 64-bit linear congruential generator.
   !> Park-Miller minimal standard generator (multiplier 48271, modulus 2**31 - 1). The product of a

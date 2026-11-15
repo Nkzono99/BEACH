@@ -225,6 +225,8 @@ z_high = "reservoir"
 public な粒子状態は同一時刻の `x, v` です。空間電場は予測中点
 `x_mid = x + 0.5*v*particles.tracking.dt_s` で評価し、Boris の速度更新後に
 `x_new = x + 0.5*(v + v_new)*particles.tracking.dt_s` とします。
+予測中点までの線分が非周期の box 面に達する場合、現在位置から最初の交点までの線分の中点を
+電場の評価点とします。周期軸の評価座標は基本セルへ戻し、候補軌道の端点は物理座標で保持します。
 
 mesh 衝突は Möller–Trumbore 法で最小 `t` を選びます。AABB と、既定では一様 grid + 3D-DDA で
 候補を絞ります。非有限値や進行不能は hit なしへ黙って変換せず、明示 status で停止します。

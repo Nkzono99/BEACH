@@ -17,7 +17,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(32)
+  call test_init(33)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -27,8 +27,12 @@ program test_particle_stepper
   call test_charged_mesh_second_order_convergence()
   call test_end()
 
-  call test_begin('midpoint_field_sample_clamped_to_box')
-  call test_midpoint_field_sample_clamped_to_box()
+  call test_begin('midpoint_field_sample_before_box_exit')
+  call test_midpoint_field_sample_before_box_exit()
+  call test_end()
+
+  call test_begin('charged_panel_box_edge_crossing_absorbs')
+  call test_charged_panel_box_edge_crossing_absorbs()
   call test_end()
 
   call test_begin('advance_no_crossing_fast_path')
@@ -242,7 +246,7 @@ contains
     call assert_true(error_ratio(2) >= 3.2d0, 'dt/2 to dt/4 charged-mesh position error ratio must be at least 3.2')
   end subroutine test_charged_mesh_second_order_convergence
 
-  subroutine test_midpoint_field_sample_clamped_to_box()
+  subroutine test_midpoint_field_sample_before_box_exit()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
     type(electrostatic_snapshot_type) :: field_solver = electrostatic_snapshot_type()
@@ -261,15 +265,52 @@ contains
     call field_solver%init(mesh, sim)
     call field_solver%refresh(mesh)
 
-    call field_solver%eval_local_e(mesh, [0.2_dp, 0.2_dp, 1.0_dp], electric_field)
+    ! The ballistic path first reaches z-high at z=1; its in-box midpoint is z=0.95.
+    call field_solver%eval_local_e(mesh, [0.2_dp, 0.2_dp, 0.95_dp], electric_field)
     call boris_push(x0, v0, 1.0_dp, 1.0_dp, 1.0_dp, electric_field, 0.0_dp*v0, expected_position, expected_velocity)
     call build_particle_step_candidate( &
       mesh, sim, field_solver, 0.0_dp*v0, x0, v0, 1.0_dp, 1.0_dp, 1.0_dp, actual_position, actual_velocity &
       )
 
-    call assert_allclose_1d(actual_position, expected_position, 1.0e-14_dp, 'clamped midpoint position mismatch')
-    call assert_allclose_1d(actual_velocity, expected_velocity, 1.0e-14_dp, 'clamped midpoint velocity mismatch')
-  end subroutine test_midpoint_field_sample_clamped_to_box
+    call assert_allclose_1d(actual_position, expected_position, 1.0e-14_dp, 'in-box midpoint position mismatch')
+    call assert_allclose_1d(actual_velocity, expected_velocity, 1.0e-14_dp, 'in-box midpoint velocity mismatch')
+  end subroutine test_midpoint_field_sample_before_box_exit
+
+  subroutine test_charged_panel_box_edge_crossing_absorbs()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: snapshot
+    type(particle_step_result) :: result
+    real(dp) :: a(3, 1), b(3, 1), c(3, 1), x1(3), v1(3), sampled_e(3)
+    real(dp), parameter :: x0(3) = [1.0e-5_dp, 0.001_dp, 1.0e-5_dp]
+    real(dp), parameter :: v0(3) = [-1.0e6_dp, 0.0_dp, -1.0e6_dp]
+    integer(i32) :: status
+    character(len=128) :: message
+
+    a(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
+    b(:, 1) = [0.002_dp, 0.002_dp, 0.0_dp]
+    c(:, 1) = [0.0_dp, 0.002_dp, 0.0_dp]
+    call init_mesh(mesh, a, b, c, q0=[1.0e-15_dp])
+    call resolve_panel_surface_sides(mesh, 'normal_plus', status, message)
+    call assert_true(status == panel_surface_side_ok, 'corner fixture surface side must resolve')
+    sim = sim_config()
+    sim%solver%method = 'direct'
+    sim%use_box = .true.
+    sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    sim%box_max = [0.04_dp, 0.04_dp, 0.07_dp]
+    call snapshot%init(mesh, sim)
+    call snapshot%refresh(mesh)
+    ! A neutral probe follows the exact straight path, but still samples the charged panel.
+    call build_particle_step_candidate(mesh, sim, snapshot, 0.0_dp*v0, x0, v0, 0.0_dp, 1.0_dp, &
+                                       2.0e-10_dp, x1, v1, sampled_e)
+    call assert_true(all(ieee_is_finite(sampled_e)), 'field before the box edge must be finite')
+    call assert_true(norm2(sampled_e) > 0.0_dp, 'charged panel field must still be sampled')
+    call advance_particle_step(mesh, sim, snapshot, 0.0_dp*v0, x0, v0, 0.0_dp, 1.0_dp, 2.0e-10_dp, result, &
+                               cell=irradiation_cell_contract_type())
+    call assert_true(result%status == particle_step_ok, 'box-edge crossing must resolve')
+    call assert_true(result%absorbed .and. .not. result%escaped_boundary, 'mesh/box tie must absorb')
+    call assert_allclose_1d(result%x, [0.0_dp, 0.001_dp, 0.0_dp], 1.0e-14_dp, 'edge impact position mismatch')
+  end subroutine test_charged_panel_box_edge_crossing_absorbs
 
   subroutine integrate_candidate(mesh, sim, field_solver, nstep, position, velocity)
     type(mesh_type), intent(in) :: mesh
