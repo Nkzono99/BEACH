@@ -64,8 +64,6 @@ Python CLI examples:
 - Periodic conductor relaxation: `test_surface_models_periodic` runs in `make test-fortran-far-correction`; free-space conductor tests stay in L1. Laplace derivative timings run only as a release benchmark.
 - Per-target Fortran test: `FPM_ACTION=test ./build.sh --target <name>`
 - Fortran format: `fprettify -i 2` for `*.f90` / `*.F90` (`*.i90` is excluded). Prefer `make fmt-fortran`, `make fmt-check-fortran`, and `pre-commit install`.
-- KUDPC のログインノード（`camphor*`, `laurel*`, `cinnamon*`, `gardenia*`）、アプリケーションサーバ、ファイル転送サーバでは、`make test*` / `fpm test` / 長時間の Fortran テストターゲットを直接実行しない。KUDPC plugin のホスト判定または `hostname` でノード種別を確認し、Slurm 割当内でない場合は計算ノードに投入する。
-- KUDPC で全体テストや長時間テストが必要な場合は、計算ノード上で実行する。短い対話確認は `tssrun`、バッチ実行は `sbatch` ジョブ内の `srun` を使う。ログインノードでは編集、軽いログ確認、`make check` 程度のビルド確認、ジョブ投入・監視までに留める。
 - `make test` は開発用 L1 とし、L1 の Fortran target は 1 本数秒に収める。free-space FMM の精度比較（`test_dynamics_fmm`, `test_dynamics_panel_fmm`, `test_coulomb_fmm_core_basic`, `test_coulomb_fmm_core_panel`）は L2 の `make test-fortran-contract` で実行する。`cached_kneq0` の cold build / exact Ewald correctness は `make test-fortran-far-correction`、速度比較は release profile の `make test-fortran-benchmark` で opt-in 実行する。`cached_kneq0` operator を作る長時間 test は far-correction へ、それ以外で数秒を超える test は L2 へ置き、L1 には足さない。
 - Do not run multiple `fpm test` commands in parallel. They share the same `build/` directory and can conflict with each other.
 - `fpm test` は時間がかかるため、Bash ツールの `run_in_background: true` でバックグラウンド実行し、完了通知を待つ間に他の作業（コードレビュー・編集など）を並行して進めること。ただし同時に複数の `fpm test` をバックグラウンドで走らせてはいけない。
