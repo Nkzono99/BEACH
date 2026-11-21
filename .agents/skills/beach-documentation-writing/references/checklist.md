@@ -18,8 +18,6 @@
 
 ## テスト
 
-KUDPC ではログインノードで実行せず、`tssrun` で計算ノードに投入する。
-
 ```bash
 python -m pytest -q tests/python/repo/test_docs_sync.py \
   tests/python/repo/test_documentation_contracts.py
